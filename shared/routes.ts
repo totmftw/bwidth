@@ -118,8 +118,12 @@ export const api = {
       responses: {
         200: z.array(z.custom<typeof bookings.$inferSelect & {
           artist: typeof artists.$inferSelect & { user: typeof users.$inferSelect },
-          organizer: typeof organizers.$inferSelect & { user: typeof users.$inferSelect },
-          venue: typeof venues.$inferSelect | null
+          organizer: typeof organizers.$inferSelect & { user: typeof users.$inferSelect; organizationName?: string },
+          venue: typeof venues.$inferSelect | { name: string; address: string } | null,
+          eventDate: string | Date,
+          slotTime: string | null,
+          notes: string | null,
+          event: any
         }>()),
       },
     },
