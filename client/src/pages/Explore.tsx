@@ -13,10 +13,15 @@ export default function Explore() {
   const [search, setSearch] = useState("");
   const { data: artists, isLoading } = useArtists({ genre: search || undefined });
   const { user } = useAuth();
-  
-  if (!user?.organizer) return <div className="p-8">Access Denied</div>;
 
-  const organizerId = user.organizer.id;
+  // Allow organizers and venue managers to access
+  const isOrganizer = !!user?.organizer;
+  const isVenue = user?.role === 'venue' || user?.role === 'venue_manager';
+
+  if (!isOrganizer && !isVenue) return <div className="p-8">Access Denied</div>;
+
+  // For venues without an organizer record, we'll use the user id as a reference
+  const organizerId = user?.organizer?.id || user?.id || 0;
 
   return (
     <div className="space-y-8">
@@ -25,12 +30,12 @@ export default function Explore() {
           <h1 className="text-3xl font-display font-bold">Find Talent</h1>
           <p className="text-muted-foreground">Discover verified artists for your next event</p>
         </div>
-        
+
         <div className="flex gap-2 w-full md:w-auto">
           <div className="relative flex-1 md:w-80">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search by genre (e.g. Techno, House)..." 
+            <Input
+              placeholder="Search by genre (e.g. Techno, House)..."
               className="pl-9 bg-card border-white/10"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -62,7 +67,7 @@ export default function Explore() {
                   </p>
                 </div>
               </div>
-              
+
               <CardContent className="p-4 space-y-4">
                 <div className="flex flex-wrap gap-2">
                   {artist.secondaryGenres?.slice(0, 3).map(g => (
@@ -71,22 +76,22 @@ export default function Explore() {
                     </Badge>
                   ))}
                 </div>
-                
+
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Fee Range</span>
-                  <span className="font-semibold">${artist.feeMin} - ${artist.feeMax}</span>
+                  <span className="font-semibold">₹{artist.feeMin} - ₹{artist.feeMax}</span>
                 </div>
-                
+
                 <p className="text-sm text-muted-foreground line-clamp-2">
                   {artist.bio || "No bio available."}
                 </p>
               </CardContent>
-              
+
               <CardFooter className="p-4 pt-0">
-                <BookingModal 
-                  artistId={artist.id} 
-                  artistName={artist.user.name} 
-                  organizerId={organizerId} 
+                <BookingModal
+                  artistId={artist.id}
+                  artistName={artist.user.name}
+                  organizerId={organizerId}
                 />
               </CardFooter>
             </Card>

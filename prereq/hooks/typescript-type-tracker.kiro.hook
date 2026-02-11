@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "name": "TypeScript Type Registry",
+  "description": "Tracks TypeScript type definitions and interfaces across the codebase. Maintains a centralized type registry for frontend-backend consistency.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/*types.ts",
+      "**/types/**/*.ts",
+      "**/*interfaces.ts"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A TypeScript type definition file was modified. Please:\n1. Extract all exported interfaces, types, and enums from the modified file\n2. Update docs/technical/type-registry.md with the new or modified types\n3. Check for naming convention consistency (PascalCase for interfaces/types)\n4. Identify any duplicate type definitions across frontend and backend\n5. Document the purpose and usage of each type with examples\n6. Flag any breaking changes to existing types\n7. Verify type compatibility between frontend and backend if the type is shared"
+  }
+}

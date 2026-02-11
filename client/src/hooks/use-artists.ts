@@ -15,9 +15,9 @@ export function useArtists(filters?: ArtistFilters) {
       if (filters?.genre) params.append("genre", filters.genre);
       if (filters?.minFee) params.append("minFee", filters.minFee.toString());
       if (filters?.maxFee) params.append("maxFee", filters.maxFee.toString());
-      
+
       const url = `${api.artists.list.path}?${params.toString()}`;
-      
+
       const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch artists");
       return await res.json() as ArtistListResponse;
@@ -43,7 +43,8 @@ export function useUpdateArtist() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async ({ id, ...data }: { id: number } & z.infer<typeof api.artists.update.input>) => {
+    mutationFn: async ({ id, ...data }: { id: string } & z.infer<typeof api.artists.update.input>) => {
+
       const url = buildUrl(api.artists.update.path, { id });
       const res = await fetch(url, {
         method: "PUT",

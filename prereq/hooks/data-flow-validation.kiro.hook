@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "name": "Data Flow & Schema Validator",
+  "description": "Monitors file changes for new functionality and validates the complete data flow from frontend through backend to database. Checks if database schema supports the operations, creates migrations with detailed documentation if schema modifications are needed, and ensures database indexes are maintained.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "frontend/src/**/*.jsx",
+      "frontend/src/**/*.js",
+      "backend/src/**/*.js",
+      "backend/src/routes/*.js",
+      "backend/src/services/*.js"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Analyze the changes made to determine if new functionality was added. If so:\n\n1. **Trace Data Flow**: Follow the complete data flow from frontend → backend API → service layer → database operations\n2. **Validate Schema Compatibility**: Check if the current database schema in `docs/database/current-schema.md` and `prereq/mainAuth_schema.txt` supports all frontend/backend operations\n3. **Identify Schema Gaps**: If the database schema doesn't support the new functionality, identify what modifications are needed (new tables, columns, indexes, constraints)\n4. **Create Migration**: If modifications are needed, create a new migration file in `backend/migrations/` with:\n   - Sequential numbering (e.g., 004_descriptive_name.sql)\n   - Detailed comments explaining WHY the migration is needed\n   - The specific functionality it supports\n   - Up and down migration scripts\n   - Index creation/updates for performance\n5. **Document Migration**: Create accompanying README in `backend/migrations/` explaining the migration rationale and impact\n6. **Update Schema Docs**: Update `docs/database/current-schema.md` and `docs/database/migration-history.md` with the new schema changes\n7. **Verify Indexes**: Ensure all foreign keys, frequently queried columns, and join columns are properly indexed\n\nProvide a summary of findings and any migrations created."
+  }
+}

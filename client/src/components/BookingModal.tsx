@@ -39,14 +39,14 @@ interface BookingModalProps {
 export function BookingModal({ artistId, artistName, organizerId }: BookingModalProps) {
   const [open, setOpen] = useState(false);
   const { mutate, isPending } = useCreateBooking();
-  
+
   const form = useForm<BookingFormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       artistId,
       organizerId,
-      currency: "USD",
-      status: "pending",
+      offerCurrency: "INR",
+      status: "offered",
     }
   });
 
@@ -70,7 +70,7 @@ export function BookingModal({ artistId, artistName, organizerId }: BookingModal
             Send an offer to this artist. They will have 48 hours to respond.
           </DialogDescription>
         </DialogHeader>
-        
+
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
           <div className="space-y-2">
             <Label>Event Date</Label>
@@ -103,11 +103,11 @@ export function BookingModal({ artistId, artistName, organizerId }: BookingModal
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Offer Amount ($)</Label>
-              <Input 
-                {...form.register("offerAmount")} 
-                type="number" 
-                placeholder="500"
+              <Label>Offer Amount (₹)</Label>
+              <Input
+                {...form.register("offerAmount")}
+                type="number"
+                placeholder="5000"
                 className="bg-background"
               />
               {form.formState.errors.offerAmount && (
@@ -116,8 +116,8 @@ export function BookingModal({ artistId, artistName, organizerId }: BookingModal
             </div>
             <div className="space-y-2">
               <Label>Slot Time</Label>
-              <Input 
-                {...form.register("slotTime")} 
+              <Input
+                {...form.register("slotTime")}
                 placeholder="22:00 - 00:00"
                 className="bg-background"
               />
@@ -126,9 +126,9 @@ export function BookingModal({ artistId, artistName, organizerId }: BookingModal
 
           <div className="space-y-2">
             <Label>Message / Notes</Label>
-            <Textarea 
-              {...form.register("notes")} 
-              placeholder="Tell them about the event, venue, vibe..." 
+            <Textarea
+              {...form.register("notes")}
+              placeholder="Tell them about the event, venue, vibe..."
               className="bg-background min-h-[100px]"
             />
           </div>

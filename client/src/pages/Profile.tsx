@@ -14,7 +14,7 @@ import { useEffect } from "react";
 export default function Profile() {
   const { user } = useAuth();
   const updateArtist = useUpdateArtist();
-  
+
   if (!user) return null;
   const isArtist = user.role === "artist";
 
@@ -33,7 +33,7 @@ export default function Profile() {
             </CardHeader>
             <CardContent className="flex flex-col items-center gap-4">
               <Avatar className="w-32 h-32 border-4 border-primary/20">
-                <AvatarFallback className="text-4xl bg-secondary">{user.name[0]}</AvatarFallback>
+                <AvatarFallback className="text-4xl bg-secondary">{(user.name || user.username || "U")[0]}</AvatarFallback>
               </Avatar>
               <Button variant="outline" className="w-full">Change Photo</Button>
             </CardContent>
@@ -42,9 +42,9 @@ export default function Profile() {
 
         <div className="md:col-span-2 space-y-6">
           {isArtist && user.artist && (
-             <ArtistProfileForm artist={user.artist} updateMutation={updateArtist} />
+            <ArtistProfileForm artist={user.artist} updateMutation={updateArtist} />
           )}
-          
+
           <Card className="glass-card border-white/5">
             <CardHeader>
               <CardTitle>Account Info</CardTitle>
@@ -70,14 +70,15 @@ export default function Profile() {
 }
 
 function ArtistProfileForm({ artist, updateMutation }: { artist: any, updateMutation: any }) {
+  const metadata = artist.metadata as any || {};
   const form = useForm({
     defaultValues: {
       bio: artist.bio || "",
-      genre: artist.genre || "",
-      feeMin: artist.feeMin || 0,
-      feeMax: artist.feeMax || 0,
-      instagram: artist.instagram || "",
-      soundcloud: artist.soundcloud || "",
+      primaryGenre: metadata.primaryGenre || metadata.genre || "",
+      feeMin: Number(artist.priceFrom) || 0,
+      feeMax: Number(artist.priceTo) || 0,
+      instagram: metadata.instagram || "",
+      soundcloud: metadata.soundcloud || "",
     }
   });
 
@@ -102,10 +103,10 @@ function ArtistProfileForm({ artist, updateMutation }: { artist: any, updateMuta
             <Label>Bio</Label>
             <Textarea {...form.register("bio")} className="bg-background min-h-[100px]" />
           </div>
-          
+
           <div className="space-y-2">
             <Label>Genre</Label>
-            <Input {...form.register("genre")} className="bg-background" />
+            <Input {...form.register("primaryGenre")} className="bg-background" />
           </div>
 
           <div className="grid grid-cols-2 gap-4">

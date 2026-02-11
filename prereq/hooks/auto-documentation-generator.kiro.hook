@@ -1,0 +1,29 @@
+{
+  "enabled": true,
+  "name": "Auto Documentation Generator",
+  "description": "Automatically creates detailed technical documentation in a docs folder and adds inline code comments when source files are created or modified. Generates user manuals and technical specifications with comprehensive explanations.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "*.js",
+      "*.ts",
+      "*.jsx",
+      "*.tsx",
+      "*.py",
+      "*.java",
+      "*.cpp",
+      "*.c",
+      "*.go",
+      "*.rs",
+      "*.php",
+      "*.rb",
+      "*.swift",
+      "*.kt"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A code file has been modified. Please:\n1. Create or update detailed documentation in a 'docs' folder including:\n   - Technical documentation explaining the functionality, architecture, and implementation details\n   - User manual with clear instructions on how to use the features\n   - API documentation if applicable\n2. Add detailed inline comments to the code explaining:\n   - What each function/method does\n   - Complex logic and algorithms\n   - Parameter descriptions and return values\n   - Usage examples where helpful\n3. Ensure all documentation is comprehensive, well-structured, and easy to understand"
+  }
+}

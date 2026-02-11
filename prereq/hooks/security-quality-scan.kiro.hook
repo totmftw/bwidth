@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Security & Quality Scanner",
+  "description": "Scans the codebase for security vulnerabilities including hardcoded database credentials, API keys, insecure CORS configurations, and ensures compliance with ESLint and Prettier rules. Lists issues found and suggests fixes.",
+  "version": "1",
+  "when": {
+    "type": "userTriggered"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Perform a comprehensive security scan of this codebase. Specifically check for:\n\n1. **Hardcoded Credentials**: Search for hardcoded database credentials, passwords, API keys, JWT secrets, encryption keys, or any sensitive data in the code (not in .env files)\n2. **API Keys Exposure**: Look for Amazon SP-API credentials, client secrets, or other API keys hardcoded in source files\n3. **Insecure CORS Configurations**: Check backend CORS settings for overly permissive origins (like '*' in production)\n4. **Other Security Issues**: Check for SQL injection vulnerabilities, insecure password handling, missing input validation, exposed sensitive endpoints\n5. **Code Quality**: Run ESLint and Prettier checks to ensure code complies with project rules\n\nFor each issue found:\n- Specify the file and line number\n- Explain the security risk or code quality problem\n- Provide a specific fix or recommendation\n\nIf no issues are found, confirm the codebase passes all security and quality checks."
+  }
+}

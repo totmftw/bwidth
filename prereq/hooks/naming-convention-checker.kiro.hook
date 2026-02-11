@@ -1,0 +1,28 @@
+{
+  "enabled": true,
+  "name": "Naming Convention Consistency",
+  "description": "Monitors code changes across frontend, middleware, backend, and database files to ensure naming conventions remain consistent throughout the application stack",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "*.ts",
+      "*.tsx",
+      "*.js",
+      "*.jsx",
+      "*.sql",
+      "*.prisma",
+      "*.graphql",
+      "*.py",
+      "*.java",
+      "*.cs",
+      "*.go",
+      "*.rb",
+      "*.php"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Review the changes in this file and check if the naming conventions are consistent with the rest of the codebase across frontend, middleware, backend, and database layers. Identify any inconsistencies in variable names, function names, class names, database table/column names, API endpoints, or any other identifiers. If inconsistencies are found, suggest corrections to align with the established naming patterns."
+  }
+}

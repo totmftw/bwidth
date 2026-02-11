@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import cors from "cors";
 
 const app = express();
 const httpServer = createServer(app);
@@ -11,6 +12,11 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+app.use(cors({
+  origin: app.get("env") === "production" ? false : true, // Strict in production, open in dev
+  credentials: true
+}));
 
 app.use(
   express.json({
@@ -46,14 +52,11 @@ app.use((req, res, next) => {
 
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      log(logLine);
+    let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+    if (path.startsWith("/api") && capturedJsonResponse) {
+      logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
     }
+    log(logLine);
   });
 
   next();
@@ -94,10 +97,27 @@ app.use((req, res, next) => {
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
     },
     () => {
       log(`serving on port ${port}`);
+
+      // Contract deadline enforcement: check every 5 minutes
+      setInterval(async () => {
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}/api/contracts/check-deadlines`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.voided > 0) {
+              log(`[ContractTimeout] Voided ${data.voided} expired contract(s)`);
+            }
+          }
+        } catch (err) {
+          // Silent fail - server may not be fully ready yet
+        }
+      }, 5 * 60 * 1000); // Every 5 minutes
     },
   );
 })();

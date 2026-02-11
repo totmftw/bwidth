@@ -116,7 +116,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/bookings',
       responses: {
-        200: z.array(z.custom<typeof bookings.$inferSelect & { 
+        200: z.array(z.custom<typeof bookings.$inferSelect & {
           artist: typeof artists.$inferSelect & { user: typeof users.$inferSelect },
           organizer: typeof organizers.$inferSelect & { user: typeof users.$inferSelect },
           venue: typeof venues.$inferSelect | null
@@ -126,7 +126,14 @@ export const api = {
     create: {
       method: 'POST' as const,
       path: '/api/bookings',
-      input: insertBookingSchema,
+      input: insertBookingSchema.extend({
+        eventDate: z.union([z.string(), z.date()]).optional(),
+        notes: z.string().optional(),
+        slotTime: z.string().optional(),
+        organizerId: z.number().optional(),
+        offerAmount: z.union([z.string(), z.number()]).optional(),
+        depositAmount: z.union([z.string(), z.number()]).optional(),
+      }),
       responses: {
         201: z.custom<typeof bookings.$inferSelect>(),
         400: errorSchemas.validation,
@@ -139,6 +146,35 @@ export const api = {
       responses: {
         200: z.custom<typeof bookings.$inferSelect>(),
         404: errorSchemas.notFound,
+      },
+    },
+    negotiate: {
+      method: 'POST' as const,
+      path: '/api/bookings/:id/negotiate',
+      input: z.object({
+        offerAmount: z.coerce.number().optional(),
+        counterOffer: z.coerce.number().optional(),
+        message: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof bookings.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    accept: {
+      method: 'POST' as const,
+      path: '/api/bookings/:id/accept',
+      responses: {
+        200: z.custom<typeof bookings.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    decline: {
+      method: 'POST' as const,
+      path: '/api/bookings/:id/decline',
+      responses: {
+        200: z.custom<typeof bookings.$inferSelect>(),
+        400: errorSchemas.validation,
       },
     },
   },

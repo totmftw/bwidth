@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "name": "Schema Tracker & Documentation",
+  "description": "Automatically updates schema documentation when database migration files are modified. Ensures docs/database/ folder stays synchronized with actual database structure.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "database/**/*.sql",
+      "migrations/**/*.sql",
+      "backend/src/models/**/*.ts"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A database-related file was modified. Please:\n1. Extract the schema changes from the modified file\n2. Update docs/database/current-schema.md with the new structure\n3. Add an entry to docs/database/migration-history.md with version, date, and description\n4. Verify the changes match the actual database structure by running: PGPASSWORD=egaspassword psql -h 72.60.41.117 -p 6969 -U egascust001 -d egas_cust_001 -c \"\\d [table_name]\"\n5. Update docs/database/entity-relationships.md if foreign keys or relationships changed"
+  }
+}

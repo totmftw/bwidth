@@ -5,11 +5,27 @@ import { api, type errorSchemas } from "@shared/routes";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 
-type AuthUser = User & { 
-  artist?: Artist; 
-  organizer?: Organizer; 
-  venue?: Venue; 
+// Extended AuthUser type with role and related profiles
+export type AuthUser = User & {
+  artist?: Artist;
+  organizer?: Organizer;
+  venue?: Venue;
+  role?: string; // Computed from metadata or user roles
+  name?: string; // Alias for displayName
 };
+
+// Helper to enrich user data with role and name
+function enrichUser(userData: any): AuthUser {
+  if (!userData) return userData;
+
+  const enriched = { ...userData };
+  const metadata = enriched.metadata as any;
+
+  enriched.role = metadata?.role || (enriched.artist ? 'artist' : 'user');
+  enriched.name = enriched.displayName || enriched.firstName || enriched.username || 'User';
+
+  return enriched;
+}
 
 type AuthContextType = {
   user: AuthUser | null;
@@ -29,10 +45,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { data: user, error, isLoading } = useQuery({
     queryKey: ["/api/user"],
     queryFn: async () => {
-      const res = await fetch(api.auth.user.path);
+      const res = await fetch(api.auth.user.path, { credentials: "include" });
       if (res.status === 401) return null;
       if (!res.ok) throw new Error("Failed to fetch user");
-      return await res.json() as AuthUser;
+      const userData = await res.json();
+      return enrichUser(userData);
     },
     retry: false,
   });
@@ -75,8 +92,9 @@ function useLoginMutation() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(credentials),
+        credentials: "include",
       });
-      
+
       if (!res.ok) {
         const error = await res.json();
         throw new Error(error.message || "Login failed");
@@ -84,7 +102,7 @@ function useLoginMutation() {
       return await res.json();
     },
     onSuccess: (user) => {
-      queryClient.setQueryData(["/api/user"], user);
+      queryClient.setQueryData(["/api/user"], enrichUser(user));
       toast({ title: "Welcome back!", description: "You have successfully logged in." });
     },
     onError: (error: Error) => {
@@ -103,6 +121,7 @@ function useRegisterMutation() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
+        credentials: "include",
       });
 
       if (!res.ok) {
@@ -112,7 +131,7 @@ function useRegisterMutation() {
       return await res.json();
     },
     onSuccess: (user) => {
-      queryClient.setQueryData(["/api/user"], user);
+      queryClient.setQueryData(["/api/user"], enrichUser(user));
       toast({ title: "Welcome!", description: "Account created successfully." });
     },
     onError: (error: Error) => {
@@ -127,7 +146,7 @@ function useLogoutMutation() {
 
   return useMutation({
     mutationFn: async () => {
-      await fetch(api.auth.logout.path, { method: "POST" });
+      await fetch(api.auth.logout.path, { method: "POST", credentials: "include" });
     },
     onSuccess: () => {
       queryClient.setQueryData(["/api/user"], null);

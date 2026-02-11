@@ -1,12 +1,12 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { 
-  Music, 
-  Calendar, 
-  Users, 
-  LogOut, 
-  LayoutDashboard, 
+import {
+  Music,
+  Calendar,
+  Users,
+  LogOut,
+  LayoutDashboard,
   Settings,
   Search
 } from "lucide-react";
@@ -23,35 +23,35 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 export function Sidebar() {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
-  
+
   if (!user) return null;
 
   const role = user.role;
-  
+
   const navItems = [
-    { 
-      label: "Dashboard", 
-      href: "/dashboard", 
+    {
+      label: "Dashboard",
+      href: "/dashboard",
       icon: LayoutDashboard,
       show: true
     },
-    { 
-      label: "Discover", 
-      href: "/explore", 
+    {
+      label: "Discover",
+      href: "/explore",
       icon: Search,
-      show: role === "organizer"
+      show: role === "organizer" || role === "venue_manager" || role === "venue"
     },
-    { 
-      label: "Bookings", 
-      href: "/bookings", 
+    {
+      label: "Bookings",
+      href: "/bookings",
       icon: Calendar,
-      show: true 
+      show: true
     },
-    { 
-      label: "Profile", 
-      href: "/profile", 
+    {
+      label: "Profile",
+      href: "/profile",
       icon: Users,
-      show: true 
+      show: true
     }
   ];
 
@@ -67,11 +67,11 @@ export function Sidebar() {
       <nav className="flex-1 px-4 space-y-2">
         {navItems.filter(item => item.show).map((item) => (
           <Link key={item.href} href={item.href}>
-            <div 
+            <div
               className={`
                 flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 cursor-pointer
-                ${location === item.href 
-                  ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25" 
+                ${location === item.href
+                  ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
                   : "text-muted-foreground hover:text-foreground hover:bg-white/5"}
               `}
             >
@@ -87,10 +87,12 @@ export function Sidebar() {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="w-full justify-start gap-3 p-2 h-auto hover:bg-white/5 rounded-xl">
               <Avatar className="w-8 h-8 border border-white/10">
-                <AvatarFallback className="bg-primary/20 text-primary">{user.name[0]}</AvatarFallback>
+                <AvatarFallback className="bg-primary/20 text-primary">
+                  {user.name?.[0] || user.username?.[0] || 'U'}
+                </AvatarFallback>
               </Avatar>
               <div className="flex flex-col items-start text-left overflow-hidden">
-                <span className="text-sm font-medium truncate w-full">{user.name}</span>
+                <span className="text-sm font-medium truncate w-full">{user.name || user.username}</span>
                 <span className="text-xs text-muted-foreground truncate w-full">{user.email}</span>
               </div>
             </Button>

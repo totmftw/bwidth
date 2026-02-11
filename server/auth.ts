@@ -2,26 +2,35 @@ import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { type Express } from "express";
 import session from "express-session";
-import createMemoryStore from "memorystore";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User } from "@shared/schema";
+import { pool } from "./db";
+import connectPg from "connect-pg-simple";
 
 const scryptAsync = promisify(scrypt);
-const MemoryStore = createMemoryStore(session);
+const PostgresStore = connectPg(session);
 
 export function setupAuth(app: Express) {
+  // Ensure SESSION_SECRET is set in production
+  if (app.get("env") === "production" && !process.env.SESSION_SECRET) {
+    throw new Error("SESSION_SECRET environment variable is required in production");
+  }
+
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.SESSION_SECRET || "r8q/+&1LM3)Cd*zAGpx1xm{NeQHc;#",
+    secret: process.env.SESSION_SECRET || "dev-secret-change-in-production",
     resave: false,
     saveUninitialized: false,
     cookie: {
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       secure: app.get("env") === "production",
+      httpOnly: true, // Prevent XSS attacks
+      sameSite: "lax", // CSRF protection
     },
-    store: new MemoryStore({
-      checkPeriod: 86400000, // prune expired entries every 24h
+    store: new PostgresStore({
+      pool,
+      tableName: "session",
     }),
   };
 
@@ -36,17 +45,35 @@ export function setupAuth(app: Express) {
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
+        console.log(`Attempting login for username: "${username}"`);
         const user = await storage.getUserByUsername(username);
-        if (!user) {
+        if (!user || !user.passwordHash) {
+          console.log(`Login failed: Invalid username/no hash for: ${username}`);
           return done(null, false, { message: "Invalid username" });
         }
 
-        const [salt, hash] = user.password.split(".");
+        const [salt, hash] = user.passwordHash.split(".");
         const hashBuffer = (await scryptAsync(password, salt, 64)) as Buffer;
 
         if (timingSafeEqual(Buffer.from(hash, "hex"), hashBuffer)) {
-          return done(null, user);
+          console.log(`Login successful for: ${username}`);
+          const authenticatedUser = user as any;
+          if (authenticatedUser.metadata && authenticatedUser.metadata.role) {
+            authenticatedUser.role = authenticatedUser.metadata.role;
+          }
+
+          // Fetch profiles for immediate response
+          const artist = await storage.getArtistByUserId(authenticatedUser.id);
+          const organizer = await storage.getOrganizerByUserId(authenticatedUser.id);
+          const venue = await storage.getVenueByUserId(authenticatedUser.id);
+
+          if (artist) authenticatedUser.artist = artist;
+          if (organizer) authenticatedUser.organizer = organizer;
+          if (venue) authenticatedUser.venue = venue;
+
+          return done(null, authenticatedUser);
         } else {
+          console.log(`Login failed: Invalid password for: ${username}`);
           return done(null, false, { message: "Invalid password" });
         }
       } catch (err) {
@@ -61,7 +88,21 @@ export function setupAuth(app: Express) {
 
   passport.deserializeUser(async (id: number, done) => {
     try {
-      const user = await storage.getUser(id);
+      const user = await storage.getUser(id) as any;
+      if (user) {
+        if (user.metadata && user.metadata.role) {
+          user.role = user.metadata.role;
+        }
+
+        // Fetch profiles
+        const artist = await storage.getArtistByUserId(id);
+        const organizer = await storage.getOrganizerByUserId(id);
+        const venue = await storage.getVenueByUserId(id);
+
+        if (artist) user.artist = artist;
+        if (organizer) user.organizer = organizer;
+        if (venue) user.venue = venue;
+      }
       done(null, user);
     } catch (err) {
       done(err);
@@ -80,9 +121,17 @@ export function setupAuth(app: Express) {
       const hashedPassword = `${salt}.${hash.toString("hex")}`;
 
       const user = await storage.createUser({
-        ...req.body,
-        password: hashedPassword,
-      });
+        username: req.body.username,
+        email: req.body.email || `${req.body.username}@example.com`,
+        passwordHash: hashedPassword,
+        displayName: req.body.name,
+        phone: req.body.phone,
+        metadata: { role: req.body.role || 'artist' },
+      }) as any;
+
+      if (user) {
+        user.role = req.body.role || 'artist';
+      }
 
       // Handle role-specific data creation
       if (req.body.role === 'artist' && req.body.roleData) {
@@ -93,8 +142,26 @@ export function setupAuth(app: Express) {
         await storage.createVenue({ ...req.body.roleData, userId: user.id });
       }
 
-      req.login(user, (err) => {
+      // Fetch profiles to include in registration response
+      const artist = await storage.getArtistByUserId(user.id);
+      const organizer = await storage.getOrganizerByUserId(user.id);
+      const venue = await storage.getVenueByUserId(user.id);
+
+      if (artist) user.artist = artist;
+      if (organizer) user.organizer = organizer;
+      if (venue) user.venue = venue;
+
+      req.login(user, async (err) => {
         if (err) return next(err);
+
+        await storage.createAuditLog({
+          who: user.id,
+          action: "user_registered",
+          entityType: "user",
+          entityId: user.id,
+          context: { role: req.body.role }
+        });
+
         res.status(201).json(user);
       });
     } catch (err) {
@@ -102,13 +169,48 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/login", passport.authenticate("local"), (req, res) => {
-    res.status(200).json(req.user);
+  app.post("/api/login", (req, res, next) => {
+    passport.authenticate("local", (err: any, user: any, info: any) => {
+      if (err) {
+        console.error("Login error:", err);
+        return res.status(500).json({ message: "Internal server error during login" });
+      }
+      if (!user) {
+        console.log("Login failed:", info?.message || "Invalid credentials");
+        return res.status(401).json({ message: info?.message || "Invalid credentials" });
+      }
+      req.login(user, async (loginErr) => {
+        if (loginErr) {
+          console.error("Session login error:", loginErr);
+          return res.status(500).json({ message: "Failed to establish session" });
+        }
+
+        await storage.createAuditLog({
+          who: user.id,
+          action: "user_login",
+          entityType: "user",
+          entityId: user.id
+        });
+
+        res.status(200).json(user);
+      });
+    })(req, res, next);
   });
 
   app.post("/api/logout", (req, res, next) => {
-    req.logout((err) => {
+    const userId = (req.user as any)?.id;
+    req.logout(async (err) => {
       if (err) return next(err);
+
+      if (userId) {
+        await storage.createAuditLog({
+          who: userId,
+          action: "user_logout",
+          entityType: "user",
+          entityId: userId
+        });
+      }
+
       res.sendStatus(200);
     });
   });

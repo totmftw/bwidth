@@ -21,23 +21,25 @@ const loginSchema = z.object({
 
 // Extend registration schema based on role selection
 const registerBaseSchema = insertUserSchema.extend({
+  password: z.string().min(6, "Password must be at least 6 characters"),
   confirmPassword: z.string().min(1, "Please confirm password"),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
 });
 
+
 export default function AuthPage() {
   const [location, setLocation] = useLocation();
   const { user, loginMutation, registerMutation } = useAuth();
-  
+
   // Extract query params manually since wouter doesn't provide them nicely in hook
   const searchParams = new URLSearchParams(window.location.search);
   const initialMode = searchParams.get("mode") === "register" ? "register" : "login";
   const initialRole = searchParams.get("role") || "artist";
 
   const [mode, setMode] = useState<"login" | "register">(initialMode);
-  
+
   useEffect(() => {
     if (user) setLocation("/dashboard");
   }, [user, setLocation]);
@@ -54,8 +56,8 @@ export default function AuthPage() {
             {mode === "login" ? "Welcome Back" : "Join Bandwidth"}
           </CardTitle>
           <CardDescription>
-            {mode === "login" 
-              ? "Enter your credentials to access your dashboard" 
+            {mode === "login"
+              ? "Enter your credentials to access your dashboard"
               : "Create an account to start your journey"}
           </CardDescription>
         </CardHeader>
@@ -65,11 +67,11 @@ export default function AuthPage() {
               <TabsTrigger value="login">Login</TabsTrigger>
               <TabsTrigger value="register">Register</TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value="login">
               <LoginForm />
             </TabsContent>
-            
+
             <TabsContent value="register">
               <RegisterForm initialRole={initialRole} />
             </TabsContent>
@@ -113,7 +115,7 @@ function LoginForm() {
 function RegisterForm({ initialRole }: { initialRole: string }) {
   const { registerMutation } = useAuth();
   const [role, setRole] = useState(initialRole);
-  
+
   // Combine base user schema with role-specific schema
   const form = useForm({
     defaultValues: {
@@ -144,28 +146,41 @@ function RegisterForm({ initialRole }: { initialRole: string }) {
       role: role,
     };
 
+    // Ensure roleData has the required 'name' field from the database schema
     if (role === "artist") {
       payload.roleData = {
+        name: data.name, // Required by artists table
         bio: data.bio,
-        genre: data.genre,
-        feeMin: Number(data.feeMin),
-        feeMax: Number(data.feeMax),
+        metadata: {
+          primaryGenre: data.genre,
+          feeMin: Number(data.feeMin),
+          feeMax: Number(data.feeMax),
+        }
       };
+      // Map legacy fields to top-level if needed, but schema prefers priceFrom/priceTo
+      payload.roleData.priceFrom = String(data.feeMin);
+      payload.roleData.priceTo = String(data.feeMax);
     } else if (role === "organizer") {
       payload.roleData = {
-        organizationName: data.organizationName,
-        website: data.website,
+        name: data.organizationName, // Map to top-level 'name' column
+        metadata: {
+          website: data.website,
+        }
       };
     } else if (role === "venue") {
+      payload.role = "venue_manager"; // Map to correct DB enum
       payload.roleData = {
-        name: data.organizationName, // reusing field name for simplicity in form
-        address: data.address,
-        capacity: Number(data.capacity),
+        name: data.organizationName,
+        address: { full: data.address }, // jsonb column
+        capacity: Number(data.capacity), // integer column
+        metadata: {}
       };
     }
 
+
     registerMutation.mutate(payload);
   };
+
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 max-h-[60vh] overflow-y-auto px-1">
@@ -211,7 +226,7 @@ function RegisterForm({ initialRole }: { initialRole: string }) {
       </div>
 
       <div className="h-px bg-border/50 my-4" />
-      
+
       {/* Dynamic Role Fields */}
       <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
         {role === "artist" && (
@@ -242,11 +257,11 @@ function RegisterForm({ initialRole }: { initialRole: string }) {
 
         {role === "venue" && (
           <>
-             <div className="space-y-2">
+            <div className="space-y-2">
               <Label>Address</Label>
               <Input {...form.register("address")} required className="bg-background/50" />
             </div>
-             <div className="space-y-2">
+            <div className="space-y-2">
               <Label>Capacity</Label>
               <Input type="number" {...form.register("capacity")} required className="bg-background/50" />
             </div>
