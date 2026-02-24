@@ -26,9 +26,13 @@ function isDeadlinePassed(contract: any): boolean {
 }
 
 function getUserRole(user: any): 'artist' | 'promoter' {
-    if (user.role === 'artist') return 'artist';
-    return 'promoter'; // organizer, promoter, venue_manager all map to promoter side
+    const role = user.metadata?.role || user.role;
+    if (role === 'artist' || role === 'band_manager') return 'artist';
+    // venue_manager, venue, organizer, promoter all map to promoter side
+    return 'promoter';
 }
+
+
 
 // ============================================================================
 // CONTRACT CHANGES VALIDATION

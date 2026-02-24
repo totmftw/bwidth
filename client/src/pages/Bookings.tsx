@@ -15,9 +15,11 @@ export default function Bookings() {
   if (!user) return null;
   const isArtist = user.role === "artist";
 
-  const handleStatusUpdate = (id: number, status: 'accepted' | 'rejected') => {
+  const handleStatusUpdate = (id: number, status: 'confirmed' | 'cancelled') => {
     updateMutation.mutate({ id, status });
   };
+
+  const isPending = (status: string | null) => ['inquiry', 'offered', 'negotiating'].includes(status || '');
 
   return (
     <div className="space-y-8">
@@ -49,7 +51,7 @@ export default function Bookings() {
                   <TableRow key={booking.id} className="border-white/5 hover:bg-white/5">
                     <TableCell>
                       <div className="font-medium">
-                        {isArtist ? booking.organizer.organizationName : booking.artist.user.name}
+                        {isArtist ? booking.organizer.organizationName || booking.organizer.user.displayName : booking.artist.user.displayName || booking.artist.user.username}
                       </div>
                       <div className="text-xs text-muted-foreground truncate max-w-[200px]">
                         {booking.notes || "No notes"}
@@ -58,41 +60,41 @@ export default function Bookings() {
                     <TableCell>
                       <div className="flex flex-col">
                         <span>{format(new Date(booking.eventDate), "MMM d, yyyy")}</span>
-                        <span className="text-xs text-muted-foreground">{booking.slotTime}</span>
+                        <span className="text-xs text-muted-foreground">{booking.slotTime || 'TBD'}</span>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <StatusBadge status={booking.status} />
+                      <StatusBadge status={booking.status || 'inquiry'} />
                     </TableCell>
                     <TableCell className="text-right font-medium">
                       ${booking.offerAmount}
                     </TableCell>
                     <TableCell className="text-right">
-                      {isArtist && booking.status === 'pending' && (
+                      {isArtist && isPending(booking.status) && (
                         <div className="flex justify-end gap-2">
-                          <Button 
-                            size="sm" 
-                            variant="ghost" 
+                          <Button
+                            size="sm"
+                            variant="ghost"
                             className="h-8 w-8 p-0 text-red-400 hover:text-red-300 hover:bg-red-900/20"
-                            onClick={() => handleStatusUpdate(booking.id, 'rejected')}
+                            onClick={() => handleStatusUpdate(booking.id, 'cancelled')}
                             disabled={updateMutation.isPending}
                           >
                             <X className="w-4 h-4" />
                           </Button>
-                          <Button 
-                            size="sm" 
+                          <Button
+                            size="sm"
                             className="h-8 w-8 p-0 bg-green-600 hover:bg-green-500 text-white"
-                            onClick={() => handleStatusUpdate(booking.id, 'accepted')}
+                            onClick={() => handleStatusUpdate(booking.id, 'confirmed')}
                             disabled={updateMutation.isPending}
                           >
                             <Check className="w-4 h-4" />
                           </Button>
                         </div>
                       )}
-                      {(!isArtist || booking.status !== 'pending') && (
-                         <Button variant="ghost" size="sm" className="text-muted-foreground text-xs h-8">
-                           Details
-                         </Button>
+                      {(!isArtist || !isPending(booking.status)) && (
+                        <Button variant="ghost" size="sm" className="text-muted-foreground text-xs h-8">
+                          Details
+                        </Button>
                       )}
                     </TableCell>
                   </TableRow>
@@ -107,20 +109,23 @@ export default function Bookings() {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const styles = {
-    pending: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-    accepted: "bg-green-500/10 text-green-500 border-green-500/20",
-    rejected: "bg-red-500/10 text-red-500 border-red-500/20",
-    completed: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-    cancelled: "bg-gray-500/10 text-gray-500 border-gray-500/20",
+  const styles: Record<string, string> = {
+    inquiry: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+    offered: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+    negotiating: "bg-blue-500/10 text-blue-500 border-blue-500/20",
+    confirmed: "bg-green-500/10 text-green-500 border-green-500/20",
+    completed: "bg-purple-500/10 text-purple-500 border-purple-500/20",
+    cancelled: "bg-red-500/10 text-red-500 border-red-500/20",
+    scheduled: "bg-green-500/10 text-green-500 border-green-500/20",
+    paid_deposit: "bg-green-500/10 text-green-500 border-green-500/20",
   };
-  
-  const label = status.charAt(0).toUpperCase() + status.slice(1);
-  const style = styles[status as keyof typeof styles] || styles.pending;
+
+  const label = status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ');
+  const style = styles[status] || styles.inquiry;
 
   return (
     <Badge variant="outline" className={`${style} font-medium`}>
-      {status === 'pending' && <Clock className="w-3 h-3 mr-1" />}
+      {['inquiry', 'offered', 'negotiating'].includes(status) && <Clock className="w-3 h-3 mr-1" />}
       {label}
     </Badge>
   );

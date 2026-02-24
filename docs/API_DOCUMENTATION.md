@@ -518,7 +518,65 @@ Update artist profile information.
 
 ---
 
-### 3.5 Upload Portfolio Item
+### 3.5 Complete Artist Profile (Onboarding)
+
+Submit the artist onboarding wizard data. Creates a new artist record or updates an existing one, and marks the profile as complete.
+
+**Endpoint**: `POST /api/artists/profile/complete`  
+**Auth Required**: Yes (artist role only)
+
+**Role Resolution**: The endpoint resolves the caller's role via a fallback chain (`user.role` → `user.metadata.role` → `"artist"`). This ensures older sessions without a hydrated `role` property are still handled correctly. Non-artist roles receive a `403`.
+
+**Request Body**:
+```json
+{
+  "stageName": "DJ Example",
+  "bio": "Electronic music producer based in Bangalore",
+  "location": "Bangalore",
+  "yearsOfExperience": 5,
+  "primaryGenre": "techno",
+  "secondaryGenres": ["house", "progressive"],
+  "performanceDurations": [60, 90, 120],
+  "feeMin": 15000,
+  "feeMax": 50000,
+  "currency": "INR",
+  "soundcloudUrl": "https://soundcloud.com/example",
+  "instagramHandle": "@djexample"
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "message": "Profile completed successfully",
+  "artist": { /* artist record with metadata.profileComplete = true */ }
+}
+```
+
+**Error Responses**:
+- `401` — Not authenticated
+- `403` — Caller is not an artist
+- `400` — Validation failed (Zod schema errors returned in `errors` array)
+
+---
+
+### 3.6 Check Artist Profile Status
+
+Returns whether the authenticated artist has completed onboarding.
+
+**Endpoint**: `GET /api/artists/profile/status`  
+**Auth Required**: Yes
+
+**Response** (200 OK):
+```json
+{
+  "isComplete": true
+}
+```
+
+---
+
+### 3.7 Upload Portfolio Item
 
 Add item to artist portfolio.
 

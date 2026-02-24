@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "name": "Root File Organization",
+  "description": "Monitors the root directory for test files, documentation files, and other files that should be moved to appropriate subdirectories (docs/, tests/, deployment/, etc.). Automatically moves files and updates any import paths or references in the codebase to reflect the new locations.",
+  "version": "1",
+  "when": {
+    "type": "fileCreated",
+    "patterns": [
+      "*.md",
+      "*.txt",
+      "*.sh",
+      "*.js",
+      "*.json"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A file was just created in the root directory. Check if this file should be organized into a proper subdirectory:\n\n1. Analyze the file name and content to determine its purpose (documentation, test, deployment script, configuration, etc.)\n2. If it belongs in a subdirectory (docs/, tests/, deployment/, backend/, frontend/, etc.), move it there\n3. Search the entire codebase for any references to this file's path (imports, require statements, script references, documentation links, etc.)\n4. Update all references to use the new path\n5. Verify the file is in the correct location and all references work\n\nFiles that should be moved:\n- Documentation (*.md, *.txt) → docs/ or appropriate docs subdirectory\n- Test files (*test*.js, *spec*.js) → backend/src/__tests__/ or appropriate test directory\n- Deployment scripts (deploy*.sh, *deployment*.sh) → deployment/scripts/\n- Shell scripts (*.sh) → deployment/scripts/ or backend/scripts/\n- Integration/test scripts → backend/ or appropriate location\n\nKeep the root clean and well-organized. Only essential files like README.md, package.json, .gitignore, .env should remain in root."
+  }
+}

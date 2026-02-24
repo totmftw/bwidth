@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "name": "Sync Master Documentation",
+  "description": "Maintains a master documentation folder (docs/master/) with consolidated functional and technical documentation for frontend, backend, middleware, API, and database. When code files are edited, intelligently updates the corresponding master documentation file to reflect current functionality without creating new files.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "backend/src/**/*.js",
+      "frontend/src/**/*.jsx",
+      "frontend/src/**/*.js",
+      "backend/src/middleware/*.js",
+      "backend/src/routes/*.js",
+      "backend/src/services/*.js",
+      "backend/migrations/*.sql"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A code file was just edited. Review the changes and update the corresponding master documentation file in docs/master/ to reflect the current state. The master folder should contain:\n\n- frontend-master.md (all frontend components, pages, context, services)\n- backend-master.md (all backend services, business logic)\n- api-master.md (all API routes and endpoints)\n- middleware-master.md (all middleware functions)\n- database-master.md (schema, migrations, connection management)\n\nEach file should include both functional documentation (what it does, features, user-facing behavior) and technical documentation (how it works, architecture, implementation details).\n\nDO NOT create new files. Update the existing master documentation file intelligently by:\n1. Identifying which master file corresponds to the edited code\n2. Locating the relevant section in that master file\n3. Updating only that section with current information\n4. Preserving all other sections unchanged\n5. Ensuring end-to-end information about current functionality, features, modules, components, and APIs\n\nIf the master folder doesn't exist yet, create it with the initial consolidated documentation from the current codebase."
+  },
+  "workspaceFolderName": "eGasMainLogin",
+  "shortName": "sync-master-docs"
+}

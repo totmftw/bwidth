@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "name": "API Documentation Generator",
+  "description": "Automatically generates API documentation when TypeScript route or controller files are modified. Creates comprehensive docs with endpoints, parameters, and examples.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "backend/src/routes/**/*.ts",
+      "backend/src/controllers/**/*.ts",
+      "api/routes/**/*.ts",
+      "api/controllers/**/*.ts"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "An API route or controller file was modified. Please:\n1. Analyze the modified file to identify all endpoints (GET, POST, PUT, DELETE, PATCH)\n2. For each endpoint, extract: URL path, HTTP method, request parameters (path, query, body), response format, authentication requirements\n3. Create or update documentation in docs/api/ with the endpoint name (e.g., docs/api/base-catalog.md)\n4. Include curl examples for testing each endpoint\n5. Document error responses and status codes\n6. Add JSDoc comments to the controller methods if missing\n7. Update the API changelog in docs/api/CHANGELOG.md with the changes"
+  }
+}

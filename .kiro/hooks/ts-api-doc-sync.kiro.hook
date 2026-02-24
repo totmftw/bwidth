@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "name": "TypeScript API Documentation Sync",
+  "description": "Monitors TypeScript files for API changes and updates corresponding documentation in docs/api/ with new endpoints, parameter changes, and response formats while maintaining consistent style",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "*.ts",
+      "*.tsx"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Review the API changes in the edited TypeScript file. Check for new endpoints, parameter changes, and response format modifications. Update the corresponding documentation in docs/api/ to reflect these changes. Ensure the documentation maintains a consistent style with existing docs. If this is a new API endpoint, create appropriate documentation. If parameters or response formats changed, update the existing documentation accordingly."
+  }
+}

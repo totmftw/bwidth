@@ -8,6 +8,7 @@ import { storage } from "./storage";
 import { User } from "@shared/schema";
 import { pool } from "./db";
 import connectPg from "connect-pg-simple";
+import { normalizeRegistrationRole } from "./role-utils";
 
 const scryptAsync = promisify(scrypt);
 const PostgresStore = connectPg(session);
@@ -120,25 +121,36 @@ export function setupAuth(app: Express) {
       const hash = (await scryptAsync(req.body.password, salt, 64)) as Buffer;
       const hashedPassword = `${salt}.${hash.toString("hex")}`;
 
+      // Normalize role: "venue" -> "venue_manager", default to "artist"
+      const normalizedRole = normalizeRegistrationRole(req.body.role);
+
       const user = await storage.createUser({
         username: req.body.username,
         email: req.body.email || `${req.body.username}@example.com`,
         passwordHash: hashedPassword,
         displayName: req.body.name,
         phone: req.body.phone,
-        metadata: { role: req.body.role || 'artist' },
+        metadata: { role: normalizedRole },
       }) as any;
 
       if (user) {
-        user.role = req.body.role || 'artist';
+        user.role = normalizedRole;
       }
 
       // Handle role-specific data creation
       if (req.body.role === 'artist' && req.body.roleData) {
         await storage.createArtist({ ...req.body.roleData, userId: user.id });
-      } else if (req.body.role === 'organizer' && req.body.roleData) {
-        await storage.createOrganizer({ ...req.body.roleData, userId: user.id });
-      } else if (req.body.role === 'venue' && req.body.roleData) {
+      } else if (req.body.role === 'organizer') {
+        // Always create organizer record, even without roleData
+        const existingOrg = await storage.getOrganizerByUserId(user.id);
+        if (!existingOrg) {
+          await storage.createOrganizer({
+            userId: user.id,
+            name: req.body.name || user.displayName || 'Organizer',
+            ...(req.body.roleData || {}),
+          });
+        }
+      } else if (normalizedRole === 'venue_manager' && req.body.roleData) {
         await storage.createVenue({ ...req.body.roleData, userId: user.id });
       }
 

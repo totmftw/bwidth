@@ -19,13 +19,13 @@ export default function Dashboard() {
 
   // Simple stats calculation
   const totalBookings = bookings?.length || 0;
-  const confirmedBookings = bookings?.filter(b => b.status === 'accepted' || b.status === 'contracted').length || 0;
-  const pendingRequests = bookings?.filter(b => b.status === 'pending').length || 0;
-  
+  const confirmedBookings = bookings?.filter(b => ['confirmed', 'paid_deposit', 'scheduled', 'completed'].includes(b.status || '')).length || 0;
+  const pendingRequests = bookings?.filter(b => ['inquiry', 'offered', 'negotiating'].includes(b.status || '')).length || 0;
+
   // Calculate total earnings (for artist) or spend (for organizer)
   const totalValue = bookings
-    ?.filter(b => b.status === 'accepted' || b.status === 'contracted')
-    .reduce((acc, b) => acc + (b.offerAmount || 0), 0) || 0;
+    ?.filter(b => ['confirmed', 'paid_deposit', 'scheduled', 'completed'].includes(b.status || ''))
+    .reduce((acc, b) => acc + (Number(b.offerAmount) || 0), 0) || 0;
 
   return (
     <div className="space-y-8">
@@ -43,27 +43,27 @@ export default function Dashboard() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard 
-          title={isArtist ? "Total Earnings" : "Total Spend"} 
-          value={`$${totalValue.toLocaleString()}`} 
-          icon={DollarSign} 
+        <StatCard
+          title={isArtist ? "Total Earnings" : "Total Spend"}
+          value={`$${totalValue.toLocaleString()}`}
+          icon={DollarSign}
           trend="+12% from last month"
         />
-        <StatCard 
-          title="Confirmed Gigs" 
-          value={confirmedBookings.toString()} 
-          icon={Calendar} 
+        <StatCard
+          title="Confirmed Gigs"
+          value={confirmedBookings.toString()}
+          icon={Calendar}
         />
-        <StatCard 
-          title="Pending Requests" 
-          value={pendingRequests.toString()} 
-          icon={Users} 
+        <StatCard
+          title="Pending Requests"
+          value={pendingRequests.toString()}
+          icon={Users}
           highlight={pendingRequests > 0}
         />
-        <StatCard 
-          title="Trust Score" 
-          value="98" 
-          icon={TrendingUp} 
+        <StatCard
+          title="Trust Score"
+          value="98"
+          icon={TrendingUp}
         />
       </div>
 
@@ -84,11 +84,11 @@ export default function Dashboard() {
                   <div key={booking.id} className="flex items-center justify-between p-4 rounded-xl bg-background/40 border border-white/5 hover:border-primary/20 transition-colors">
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
-                        {isArtist ? booking.organizer.user.name[0] : booking.artist.user.name[0]}
+                        {isArtist ? (booking.organizer.user.displayName || booking.organizer.user.username || 'U')[0] : (booking.artist.user.displayName || booking.artist.user.username || 'U')[0]}
                       </div>
                       <div>
                         <p className="font-medium">
-                          {isArtist ? booking.organizer.organizationName || booking.organizer.user.name : booking.artist.user.name}
+                          {isArtist ? booking.organizer.organizationName || booking.organizer.user.displayName || booking.organizer.user.username : booking.artist.user.displayName || booking.artist.user.username}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {format(new Date(booking.eventDate), "PPP")} • {booking.slotTime || "TBD"}
@@ -98,9 +98,9 @@ export default function Dashboard() {
                     <div className="text-right">
                       <div className={`
                         inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize
-                        ${booking.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500' : 
-                          booking.status === 'accepted' ? 'bg-green-500/10 text-green-500' : 
-                          'bg-gray-500/10 text-gray-500'}
+                        ${['inquiry', 'offered', 'negotiating'].includes(booking.status || '') ? 'bg-yellow-500/10 text-yellow-500' :
+                          ['confirmed', 'paid_deposit', 'scheduled'].includes(booking.status || '') ? 'bg-green-500/10 text-green-500' :
+                            'bg-gray-500/10 text-gray-500'}
                       `}>
                         {booking.status}
                       </div>
@@ -114,7 +114,7 @@ export default function Dashboard() {
                 <p>No activity yet.</p>
                 {isOrganizer && (
                   <Link href="/explore">
-                    <Button variant="link" className="mt-2 text-primary">Browse Artists</Button>
+                    <Button variant="ghost" className="mt-2 text-primary">Browse Artists</Button>
                   </Link>
                 )}
               </div>

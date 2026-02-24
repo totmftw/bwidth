@@ -39,10 +39,10 @@ export default function ArtistDashboard() {
     // Calculate statistics
     const totalBookings = bookings?.length || 0;
     const confirmedBookings = bookings?.filter(b =>
-        ['confirmed', 'paid_deposit', 'scheduled', 'completed'].includes(b.status)
+        ['confirmed', 'paid_deposit', 'scheduled', 'completed'].includes(b.status || '')
     ).length || 0;
     const pendingRequests = bookings?.filter(b =>
-        ['inquiry', 'offered', 'negotiating'].includes(b.status)
+        ['inquiry', 'offered', 'negotiating'].includes(b.status || '')
     ).length || 0;
 
     const completedBookings = bookings?.filter(b => b.status === 'completed') || [];
@@ -52,13 +52,13 @@ export default function ArtistDashboard() {
 
     // Upcoming gigs (next 30 days)
     const upcomingGigs = bookings?.filter(b => {
-        if (!['confirmed', 'paid_deposit', 'scheduled'].includes(b.status)) return false;
+        if (!['confirmed', 'paid_deposit', 'scheduled'].includes(b.status || '')) return false;
         const eventDate = new Date(b.eventDate);
         return isAfter(eventDate, new Date()) && isAfter(addDays(new Date(), 30), eventDate);
     }).sort((a, b) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime()) || [];
 
     // Trust score (from artist profile or default)
-    const trustScore = artist?.trustScore || 50;
+    const trustScore = (artist as any)?.trustScore || 50;
 
     // Profile completion calculation
     const metadata = artist?.metadata as any || {};
@@ -222,7 +222,7 @@ export default function ArtistDashboard() {
                                             </div>
                                             <div>
                                                 <p className="font-semibold group-hover:text-primary transition-colors">
-                                                    {booking.organizer?.organizationName || booking.organizer?.user?.name || "Event"}
+                                                    {booking.organizer?.organizationName || booking.organizer?.user?.displayName || booking.organizer?.user?.username || "Event"}
                                                 </p>
                                                 <div className="flex items-center gap-3 text-sm text-muted-foreground">
                                                     {booking.venue && (
@@ -244,7 +244,7 @@ export default function ArtistDashboard() {
                                             <p className="font-bold text-lg">₹{Number(booking.offerAmount).toLocaleString('en-IN')}</p>
                                             <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/20">
                                                 <CheckCircle className="w-3 h-3 mr-1" />
-                                                {booking.status.replace('_', ' ')}
+                                                {(booking.status || 'inquiry').replace('_', ' ')}
                                             </Badge>
                                         </div>
                                     </motion.div>
@@ -280,7 +280,7 @@ export default function ArtistDashboard() {
                         <CardContent>
                             {pendingRequests > 0 ? (
                                 <div className="space-y-3">
-                                    {bookings?.filter(b => ['inquiry', 'offered', 'negotiating'].includes(b.status))
+                                    {bookings?.filter(b => ['inquiry', 'offered', 'negotiating'].includes(b.status || ''))
                                         .slice(0, 3)
                                         .map(booking => (
                                             <div key={booking.id} className="p-3 rounded-lg bg-yellow-500/5 border border-yellow-500/20">

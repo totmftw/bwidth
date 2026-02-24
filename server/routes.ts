@@ -10,28 +10,7 @@ import opportunitiesRouter from "./routes/opportunities";
 import contractsRouter from "./routes/contracts";
 import conversationsRouter from "./routes/conversations";
 import { isSameDay } from "date-fns";
-
-// Schema for artist profile completion
-const artistProfileCompleteSchema = z.object({
-  stageName: z.string().min(2),
-  bio: z.string().min(50).max(500),
-  location: z.string().min(2),
-  yearsOfExperience: z.coerce.number().min(0).max(50).optional(),
-  primaryGenre: z.string().min(1),
-  secondaryGenres: z.array(z.string()).max(3).optional(),
-  feeMin: z.coerce.number().min(100),
-  feeMax: z.coerce.number().min(100),
-  currency: z.string().default("INR"),
-  performanceDurations: z.array(z.string()).optional(),
-  soundcloudUrl: z.string().optional(),
-  mixcloudUrl: z.string().optional(),
-  instagramHandle: z.string().optional(),
-  websiteUrl: z.string().optional(),
-  achievements: z.string().optional(),
-  technicalRider: z.string().optional(),
-  equipmentRequirements: z.string().optional(),
-  travelPreferences: z.string().optional(),
-});
+import { artistProfileCompleteSchema } from "./artist-profile-utils";
 
 const venueProfileCompleteSchema = z.object({
   name: z.string().min(2),
@@ -199,7 +178,16 @@ export async function registerRoutes(
 
     try {
       const user = req.user as any;
-      if (user.role !== 'artist') {
+
+      // Resolve the user's role using a fallback chain:
+      //   1. user.role       — set during login/deserialisation from metadata
+      //   2. metadata.role   — the canonical source written at registration
+      //   3. 'artist'        — safe default (most platform users are artists)
+      // This guards against sessions where `user.role` was not hydrated
+      // (e.g. older sessions serialised before the role-hydration patch).
+      const userRole = user.role || (user.metadata as any)?.role || 'artist';
+
+      if (userRole !== 'artist') {
         return res.status(403).json({ message: "Only artists can complete artist profiles" });
       }
 
@@ -301,15 +289,10 @@ export async function registerRoutes(
 
     try {
       const user = req.user as any;
-      // We accept 'venue_manager' or 'organizer' (if they manage a venue)
-      // but for strictness let's check venue related role
-      if (user.role !== 'venue_manager' && user.role !== 'organizer') {
-        // Strict check: strictly standard role is venue_manager, but let's allow flexibility if needed.
-        // For now adhering to task: "Venue role"
+      const userRole = user.role || (user.metadata as any)?.role || 'artist';
+      if (userRole !== 'venue_manager' && userRole !== 'venue' && userRole !== 'organizer') {
+        return res.status(403).json({ message: "Only venue managers or organizers can complete venue profiles" });
       }
-
-      // Just check if they are NOT an artist/admin/etc? Or just check if they intend to be a venue.
-      // For now, let's allow it if they are logged in, and if they don't have a venue yet, we create one.
 
       const profileData = venueProfileCompleteSchema.parse(req.body);
 
@@ -532,19 +515,20 @@ export async function registerRoutes(
     if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
       const user = req.user as any;
+      const userRole = user.role || (user.metadata as any)?.role || 'artist';
       let bookings = [];
 
-      if (user.role === 'artist') {
+      if (userRole === 'artist') {
         const artist = await storage.getArtistByUserId(user.id);
         if (artist) {
           bookings = await storage.getBookingsByArtistWithDetails(artist.id);
         }
-      } else if (user.role === 'organizer') {
+      } else if (userRole === 'organizer') {
         const organizer = await storage.getOrganizerByUserId(user.id);
         if (organizer) {
           bookings = await storage.getBookingsByOrganizerWithDetails(organizer.id);
         }
-      } else if (user.role === 'venue' || user.role === 'venue_manager') {
+      } else if (userRole === 'venue' || userRole === 'venue_manager') {
         const venue = await storage.getVenueByUserId(user.id);
         if (venue) {
           bookings = await storage.getBookingsByVenueWithDetails(venue.id);
@@ -562,6 +546,7 @@ export async function registerRoutes(
     if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
       const user = req.user as any;
+      const userRole = user.role || (user.metadata as any)?.role || 'artist';
 
       if (user.status === 'pending_verification' || user.status === 'suspended') {
         return res.status(403).json({
@@ -652,7 +637,7 @@ export async function registerRoutes(
           createdFrom: "direct_offer",
           history: [{
             action: "offered",
-            by: user.role,
+            by: userRole,
             at: new Date().toISOString(),
             amount: offerAmount
           }]
@@ -705,7 +690,8 @@ export async function registerRoutes(
       if (!booking) return res.status(404).json({ message: "Booking not found" });
 
       const user = req.user as any;
-      const isArtist = user.role === 'artist';
+      const userRole = user.role || (user.metadata as any)?.role || 'artist';
+      const isArtist = userRole === 'artist';
 
       // Verify authorization (Artist owns booking, Organizer owns event)
       // Simplifying check for now since we need `event` fetched to check organizer.
@@ -727,11 +713,11 @@ export async function registerRoutes(
         const newMeta = {
           ...meta,
           negotiationRound: round + (newAmount ? 1 : 0),
-          lastOfferBy: user.role,
+          lastOfferBy: userRole,
           slotTime: slotTime || meta.slotTime, // Update slot time if provided
           history: [...history, {
             action: 'negotiate',
-            by: user.role,
+            by: userRole,
             offerAmount: newAmount,
             message: message,
             slotTime: slotTime,
@@ -763,7 +749,7 @@ export async function registerRoutes(
       } else if (action === 'accept') {
         const newMeta = {
           ...meta,
-          history: [...history, { action: 'accepted', by: user.role, at: new Date().toISOString() }]
+          history: [...history, { action: 'accepted', by: userRole, at: new Date().toISOString() }]
         };
         const updated = await storage.updateBooking(id, {
           status: 'contracting' as any, // Move to contract stage, not directly to confirmed
@@ -801,7 +787,7 @@ export async function registerRoutes(
       } else if (action === 'decline') {
         const newMeta = {
           ...meta,
-          history: [...history, { action: 'declined', by: user.role, at: new Date().toISOString() }]
+          history: [...history, { action: 'declined', by: userRole, at: new Date().toISOString() }]
         };
         const updated = await storage.updateBooking(id, {
           status: 'cancelled',
@@ -833,7 +819,8 @@ export async function registerRoutes(
     if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
       const user = req.user as any;
-      if (user.role !== 'artist') {
+      const userRole = user.role || (user.metadata as any)?.role || 'artist';
+      if (userRole !== 'artist') {
         return res.status(403).json({ message: "Only artists can apply to events" });
       }
 

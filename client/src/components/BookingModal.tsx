@@ -26,6 +26,9 @@ import { cn } from "@/lib/utils";
 const formSchema = insertBookingSchema.extend({
   offerAmount: z.coerce.number().min(1, "Amount must be positive"),
   eventDate: z.date({ required_error: "Date is required" }),
+  organizerId: z.number().optional(),
+  slotTime: z.string().optional(),
+  notes: z.string().optional(),
 });
 
 type BookingFormValues = z.infer<typeof formSchema>;
@@ -47,11 +50,18 @@ export function BookingModal({ artistId, artistName, organizerId }: BookingModal
       organizerId,
       offerCurrency: "INR",
       status: "offered",
+      offerAmount: 0,
+      notes: "",
+      // eventDate is required but no good default, so undefined/null handled by resolver or init
     }
   });
 
   function onSubmit(data: BookingFormValues) {
-    mutate(data, {
+    const submitData = {
+      ...data,
+      depositAmount: data.depositAmount ?? undefined,
+    };
+    mutate(submitData as any, {
       onSuccess: () => setOpen(false),
     });
   }

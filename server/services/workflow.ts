@@ -29,6 +29,7 @@ class WorkflowEngine {
         if (convo) return convo;
 
         // Create new
+        if (!booking.artistId) throw new Error("Artist ID missing from booking");
         const artist = await storage.getArtist(booking.artistId);
         // Find artist user ID.
         // Assuming artist.userId is present. If not, error.
@@ -51,13 +52,6 @@ class WorkflowEngine {
 
         const subject = `Negotiation: ${artist.name}`;
 
-        // Who starts? Usually the one who received the offer.
-        // If booking status 'offered', artist received it (if organizer made it).
-        // Let's assume Organizer creates Booking -> Artist receives -> Artist acts first?
-        // Or Artist applies -> Organizer receives -> Organizer acts first?
-        // The prompt says: "Wait for first move".
-        // Let's default to awaiting the non-initiator? 
-        // Or just "AWAITING_ARTIST" if currently Offered by Organizer.
         return await db.transaction(async (tx) => {
             // Create Conversation
             const [newConvo] = await tx.insert(conversations).values({
@@ -71,19 +65,16 @@ class WorkflowEngine {
 
             // Add Participants
             await tx.insert(conversationParticipants).values([
-                { conversationId: newConvo.id, userId: initiatorId, role: 'member' },
-                { conversationId: newConvo.id, userId: artist.userId, role: 'member' },
-                { conversationId: newConvo.id, userId: organizerId!, role: 'member' }
+                { conversationId: newConvo.id, userId: initiatorId },
+                { conversationId: newConvo.id, userId: artist.userId! },
+                { conversationId: newConvo.id, userId: organizerId! }
             ]).onConflictDoNothing();
 
             // Create Workflow Instance
-            const instanceId = `wf_neg_${bookingId}_${Date.now()}`;
             const [instance] = await tx.insert(conversationWorkflowInstances).values({
                 conversationId: newConvo.id,
-                workflowId: 'negotiation-v1', // Hardcoded for now
-                instanceId,
+                workflowKey: 'negotiation-v1', // Hardcoded for now
                 currentNodeKey: 'NEGOTIATING',
-                status: 'active',
                 context: {
                     originalOffer: {
                         amount: booking.offerAmount,
@@ -102,7 +93,7 @@ class WorkflowEngine {
                 messageType: 'system',
                 body: `Negotiation started. Offer: ${booking.offerCurrency} ${booking.offerAmount}`,
                 workflowNodeKey: 'START',
-                payload: { action: 'start', offer: instance.context.originalOffer }
+                payload: { action: 'start', offer: (instance.context as any).originalOffer }
             });
 
             return newConvo;
@@ -150,7 +141,8 @@ class WorkflowEngine {
             if (!otherParticipant) throw new Error("Other participant not found");
 
             if (actionKey === 'PROPOSE_CHANGE') {
-                if ((wfInstance.context as any).rounds >= (wfInstance.context as any).maxRounds) { // Assuming maxRounds is in context
+                const maxRounds = wfInstance.maxRounds ?? 3;
+                if (wfInstance.round >= maxRounds) {
                     throw new Error("Max rounds reached. Must Accept or Decline.");
                 }
 
@@ -164,7 +156,7 @@ class WorkflowEngine {
                 const [proposal] = await tx.insert(bookingProposals).values({
                     bookingId: (await tx.query.conversations.findFirst({ where: eq(conversations.id, conversationId) }))!.entityId!,
                     createdBy: userId,
-                    round: (wfInstance.context as any).rounds + 1,
+                    round: wfInstance.round + 1,
                     proposedTerms: payload, // { offerAmount, ... }
                     status: 'active'
                 }).returning();
@@ -191,7 +183,7 @@ class WorkflowEngine {
                 const convo = await tx.query.conversations.findFirst({ where: eq(conversations.id, conversationId) });
                 if (convo && convo.entityType === 'booking') {
                     await tx.update(bookings)
-                        .set({ status: 'confirmed' }) // or 'scheduled'
+                        .set({ status: 'contracting' })
                         .where(eq(bookings.id, convo.entityId!));
                 }
 
@@ -208,11 +200,13 @@ class WorkflowEngine {
             // ASK_PRESET_QUESTION -> specific logic (swap turn if required response, else stay)
 
             // 4. Update Workflow Instance
+            const isTerminal = ['ACCEPTED', 'DECLINED'].includes(nextNodeKey);
             await tx.update(conversationWorkflowInstances)
                 .set({
                     currentNodeKey: nextNodeKey,
                     awaitingUserId: nextAwaitingUserId,
                     round: (isProposal) ? wfInstance.round + 1 : wfInstance.round,
+                    locked: isTerminal ? true : wfInstance.locked,
                     updatedAt: new Date(),
                     deadlineAt: (nextAwaitingUserId) ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null
                 })

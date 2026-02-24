@@ -69,16 +69,43 @@ function useVenueStatus() {
   });
 }
 
-// Helper to get user role from metadata or default
+/**
+ * Resolves the canonical user role from the authenticated user object.
+ *
+ * Resolution order (first match wins):
+ *   1. `user.metadata.role` — the role stored at registration time.
+ *      Legacy records may store "venue" instead of "venue_manager",
+ *      so we normalise that here to keep downstream switch-cases simple.
+ *   2. Attached profile entities (`venue`, `organizer`, `artist`) —
+ *      populated by the server during login / deserialisation and used
+ *      as a fallback when metadata is missing or empty.
+ *   3. Hard default: "artist" — safest assumption for the platform.
+ *
+ * This mirrors the server-side normalisation in `server/role-utils.ts`
+ * (`normalizeRegistrationRole`) so both layers agree on role values.
+ *
+ * @param user - The authenticated user object (typed as `any` because the
+ *               shape varies depending on whether profiles have been fetched).
+ * @returns A canonical role string matching the `role_name` DB enum
+ *          (e.g. "artist", "organizer", "venue_manager", "admin").
+ */
 function getUserRole(user: any): string {
-  // Check metadata for role
-  if (user.metadata?.role) return user.metadata.role;
-  // Check userRoles if available
-  if (user.roles && user.roles.length > 0) return user.roles[0].name;
-  // Default to artist if has artist profile
-  if (user.artist) return "artist";
-  return "artist"; // Default
+  // 1. Prefer the role explicitly stored in user metadata
+  if (user.metadata?.role) {
+    const role = user.metadata.role;
+    // Normalise legacy "venue" value → "venue_manager" (matches role_name enum)
+    return role === 'venue' ? 'venue_manager' : role;
+  }
+
+  // 2. Infer role from attached profile entities
+  if (user.venue) return 'venue_manager';
+  if (user.organizer) return 'organizer';
+  if (user.artist) return 'artist';
+
+  // 3. Safe default — most users on the platform are artists
+  return 'artist';
 }
+
 
 // Private Route Wrapper with profile completion check
 function PrivateRoute({ component: Component }: { component: React.ComponentType }) {

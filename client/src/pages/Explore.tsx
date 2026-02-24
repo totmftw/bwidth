@@ -59,18 +59,18 @@ export default function Explore() {
               <div className="h-48 bg-gradient-to-br from-gray-800 to-gray-900 relative">
                 <div className="absolute bottom-0 left-0 p-4 w-full bg-gradient-to-t from-black/80 to-transparent">
                   <h3 className="font-display font-bold text-xl text-white flex items-center gap-2">
-                    {artist.user.name}
-                    {artist.verified && <CheckCircle2 className="w-4 h-4 text-primary" />}
+                    {artist.user.displayName || artist.user.username}
+                    {(artist.metadata as any)?.verified && <CheckCircle2 className="w-4 h-4 text-primary" />}
                   </h3>
                   <p className="text-sm text-gray-300 flex items-center gap-1">
-                    <Music2 className="w-3 h-3" /> {artist.genre}
+                    <Music2 className="w-3 h-3" /> {(artist.metadata as any)?.genre || 'Genre'}
                   </p>
                 </div>
               </div>
 
               <CardContent className="p-4 space-y-4">
                 <div className="flex flex-wrap gap-2">
-                  {artist.secondaryGenres?.slice(0, 3).map(g => (
+                  {((artist.metadata as any)?.secondaryGenres || []).slice(0, 3).map((g: string) => (
                     <Badge key={g} variant="secondary" className="bg-white/5 hover:bg-white/10 text-xs">
                       {g}
                     </Badge>
@@ -79,7 +79,7 @@ export default function Explore() {
 
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Fee Range</span>
-                  <span className="font-semibold">₹{artist.feeMin} - ₹{artist.feeMax}</span>
+                  <span className="font-semibold">₹{artist.priceFrom} - ₹{artist.priceTo}</span>
                 </div>
 
                 <p className="text-sm text-muted-foreground line-clamp-2">
@@ -90,7 +90,7 @@ export default function Explore() {
               <CardFooter className="p-4 pt-0">
                 <BookingModal
                   artistId={artist.id}
-                  artistName={artist.user.name}
+                  artistName={artist.user.displayName || artist.user.username || 'Artist'}
                   organizerId={organizerId}
                 />
               </CardFooter>

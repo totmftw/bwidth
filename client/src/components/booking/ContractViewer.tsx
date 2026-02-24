@@ -1030,7 +1030,7 @@ function PartyStatusCard({
     label, reviewed, editUsed, accepted, signed, isMe,
 }: {
     label: string; reviewed: boolean; editUsed: boolean;
-    accepted: boolean; accepted: boolean; signed: boolean; isMe: boolean;
+    accepted: boolean; signed: boolean; isMe: boolean;
 }) {
     return (
         <div className={`rounded-lg border p-3 ${isMe ? "border-primary/30 bg-primary/5" : "border-white/10 bg-white/[0.02]"}`}>

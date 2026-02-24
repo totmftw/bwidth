@@ -624,7 +624,7 @@ GET    /api/search/events        // Search events
 
 **Method**: Session-based authentication using Passport.js  
 **Session Store**: PostgreSQL via connect-pg-simple  
-**Password Hashing**: bcrypt (12 rounds)
+**Password Hashing**: Node.js crypto.scrypt (64-byte key, random 16-byte salt)
 
 ### 4.2 Authentication Flow
 
@@ -718,6 +718,59 @@ router.get('/admin/users', requireRole([Role.ADMIN]), async (req, res) => {
 });
 ```
 
+### 4.5 Role Normalisation & Resolution
+
+Roles are stored in `users.metadata.role` as a JSON field. Because the registration
+UI uses simplified labels (e.g. `"venue"`) while the database enum uses canonical
+values (e.g. `"venue_manager"`), a normalisation layer exists on both server and client.
+
+#### Server-side (`server/role-utils.ts`)
+
+| Input | Output | Side-effect |
+|---|---|---|
+| `"venue"` | `"venue_manager"` | — |
+| `"organizer"` | `"organizer"` | Creates a `promoters` record |
+| `undefined` / `null` / `""` | `"artist"` | — |
+| Any other valid role | Pass-through | — |
+
+`normalizeRegistrationRole()` is called during `/api/register` before the user
+record is persisted, ensuring the stored metadata always contains a valid
+`role_name` enum value.
+
+#### Client-side (`client/src/App.tsx → getUserRole()`)
+
+The client mirrors the same normalisation when reading the user object:
+
+1. **`user.metadata.role`** — preferred source; legacy `"venue"` values are
+   mapped to `"venue_manager"`.
+2. **Profile entities** (`user.venue`, `user.organizer`, `user.artist`) — used
+   as a fallback when metadata is absent.
+3. **Default** — `"artist"`.
+
+This resolved role drives routing (`RoleBasedDashboard`, `RoleBasedBookings`,
+`RoleBasedProfile`) and profile-completion redirects.
+
+#### Route-handler role checks
+
+Protected endpoints that are role-gated (e.g. `POST /api/artists/profile/complete`)
+must also apply the fallback chain when reading the current user's role:
+
+```typescript
+const userRole = user.role || (user.metadata as any)?.role || 'artist';
+```
+
+This is necessary because `user.role` is a convenience property set during
+login / deserialisation. Sessions that were serialised before the role-hydration
+patch may not carry it, so the handler falls back to `metadata.role` and
+ultimately to `"artist"` (the platform default).
+
+#### Why both layers normalise
+
+The server populates `metadata.role` at registration, but older accounts or
+accounts created via seed scripts may have inconsistent values. The client-side
+fallback chain ensures every authenticated user resolves to a valid role
+regardless of data quality.
+
 ### 4.5 API Authentication
 
 All API requests (except public endpoints) require:
@@ -730,7 +783,9 @@ All API requests (except public endpoints) require:
 ## 5. Security Measures
 
 ### 5.1 Password Security
-- **Hashing**: bcrypt with 12 salt rounds
+- **Hashing**: Node.js `crypto.scrypt` with 64-byte derived key and random 16-byte hex salt
+- **Storage format**: `<salt>.<hex-hash>` in `users.passwordHash`
+- **Comparison**: `crypto.timingSafeEqual` to prevent timing attacks
 - **Minimum length**: 8 characters
 - **Requirements**: At least one uppercase, lowercase, number
 - **No password reuse**: Check against previous 5 passwords
