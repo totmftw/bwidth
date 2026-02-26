@@ -137,10 +137,10 @@ export function setupAuth(app: Express) {
         user.role = normalizedRole;
       }
 
-      // Handle role-specific data creation
-      if (req.body.role === 'artist' && req.body.roleData) {
+      // Handle role-specific data creation (use normalizedRole for all checks)
+      if (normalizedRole === 'artist' && req.body.roleData) {
         await storage.createArtist({ ...req.body.roleData, userId: user.id });
-      } else if (req.body.role === 'organizer') {
+      } else if (normalizedRole === 'organizer') {
         // Always create organizer record, even without roleData
         const existingOrg = await storage.getOrganizerByUserId(user.id);
         if (!existingOrg) {

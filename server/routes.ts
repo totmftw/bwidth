@@ -10,49 +10,8 @@ import opportunitiesRouter from "./routes/opportunities";
 import contractsRouter from "./routes/contracts";
 import conversationsRouter from "./routes/conversations";
 import { isSameDay } from "date-fns";
-import { artistProfileCompleteSchema } from "./artist-profile-utils";
-
-const venueProfileCompleteSchema = z.object({
-  name: z.string().min(2),
-  description: z.string().min(10).max(1000),
-  address: z.string().min(5),
-  city: z.string().min(2),
-  capacity: z.coerce.number().min(1),
-  capacitySeated: z.coerce.number().optional(),
-  capacityStanding: z.coerce.number().optional(),
-  amenities: z.array(z.string()).optional(),
-  website: z.string().optional(),
-  instagramHandle: z.string().optional(),
-  bookingEmail: z.string().email().optional().or(z.literal("")),
-  bookingPhone: z.string().optional(),
-  // Extended metadata from 7-step onboarding
-  metadata: z.object({
-    state: z.string().optional(),
-    pincode: z.string().optional(),
-    spaceDimensions: z.object({
-      stageWidth: z.number().optional(),
-      stageDepth: z.number().optional(),
-      ceilingHeight: z.number().optional(),
-    }).optional(),
-    musicPolicy: z.object({
-      preferredGenres: z.array(z.string()).optional(),
-      targetAudience: z.string().optional(),
-      eventFrequency: z.string().optional(),
-      bookingMode: z.string().optional(),
-    }).optional(),
-    equipment: z.array(z.string()).optional(),
-    photos: z.object({
-      coverImageUrl: z.string().optional(),
-      galleryUrls: z.array(z.string()).optional(),
-      virtualTourUrl: z.string().optional(),
-    }).optional(),
-    bookingPreferences: z.object({
-      monthlyBudgetMin: z.number().optional(),
-      monthlyBudgetMax: z.number().optional(),
-      operatingDays: z.array(z.string()).optional(),
-    }).optional(),
-  }).optional(),
-});
+import { artistProfileCompleteSchema, buildArtistMetadata, buildArtistRecord } from "./artist-profile-utils";
+import { venueProfileCompleteSchema, buildVenueMetadata, buildVenueRecord } from "./venue-profile-utils";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -192,36 +151,15 @@ export async function registerRoutes(
       }
 
       const profileData = artistProfileCompleteSchema.parse(req.body);
-
-      const metadata = {
-        yearsOfExperience: profileData.yearsOfExperience,
-        primaryGenre: profileData.primaryGenre,
-        secondaryGenres: profileData.secondaryGenres || [],
-        performanceDurations: profileData.performanceDurations || [],
-        soundcloud: profileData.soundcloudUrl,
-        mixcloud: profileData.mixcloudUrl,
-        instagram: profileData.instagramHandle,
-        website: profileData.websiteUrl,
-        achievements: profileData.achievements,
-        technicalRider: profileData.technicalRider,
-        equipmentRequirements: profileData.equipmentRequirements,
-        travelPreferences: profileData.travelPreferences,
-        profileComplete: true,
-        trustScore: 50,
-        updatedAt: new Date().toISOString(),
-      };
+      const record = buildArtistRecord(profileData);
 
       let artist = await storage.getArtistByUserId(user.id);
 
       if (artist) {
+        const metadata = buildArtistMetadata(profileData, artist.metadata as Record<string, any> || {});
         artist = await storage.updateArtist(artist.id, {
-          name: profileData.stageName,
-          bio: profileData.bio,
-          priceFrom: String(profileData.feeMin),
-          priceTo: String(profileData.feeMax),
-          currency: profileData.currency,
-          baseLocation: { name: profileData.location },
-          metadata: { ...(artist.metadata as any || {}), ...metadata },
+          ...record,
+          metadata,
         });
 
         await storage.createAuditLog({
@@ -232,14 +170,10 @@ export async function registerRoutes(
           context: { stageName: profileData.stageName }
         });
       } else {
+        const metadata = buildArtistMetadata(profileData);
         artist = await storage.createArtist({
           userId: user.id,
-          name: profileData.stageName,
-          bio: profileData.bio,
-          priceFrom: String(profileData.feeMin),
-          priceTo: String(profileData.feeMax),
-          currency: profileData.currency,
-          baseLocation: { name: profileData.location },
+          ...record,
           metadata: metadata as any,
         });
 

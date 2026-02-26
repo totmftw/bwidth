@@ -6,74 +6,74 @@ Incremental fixes to the existing PERN stack codebase, organized by subsystem. E
 
 ## Tasks
 
-- [-] 1. Schema enum consistency and migration
-  - [ ] 1.1 Verify `bookingStatusEnum` and `contractStatusEnum` in `shared/schema.ts` include "contracting" and "admin_review" respectively
+- [x] 1. Schema enum consistency and migration
+  - [x] 1.1 Verify `bookingStatusEnum` and `contractStatusEnum` in `shared/schema.ts` include "contracting" and "admin_review" respectively
     - Confirm the Drizzle enum arrays already contain these values (they should based on current schema)
     - If missing, add them to the enum value arrays
     - _Requirements: 11.1, 11.2, 12.1, 12.2_
-  - [ ] 1.2 Create SQL migration to add enum values to live PostgreSQL
+  - [x] 1.2 Create SQL migration to add enum values to live PostgreSQL
     - Create a new migration file in `migrations/` with `ALTER TYPE` statements
     - Use conditional `DO $$ BEGIN ... END $$` blocks to avoid errors if values already exist
     - Add "contracting" to `booking_status` enum and "admin_review" to `contract_status` enum
     - _Requirements: 11.4, 12.4_
 
-- [ ] 2. Auth system — registration role mapping
-  - [ ] 2.1 Fix role normalization in `POST /api/register` handler in `server/auth.ts`
+- [x] 2. Auth system — registration role mapping
+  - [x] 2.1 Fix role normalization in `POST /api/register` handler in `server/auth.ts`
     - Map `role: "venue"` to store `metadata.role = "venue_manager"`
     - Default to "artist" when no role is specified
     - Ensure organizer registration always creates a promoter record via `storage.createOrganizer()` even without `roleData`
     - Update the role-specific data creation block to use the normalized role for venue creation
     - _Requirements: 1.1, 1.2, 1.5_
-  - [ ] 2.2 Write property tests for role registration mapping
+  - [x] 2.2 Write property tests for role registration mapping
     - **Property 1: Role registration mapping preserves consistency**
     - **Validates: Requirements 1.1, 1.2, 1.5**
 
-- [ ] 3. Role resolver consistency
-  - [ ] 3.1 Fix `getUserRole` function in `client/src/App.tsx`
+- [x] 3. Role resolver consistency
+  - [x] 3.1 Fix `getUserRole` function in `client/src/App.tsx`
     - Check `metadata.role` first, normalize "venue" to "venue_manager"
     - Fall back to profile entities (venue, organizer, artist)
     - Default to "artist"
     - _Requirements: 1.3, 1.4_
-  - [ ] 3.2 Fix `useVenueStatus` hook in `client/src/App.tsx`
+  - [x] 3.2 Fix `useVenueStatus` hook in `client/src/App.tsx`
     - Ensure `enabled` flag checks for both "venue_manager" and "venue" roles (already correct, verify)
     - _Requirements: 1.6_
-  - [ ] 3.3 Fix `getUserRole` in `server/routes/contracts.ts`
+  - [x] 3.3 Fix `getUserRole` in `server/routes/contracts.ts`
     - Ensure "venue_manager" and "organizer" both map to "promoter" side
     - _Requirements: 1.4_
-  - [ ]* 3.4 Write property tests for role resolver
+  - [x] 3.4 Write property tests for role resolver
     - **Property 2: Role resolver treats venue and venue_manager identically**
     - **Validates: Requirements 1.3, 1.4**
 
 - [x] 4. Checkpoint — Verify auth and role fixes
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Artist profile completion fixes
-  - [ ] 5.1 Fix `POST /api/artists/profile/complete` in `server/routes.ts`
+- [x] 5. Artist profile completion fixes
+  - [x] 5.1 Fix `POST /api/artists/profile/complete` in `server/routes.ts`
     - Verify Zod schema `artistProfileCompleteSchema` field names match what the frontend wizard sends
     - Ensure upsert logic: check `getArtistByUserId` first, update if exists, create if not
     - Ensure `metadata.profileComplete = true` is set on both create and update paths
     - Verify role check uses `user.role` or `user.metadata?.role`
     - _Requirements: 2.1, 2.2, 2.6_
-  - [ ] 5.2 Verify `GET /api/artists/profile/status` in `server/routes.ts`
+  - [x] 5.2 Verify `GET /api/artists/profile/status` in `server/routes.ts`
     - Ensure it returns `{ isComplete: true }` only when `artist.metadata.profileComplete === true`
     - _Requirements: 2.3_
-  - [x]* 5.3 Write property tests for artist profile completion
+  - [x] 5.3 Write property tests for artist profile completion
     - **Property 3: Artist profile completion round-trip**
     - **Property 4: Artist profile upsert idempotence**
     - **Property 5: Invalid artist profile data returns field-level errors**
     - **Validates: Requirements 2.2, 2.3, 2.5, 2.6**
 
-- [ ] 6. Venue profile completion fixes
-  - [ ] 6.1 Fix `POST /api/venues/profile/complete` in `server/routes.ts`
+- [x] 6. Venue profile completion fixes
+  - [x] 6.1 Fix `POST /api/venues/profile/complete` in `server/routes.ts`
     - Add explicit role authorization check: allow "venue_manager", "venue", and "organizer"
     - Verify Zod schema `venueProfileCompleteSchema` field names match the 7-step wizard
     - Ensure upsert logic: check `getVenueByUserId` first, update if exists, create if not
     - Ensure `metadata.profileComplete = true` is set on both paths
     - _Requirements: 3.1, 3.2, 3.5_
-  - [ ] 6.2 Verify `GET /api/venues/profile/status` in `server/routes.ts`
+  - [x] 6.2 Verify `GET /api/venues/profile/status` in `server/routes.ts`
     - Ensure it returns `{ isComplete: true }` only when `venue.metadata.profileComplete === true`
     - _Requirements: 3.3_
-  - [ ]* 6.3 Write property tests for venue profile completion
+  - [x] 6.3 Write property tests for venue profile completion
     - **Property 6: Venue profile completion round-trip**
     - **Property 7: Invalid venue profile data returns field-level errors**
     - **Validates: Requirements 3.2, 3.3, 3.5, 3.6**
@@ -95,7 +95,7 @@ Incremental fixes to the existing PERN stack codebase, organized by subsystem. E
     - Create workflow instance with `currentNodeKey` = initial state, `round` = 0, `locked` = false
     - Set `awaitingUserId` to the artist (artist acts first in negotiation)
     - _Requirements: 4.3, 4.4_
-  - [ ]* 8.3 Write property tests for conversation system
+  - [x] 8.3 Write property tests for conversation system
     - **Property 8: Conversation opening resolves correct participants**
     - **Property 9: Conversation opening is idempotent**
     - **Property 10: New negotiation conversations have correct initial workflow state**
@@ -109,7 +109,7 @@ Incremental fixes to the existing PERN stack codebase, organized by subsystem. E
     - Ensure locked workflow check rejects all actions
     - Ensure each action inserts message with `messageType: "action"`, `actionKey`, `payload`, `round`
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8_
-  - [ ]* 9.2 Write property tests for workflow state machine
+  - [x] 9.2 Write property tests for workflow state machine
     - **Property 11: Workflow turn-taking enforcement**
     - **Property 12: PROPOSE_CHANGE increments round and swaps turn**
     - **Property 13: Max rounds enforcement**
@@ -126,7 +126,7 @@ Incremental fixes to the existing PERN stack codebase, organized by subsystem. E
     - Verify negotiation mode rejects free-text messages with 400
     - Verify system messages have `senderId: null` and `messageType: "system"`
     - _Requirements: 6.1, 6.2, 6.3, 6.4_
-  - [ ]* 10.2 Write property tests for message system
+  - [x] 10.2 Write property tests for message system
     - **Property 18: Messages returned in chronological order**
     - **Property 19: Non-participants cannot access messages**
     - **Property 20: Negotiation conversations reject free-text messages**
@@ -144,7 +144,7 @@ Incremental fixes to the existing PERN stack codebase, organized by subsystem. E
     - Confirm idempotency: existing contract returned without duplicate
     - Confirm system message posted with deadline info
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
-  - [ ]* 12.2 Write property tests for contract initiation
+  - [x] 12.2 Write property tests for contract initiation
     - **Property 22: Contract text contains core terms from booking**
     - **Property 23: Contract initiation sets 48-hour deadline**
     - **Property 24: Contract initiation creates version 1**
@@ -168,7 +168,7 @@ Incremental fixes to the existing PERN stack codebase, organized by subsystem. E
     - Confirm cancellation penalties must be 0-100%
     - Confirm check-in time must be before check-out time
     - _Requirements: 8.7, 8.8_
-  - [ ]* 13.4 Write property tests for contract review and edit
+  - [x] 13.4 Write property tests for contract review and edit
     - **Property 26: One-time edit enforcement**
     - **Property 27: Pending edits block accept and sign**
     - **Property 28: Edit approval creates new version with merged terms**
@@ -186,7 +186,7 @@ Incremental fixes to the existing PERN stack codebase, organized by subsystem. E
     - Confirm deadline check rejects all actions after expiry
     - Confirm pending edits block accept and sign
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7_
-  - [ ]* 14.2 Write property tests for contract acceptance and signing
+  - [x] 14.2 Write property tests for contract acceptance and signing
     - **Property 32: Contract lifecycle ordering enforcement**
     - **Property 33: Signature data completeness**
     - **Property 34: Dual signature triggers admin_review and sets signedAt**
@@ -200,7 +200,7 @@ Incremental fixes to the existing PERN stack codebase, organized by subsystem. E
     - Confirm system message posted for voided contracts
     - Confirm voided contracts reject all further actions
     - _Requirements: 10.1, 10.2, 10.3, 10.4_
-  - [ ]* 15.2 Write property tests for deadline enforcement
+  - [x] 15.2 Write property tests for deadline enforcement
     - **Property 36: Deadline enforcement voids contracts and cancels bookings**
     - **Property 37: Voided contracts reject further actions**
     - **Validates: Requirements 10.1, 10.2, 10.4**

@@ -109,3 +109,172 @@ describe('Property 1: Role registration mapping preserves consistency', () => {
     );
   });
 });
+
+describe('Property 1 (extended): Arbitrary input handling', () => {
+  it('always returns a non-empty string for any input', () => {
+    /**Validates: Requirements 1.1, 1.2, 1.5 */
+    fc.assert(
+      fc.property(
+        fc.oneof(fc.string(), fc.constant(undefined), fc.constant(null)),
+        (role) => {
+          const result = normalizeRegistrationRole(role);
+          expect(typeof result).toBe('string');
+          expect(result.length).toBeGreaterThan(0);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('arbitrary string inputs that are valid roles remain valid after normalization', () => {
+    /**Validates: Requirements 1.1, 1.2 */
+    const validRoleInputs = fc.oneof(
+      ...VALID_ROLES.map((r) => fc.constant(r as string)),
+      fc.constant('venue'),
+    );
+
+    fc.assert(
+      fc.property(validRoleInputs, (role) => {
+        const normalized = normalizeRegistrationRole(role);
+        expect(VALID_ROLES).toContain(normalized);
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+
+
+import { resolveUserRole, resolveContractRole } from '../../server/role-resolver';
+
+/**
+ * Property 2: Role resolver treats venue and venue_manager identically
+ * Validates: Requirements 1.3, 1.4
+ *
+ * Feature: platform-core-fixes
+ * Property 2: Role resolver treats venue and venue_manager identically
+ *
+ * For any user with metadata.role set to either "venue" or "venue_manager",
+ * the role resolver should return the same canonical role string ("venue_manager"),
+ * and all authorization checks should produce identical results for both values.
+ */
+describe('Property 2: Role resolver treats venue and venue_manager identically', () => {
+  it('resolveUserRole returns the same canonical role for "venue" and "venue_manager"', () => {
+    /**Validates: Requirements 1.3, 1.4 */
+    fc.assert(
+      fc.property(
+        // Generate arbitrary optional profile entities to pair with the role
+        fc.record({
+          hasVenue: fc.boolean(),
+          hasOrganizer: fc.boolean(),
+          hasArtist: fc.boolean(),
+        }),
+        ({ hasVenue, hasOrganizer, hasArtist }) => {
+          const baseProps = {
+            ...(hasVenue ? { venue: { id: 1 } } : {}),
+            ...(hasOrganizer ? { organizer: { id: 1 } } : {}),
+            ...(hasArtist ? { artist: { id: 1 } } : {}),
+          };
+
+          const venueUser = { metadata: { role: 'venue' }, ...baseProps };
+          const venueManagerUser = { metadata: { role: 'venue_manager' }, ...baseProps };
+
+          const venueResult = resolveUserRole(venueUser);
+          const venueManagerResult = resolveUserRole(venueManagerUser);
+
+          expect(venueResult).toBe(venueManagerResult);
+          expect(venueResult).toBe('venue_manager');
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('resolveContractRole returns the same contract side for "venue" and "venue_manager"', () => {
+    /**Validates: Requirements 1.4 */
+    fc.assert(
+      fc.property(
+        // Generate an arbitrary fallback role to ensure metadata.role takes precedence
+        fc.oneof(
+          fc.constant(undefined),
+          fc.constant('artist'),
+          fc.constant('organizer'),
+          fc.constant('promoter'),
+        ),
+        (fallbackRole) => {
+          const venueUser = { metadata: { role: 'venue' }, role: fallbackRole };
+          const venueManagerUser = { metadata: { role: 'venue_manager' }, role: fallbackRole };
+
+          const venueResult = resolveContractRole(venueUser);
+          const venueManagerResult = resolveContractRole(venueManagerUser);
+
+          expect(venueResult).toBe(venueManagerResult);
+          expect(venueResult).toBe('promoter');
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('both resolvers agree: venue and venue_manager produce identical outcomes across all combinations', () => {
+    /**Validates: Requirements 1.3, 1.4 */
+    fc.assert(
+      fc.property(
+        fc.record({
+          hasVenue: fc.boolean(),
+          hasOrganizer: fc.boolean(),
+          hasArtist: fc.boolean(),
+          fallbackRole: fc.oneof(
+            fc.constant(undefined as string | undefined),
+            fc.constant('artist'),
+            fc.constant('organizer'),
+          ),
+        }),
+        ({ hasVenue, hasOrganizer, hasArtist, fallbackRole }) => {
+          const baseProps = {
+            ...(hasVenue ? { venue: { id: 1 } } : {}),
+            ...(hasOrganizer ? { organizer: { id: 1 } } : {}),
+            ...(hasArtist ? { artist: { id: 1 } } : {}),
+            ...(fallbackRole ? { role: fallbackRole } : {}),
+          };
+
+          const venueUser = { metadata: { role: 'venue' }, ...baseProps };
+          const venueManagerUser = { metadata: { role: 'venue_manager' }, ...baseProps };
+
+          // Frontend resolver: both must produce the same result
+          expect(resolveUserRole(venueUser)).toBe(resolveUserRole(venueManagerUser));
+
+          // Contract resolver: both must produce the same result
+          expect(resolveContractRole(venueUser)).toBe(resolveContractRole(venueManagerUser));
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('metadata.role takes precedence over profile entities for venue roles', () => {
+    /**Validates: Requirements 1.3 */
+    fc.assert(
+      fc.property(
+        fc.oneof(fc.constant('venue'), fc.constant('venue_manager')),
+        fc.record({
+          hasVenue: fc.boolean(),
+          hasOrganizer: fc.boolean(),
+          hasArtist: fc.boolean(),
+        }),
+        (role, { hasVenue, hasOrganizer, hasArtist }) => {
+          const user = {
+            metadata: { role },
+            ...(hasVenue ? { venue: { id: 1 } } : {}),
+            ...(hasOrganizer ? { organizer: { id: 1 } } : {}),
+            ...(hasArtist ? { artist: { id: 1 } } : {}),
+          };
+
+          // Regardless of which profile entities are attached,
+          // the metadata.role should win and resolve to venue_manager
+          expect(resolveUserRole(user)).toBe('venue_manager');
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});

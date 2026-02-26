@@ -28,9 +28,11 @@ function isDeadlinePassed(contract: any): boolean {
 function getUserRole(user: any): 'artist' | 'promoter' {
     const role = user.metadata?.role || user.role;
     if (role === 'artist' || role === 'band_manager') return 'artist';
-    // venue_manager, venue, organizer, promoter all map to promoter side
+    if (role === 'venue_manager' || role === 'venue' || role === 'organizer' || role === 'promoter') return 'promoter';
+    // Default to promoter for any unrecognized role on the contract side
     return 'promoter';
 }
+
 
 
 
