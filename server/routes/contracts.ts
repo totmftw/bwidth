@@ -1174,51 +1174,55 @@ router.get("/contracts/:id/pdf", async (req, res) => {
 // POST /api/contracts/check-deadlines
 // ============================================================================
 
-router.post("/contracts/check-deadlines", async (req, res) => {
-    try {
-        const now = new Date();
-        // Find all active contracts (not fully signed, not voided)
-        const activeContracts = await db.select().from(contracts)
-            .where(eq(contracts.status, 'sent'));
+export async function checkContractDeadlines() {
+    const now = new Date();
+    // Find all active contracts (not fully signed, not voided)
+    const activeContracts = await db.select().from(contracts)
+        .where(eq(contracts.status, 'sent'));
 
-        let voided = 0;
-        for (const contract of activeContracts) {
-            if (contract.deadlineAt && new Date(contract.deadlineAt) < now) {
-                await storage.updateContract(contract.id, {
-                    status: 'voided',
-                    updatedAt: now,
-                });
+    let voided = 0;
+    for (const contract of activeContracts) {
+        if (contract.deadlineAt && new Date(contract.deadlineAt) < now) {
+            await storage.updateContract(contract.id, {
+                status: 'voided',
+                updatedAt: now,
+            });
 
-                if (contract.bookingId) {
-                    await storage.updateBooking(contract.bookingId, {
-                        status: 'cancelled' as any,
-                        meta: {
-                            cancelReason: 'contract_deadline_expired',
-                            cancelledAt: now.toISOString(),
-                            cancelledBy: 'system',
-                        }
-                    });
-
-                    await postContractSystemMessage(contract.bookingId,
-                        `⏰ Contract voided: not signed within 48 hours. Booking cancelled automatically.`
-                    );
-                }
-
-                await storage.createAuditLog({
-                    who: null,
-                    action: "contract_voided_timeout",
-                    entityType: "contract",
-                    entityId: contract.id,
-                    context: {
-                        bookingId: contract.bookingId,
-                        deadline: contract.deadlineAt?.toISOString()
+            if (contract.bookingId) {
+                await storage.updateBooking(contract.bookingId, {
+                    status: 'cancelled' as any,
+                    meta: {
+                        cancelReason: 'contract_deadline_expired',
+                        cancelledAt: now.toISOString(),
+                        cancelledBy: 'system',
                     }
                 });
 
-                voided++;
+                await postContractSystemMessage(contract.bookingId,
+                    `⏰ Contract voided: not signed within 48 hours. Booking cancelled automatically.`
+                );
             }
-        }
 
+            await storage.createAuditLog({
+                who: null,
+                action: "contract_voided_timeout",
+                entityType: "contract",
+                entityId: contract.id,
+                context: {
+                    bookingId: contract.bookingId,
+                    deadline: contract.deadlineAt?.toISOString()
+                }
+            });
+
+            voided++;
+        }
+    }
+    return voided;
+}
+
+router.post("/contracts/check-deadlines", async (req, res) => {
+    try {
+        const voided = await checkContractDeadlines();
         res.json({ message: `Checked deadlines. ${voided} contract(s) voided.`, voided });
     } catch (error) {
         console.error("Error checking deadlines:", error);

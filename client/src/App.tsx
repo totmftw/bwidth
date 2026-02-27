@@ -27,6 +27,13 @@ import VenueDashboard from "@/pages/venue/VenueDashboard";
 import VenueProfile from "@/pages/venue/VenueProfile";
 import CreateEvent from "@/pages/venue/CreateEvent";
 
+// Organizer Pages
+import OrganizerDiscover from "@/pages/organizer/OrganizerDiscover";
+import OrganizerDashboard from "@/pages/organizer/OrganizerDashboard";
+import OrganizerSetup from "@/pages/organizer/OrganizerSetup";
+import OrganizerEvents from "@/pages/organizer/OrganizerEvents";
+import OrganizerEventCreate from "@/pages/organizer/OrganizerEventCreate";
+
 // Legacy pages as fallback
 import Dashboard from "@/pages/Dashboard";
 import Bookings from "@/pages/Bookings";
@@ -185,7 +192,7 @@ function RoleBasedDashboard() {
       return <ArtistDashboard />;
     case "organizer":
     case "promoter":
-      return <Dashboard />; // Use existing dashboard for organizers for now
+      return <OrganizerDashboard />;
     case "venue":
     case "venue_manager":
       return <VenueDashboard />;
@@ -259,6 +266,23 @@ function Router() {
       </Route>
       <Route path="/venue/events/create">
         <PrivateRoute component={CreateEvent} />
+      </Route>
+
+      {/* Organizer-specific Routes */}
+      <Route path="/organizer/setup">
+        <OrganizerSetup />
+      </Route>
+      <Route path="/organizer/dashboard">
+        <PrivateRoute component={OrganizerDashboard} />
+      </Route>
+      <Route path="/organizer/discover">
+        <PrivateRoute component={OrganizerDiscover} />
+      </Route>
+      <Route path="/organizer/events">
+        <PrivateRoute component={OrganizerEvents} />
+      </Route>
+      <Route path="/organizer/events/create">
+        <PrivateRoute component={OrganizerEventCreate} />
       </Route>
 
       {/* Protected Routes */}

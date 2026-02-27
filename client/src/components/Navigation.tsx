@@ -37,9 +37,9 @@ export function Sidebar() {
     },
     {
       label: "Discover",
-      href: "/explore",
+      href: role === "organizer" || role === "promoter" ? "/organizer/discover" : "/explore",
       icon: Search,
-      show: role === "organizer" || role === "venue_manager" || role === "venue"
+      show: role === "organizer" || role === "promoter" || role === "venue_manager" || role === "venue"
     },
     {
       label: "Bookings",

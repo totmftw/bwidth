@@ -6,74 +6,74 @@ Implement the complete Organizer/Promoter role workflow for the BANDWIDTH platfo
 
 ## Tasks
 
-- [ ] 1. Add Organizer route contracts and Zod validation schemas
-  - [ ] 1.1 Add organizer-specific API route contracts to `shared/routes.ts`
+- [x] 1. Add Organizer route contracts and Zod validation schemas
+  - [x] 1.1 Add organizer-specific API route contracts to `shared/routes.ts`
     - Add the `organizer` namespace to the `api` object with profile (get, update, complete, status), dashboard, events (list, create, update, delete, publish), bookings (list, get, complete), and activity route contracts
     - Define Zod input/output schemas for each endpoint matching the design's validation schemas (organizerOnboardingSchema, organizerProfileUpdateSchema, createEventSchema, completionConfirmSchema)
     - _Requirements: 14.4_
-  - [ ] 1.2 Write property tests for onboarding validation schema
+  - [x] 1.2 Write property tests for onboarding validation schema
     - **Property 3: Onboarding validation rejects incomplete input**
     - **Validates: Requirements 1.3**
 
-- [ ] 2. Implement Organizer storage methods
-  - [ ] 2.1 Add `updateOrganizer` method to `IStorage` interface and `DatabaseStorage` class in `server/storage.ts`
+- [x] 2. Implement Organizer storage methods
+  - [x] 2.1 Add `updateOrganizer` method to `IStorage` interface and `DatabaseStorage` class in `server/storage.ts`
     - Update the `promoters` table record by ID with partial data, set `updatedAt` to current timestamp
     - _Requirements: 10.3, 14.3_
-  - [ ] 2.2 Add `getOrganizerDashboardStats` method to `server/storage.ts`
+  - [x] 2.2 Add `getOrganizerDashboardStats` method to `server/storage.ts`
     - Aggregate queries: count events by organizer_id, count upcoming events (start_time > now), count active bookings (non-terminal statuses), count negotiating bookings, sum completed payment amounts, read trustScore from metadata
     - _Requirements: 2.1, 14.3_
-  - [ ] 2.3 Add `getEventsByOrganizer` method to `server/storage.ts`
+  - [x] 2.3 Add `getEventsByOrganizer` method to `server/storage.ts`
     - Query events where `organizer_id` matches, with optional status filter, ordered by start_time ascending
     - _Requirements: 5.4, 14.3_
-  - [ ] 2.4 Add `hasActiveBookings` and `deleteEvent` methods to `server/storage.ts`
+  - [x] 2.4 Add `hasActiveBookings` and `deleteEvent` methods to `server/storage.ts`
     - `hasActiveBookings`: check if event has bookings in non-terminal statuses (not cancelled/completed/refunded)
     - `deleteEvent`: delete event record by ID
     - _Requirements: 5.7, 14.3_
-  - [ ] 2.5 Add `getOrganizerBookingSummary` method to `server/storage.ts`
+  - [x] 2.5 Add `getOrganizerBookingSummary` method to `server/storage.ts`
     - Calculate totalBookings, completedBookings, cancellationRate, and averageBookingValue for the organizer's events
     - _Requirements: 10.5, 14.3_
-  - [ ] 2.6 Add `getRecentActivity` method to `server/storage.ts`
+  - [x] 2.6 Add `getRecentActivity` method to `server/storage.ts`
     - Query `audit_logs` where `who` matches user ID, ordered by `occurred_at` descending, limited to N entries
     - _Requirements: 2.5, 14.3_
-  - [ ] 2.7 Add `getPaymentsByBooking` and `getOrganizerPaymentTotal` methods to `server/storage.ts`
+  - [x] 2.7 Add `getPaymentsByBooking` and `getOrganizerPaymentTotal` methods to `server/storage.ts`
     - `getPaymentsByBooking`: query payments by booking ID
     - `getOrganizerPaymentTotal`: sum completed payment amounts for organizer's bookings
     - _Requirements: 11.1, 11.2, 14.3_
 
-  - [ ] 2.8 Write property tests for storage methods
+  - [x] 2.8 Write property tests for storage methods
     - **Property 6: Dashboard stats accuracy**
     - **Property 15: Events list contains only organizer's events**
     - **Property 34: Booking summary accuracy**
     - **Validates: Requirements 2.1, 5.4, 10.5**
 
-- [ ] 3. Implement Organizer API routes
-  - [ ] 3.1 Create `server/routes/organizer.ts` with auth and role middleware
+- [x] 3. Implement Organizer API routes
+  - [x] 3.1 Create `server/routes/organizer.ts` with auth and role middleware
     - Add authentication check (isAuthenticated) and role verification (organizer/promoter) middleware
     - Register the module in `server/routes.ts`
     - _Requirements: 13.5, 14.6_
-  - [ ] 3.2 Implement profile endpoints in `server/routes/organizer.ts`
+  - [x] 3.2 Implement profile endpoints in `server/routes/organizer.ts`
     - GET `/api/organizer/profile` — return organizer profile with user data
     - PUT `/api/organizer/profile` — validate with organizerProfileUpdateSchema, call updateOrganizer
     - POST `/api/organizer/profile/complete` — validate with organizerOnboardingSchema, set metadata.profileComplete=true, initialize trustScore=50, store contact_person and metadata fields
     - GET `/api/organizer/profile/status` — return { isComplete: boolean } from metadata.profileComplete
     - _Requirements: 1.1, 1.3, 1.4, 1.5, 10.2, 10.3_
-  - [ ] 3.3 Implement dashboard and activity endpoints
+  - [x] 3.3 Implement dashboard and activity endpoints
     - GET `/api/organizer/dashboard` — call getOrganizerDashboardStats, return stats object
     - GET `/api/organizer/activity` — call getRecentActivity with limit query param (default 10)
     - _Requirements: 2.1, 2.5_
-  - [ ] 3.4 Implement event CRUD endpoints
+  - [x] 3.4 Implement event CRUD endpoints
     - GET `/api/organizer/events` — call getEventsByOrganizer with optional status filter
     - POST `/api/organizer/events` — validate with createEventSchema, set organizer_id and status="draft", call createEvent
     - PUT `/api/organizer/events/:id` — validate ownership, check edit restrictions (locked fields if confirmed bookings exist), call updateEvent
     - DELETE `/api/organizer/events/:id` — check hasActiveBookings, reject with 409 if active bookings exist, otherwise call deleteEvent
     - PUT `/api/organizer/events/:id/publish` — validate event is in "draft" status, update status to "published"
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7_
-  - [ ] 3.5 Implement booking and completion endpoints
+  - [x] 3.5 Implement booking and completion endpoints
     - GET `/api/organizer/bookings` — call getBookingsByOrganizerWithDetails with optional status filter
     - GET `/api/organizer/bookings/:id` — call getBookingWithDetails, verify organizer ownership
     - POST `/api/organizer/bookings/:id/complete` — validate with completionConfirmSchema, record feedback in meta.completionFeedback, update booking status if both parties confirmed
     - _Requirements: 6.4, 6.6, 12.1, 12.2, 12.3_
-  - [ ] 3.6 Write property tests for API routes
+  - [x] 3.6 Write property tests for API routes
     - **Property 4: Onboarding round-trip**
     - **Property 5: Trust score initialization**
     - **Property 13: Event creation sets correct organizer and status**
@@ -83,31 +83,31 @@ Implement the complete Organizer/Promoter role workflow for the BANDWIDTH platfo
     - **Property 39: Unauthenticated access redirects to auth**
     - **Validates: Requirements 1.4, 1.5, 5.3, 5.5, 5.7, 6.3, 13.5**
 
-- [ ] 4. Checkpoint - Ensure all backend tests pass
+- [x] 4. Checkpoint - Ensure all backend tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Implement Organizer React hooks
-  - [ ] 5.1 Create `client/src/hooks/use-organizer.ts`
+- [x] 5. Implement Organizer React hooks
+  - [x] 5.1 Create `client/src/hooks/use-organizer.ts`
     - `useOrganizerProfile` — TanStack Query hook to fetch GET `/api/organizer/profile`
     - `useOrganizerProfileStatus` — query GET `/api/organizer/profile/status`, enabled when user role is organizer/promoter
     - `useUpdateOrganizerProfile` — mutation for PUT `/api/organizer/profile`
     - `useCompleteOnboarding` — mutation for POST `/api/organizer/profile/complete`, invalidates profile and status queries on success
     - _Requirements: 1.2, 1.4, 10.2, 10.3_
-  - [ ] 5.2 Create `client/src/hooks/use-organizer-events.ts`
+  - [x] 5.2 Create `client/src/hooks/use-organizer-events.ts`
     - `useOrganizerEvents` — query GET `/api/organizer/events` with optional status filter
     - `useCreateEvent` — mutation for POST `/api/organizer/events`, invalidates events query
     - `useUpdateEvent` — mutation for PUT `/api/organizer/events/:id`
     - `useDeleteEvent` — mutation for DELETE `/api/organizer/events/:id`
     - `usePublishEvent` — mutation for PUT `/api/organizer/events/:id/publish`
     - _Requirements: 5.1, 5.3, 5.4, 5.5, 5.6, 5.7_
-  - [ ] 5.3 Create `client/src/hooks/use-organizer-stats.ts`
+  - [x] 5.3 Create `client/src/hooks/use-organizer-stats.ts`
     - `useOrganizerDashboardStats` — query GET `/api/organizer/dashboard`
     - `useOrganizerActivity` — query GET `/api/organizer/activity?limit=10`
     - `useOrganizerBookingSummary` — query derived from profile data or separate endpoint
     - _Requirements: 2.1, 2.5, 10.5_
 
-- [ ] 6. Implement Organizer Onboarding Wizard page
-  - [ ] 6.1 Create `client/src/pages/organizer/OrganizerSetup.tsx`
+- [x] 6. Implement Organizer Onboarding Wizard page
+  - [x] 6.1 Create `client/src/pages/organizer/OrganizerSetup.tsx`
     - Multi-step form using React Hook Form + Zod (organizerOnboardingSchema)
     - Step 1: Organization name and description
     - Step 2: Contact person details (name, email, phone)
@@ -116,22 +116,22 @@ Implement the complete Organizer/Promoter role workflow for the BANDWIDTH platfo
     - On submit, call useCompleteOnboarding mutation, redirect to `/dashboard` on success
     - _Requirements: 1.2, 1.3, 1.4, 1.6_
 
-- [ ] 7. Implement Organizer Dashboard page
-  - [ ] 7.1 Create `client/src/pages/organizer/OrganizerDashboard.tsx`
+- [x] 7. Implement Organizer Dashboard page
+  - [x] 7.1 Create `client/src/pages/organizer/OrganizerDashboard.tsx`
     - Display stat cards: total events, upcoming events, active bookings, pending negotiations, total spent, trust score using useOrganizerDashboardStats hook
     - Display upcoming events list sorted by start time ascending with event title, date, venue name, confirmed artist count
     - Display pending actions list: unsigned contracts, unanswered negotiations, unconfirmed completions, overdue payments — each clickable to navigate to relevant detail view
     - Display recent activity feed (last 10 items) using useOrganizerActivity hook with timestamps
     - Show persistent profile completion banner if profile is incomplete (useOrganizerProfileStatus)
     - _Requirements: 1.6, 2.1, 2.2, 2.3, 2.4, 2.5_
-  - [ ] 7.2 Write property tests for dashboard data
+  - [x] 7.2 Write property tests for dashboard data
     - **Property 7: Upcoming events sorted ascending**
     - **Property 8: Pending actions completeness**
     - **Property 9: Activity feed ordering and limit**
     - **Validates: Requirements 2.2, 2.3, 2.5**
 
-- [ ] 8. Implement Discovery pages
-  - [ ] 8.1 Create `client/src/pages/organizer/OrganizerDiscover.tsx` with Artist discovery tab
+- [x] 8. Implement Discovery pages
+  - [x] 8.1 Create `client/src/pages/organizer/OrganizerDiscover.tsx` with Artist discovery tab
     - Tab toggle between Artist and Venue discovery
     - Artist tab: searchable, filterable list of active artists displayed as cards (name, genre, photo placeholder, price range, trust score badge, rating)
     - Filters: genre multi-select, budget range min/max slider, location/city, minimum trust score, availability date range
@@ -139,71 +139,71 @@ Implement the complete Organizer/Promoter role workflow for the BANDWIDTH platfo
     - Click artist card to show full profile (bio, genres, portfolio links, past venues, performance history)
     - "Send Booking Offer" button on artist profile that opens BookingModal component
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
-  - [ ] 8.2 Add Venue discovery tab to `OrganizerDiscover.tsx`
+  - [x] 8.2 Add Venue discovery tab to `OrganizerDiscover.tsx`
     - Venue tab: filterable list of venues displayed as cards (name, city, capacity, rating, description excerpt)
     - Filters: capacity range, city/location, amenities
     - Click venue card to show full profile (description, address, capacity details, amenities, photos)
     - "Create Event at this Venue" button that navigates to event creation form with venue pre-filled
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5_
-  - [ ] 8.3 Write property tests for discovery filtering and sorting
+  - [x] 8.3 Write property tests for discovery filtering and sorting
     - **Property 10: Artist filter conjunction**
     - **Property 11: Artist sort ordering**
     - **Property 12: Venue filter conjunction**
     - **Validates: Requirements 3.2, 3.3, 3.6, 4.2**
 
-- [ ] 9. Implement Event management pages
-  - [ ] 9.1 Create `client/src/pages/organizer/OrganizerEvents.tsx`
+- [x] 9. Implement Event management pages
+  - [x] 9.1 Create `client/src/pages/organizer/OrganizerEvents.tsx`
     - Display all organizer events grouped by status (draft, published, completed, cancelled)
     - Show event title, date, venue, booking count per event
     - Action buttons: Edit (draft/published), Publish (draft only), Delete (no active bookings)
     - Link to event creation page
     - _Requirements: 5.4, 5.5, 5.6, 5.7_
-  - [ ] 9.2 Create `client/src/pages/organizer/OrganizerEventCreate.tsx`
+  - [x] 9.2 Create `client/src/pages/organizer/OrganizerEventCreate.tsx`
     - Form collecting: title, description, date/start time, end time, door time (optional), venue selection (dropdown or manual), capacity, currency, visibility (public/private)
     - Dynamic stages section: add/remove stages with name, start time, end time, capacity
     - Validate with createEventSchema, submit via useCreateEvent mutation
     - Support pre-filled venue from discovery page (via URL query param or location state)
     - On success, redirect to events list
     - _Requirements: 5.1, 5.2, 5.3_
-  - [ ] 9.3 Write property tests for event lifecycle
+  - [x] 9.3 Write property tests for event lifecycle
     - **Property 14: Event creation persists stages**
     - **Property 17: Event edit restrictions with confirmed bookings**
     - **Validates: Requirements 5.2, 5.6**
 
-- [ ] 10. Checkpoint - Ensure all tests pass
+- [x] 10. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 11. Implement Organizer Bookings page
-  - [ ] 11.1 Create `client/src/pages/organizer/OrganizerBookings.tsx`
+- [x] 11. Implement Organizer Bookings page
+  - [x] 11.1 Create `client/src/pages/organizer/OrganizerBookings.tsx`
     - Display all bookings grouped by status with columns: artist name, event title, amount, status, last updated
     - For "inquiry" bookings (artist applications): show artist's proposed fee, message, profile link, and action buttons (Accept, Counter-Offer, Decline)
     - Booking detail view: show full booking info, negotiation history, contract status, payment timeline
     - Reuse existing shared components: ContractViewer, NegotiationFlow, NegotiationChat, OfferComparison, CounterOfferForm, DynamicActionPanel
     - _Requirements: 6.4, 6.5, 6.6, 6.7, 7.4, 7.5, 7.7_
-  - [ ] 11.2 Implement negotiation display in booking detail
+  - [x] 11.2 Implement negotiation display in booking detail
     - Show comparison table of original offer vs current counter-offer with changed fields highlighted
     - Display current negotiation round number and remaining rounds
     - Counter-offer form: amount, slot time, message — validate round < 3 before allowing
     - Accept/Decline buttons with appropriate status transitions
     - _Requirements: 7.1, 7.2, 7.4, 7.5, 7.6, 7.7_
-  - [ ] 11.3 Implement contract management in booking detail
+  - [x] 11.3 Implement contract management in booking detail
     - Display contract text with highlighted sections: party details, performance details, financial terms, cancellation policy, slot time protection
     - Show signing deadline countdown (48 hours from creation)
     - Sign button for organizer — records signature via existing contract signing API
     - Display contract status and both party signature statuses
     - Edit request button (one per party) — tracked via contract_edit_requests
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7_
-  - [ ] 11.4 Implement payment timeline in booking detail
+  - [x] 11.4 Implement payment timeline in booking detail
     - Display payment milestones: deposit (on signing), pre-event (7 days before), final (post-event) with status and due dates
     - Show platform commission as separate line item (2-5% of booking amount)
     - Highlight overdue payments with warning indicator
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5_
-  - [ ] 11.5 Implement event completion confirmation in booking detail
+  - [x] 11.5 Implement event completion confirmation in booking detail
     - After event end time, show completion confirmation form: checkbox confirming performance, rating (1-5 stars), optional private note
     - Submit via POST `/api/organizer/bookings/:id/complete`
     - Display auto-confirm notice (48-hour deadline)
     - _Requirements: 12.1, 12.2, 12.3, 12.4_
-  - [ ] 11.6 Write property tests for booking and negotiation logic
+  - [x] 11.6 Write property tests for booking and negotiation logic
     - **Property 19: Booking offer creates correct record**
     - **Property 22: Acceptance transitions to contracting**
     - **Property 23: Counter-offer increments negotiation round**
@@ -213,35 +213,35 @@ Implement the complete Organizer/Promoter role workflow for the BANDWIDTH platfo
     - **Validates: Requirements 6.2, 6.7, 7.1, 7.2, 7.6, 8.1, 12.2, 12.3**
 
 - [ ] 12. Implement Organizer Messages page
-  - [ ] 12.1 Create `client/src/pages/organizer/OrganizerMessages.tsx`
+  - [~] 12.1 Create `client/src/pages/organizer/OrganizerMessages.tsx`
     - Display conversation list sorted by last message timestamp descending, showing other participant name, last message preview, unread indicator
     - Conversation detail view: full message history with sender name, body, timestamp
     - Message input form: send message via existing conversations API, update conversation lastMessageAt
     - Unread message count badge (used by navigation)
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
-  - [ ] 12.2 Write property tests for messaging
+  - [~] 12.2 Write property tests for messaging
     - **Property 30: Conversation auto-creation on booking**
     - **Property 31: Conversations sorted by last message**
     - **Property 32: Message creation updates conversation timestamp**
     - **Validates: Requirements 9.1, 9.2, 9.4**
 
 - [ ] 13. Implement Organizer Profile page
-  - [ ] 13.1 Create `client/src/pages/organizer/OrganizerProfile.tsx`
+  - [~] 13.1 Create `client/src/pages/organizer/OrganizerProfile.tsx`
     - Display view mode: organization name, description, contact person, website, past events count, trust score, account creation date
     - Edit mode: update organization name, description, contact person, website, social media links — validate with organizerProfileUpdateSchema
     - Read-only trust score section with score value and calculation explanation
     - Booking history summary: total bookings, completed, cancellation rate, average booking value using useOrganizerBookingSummary
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
-  - [ ] 13.2 Write property tests for profile management
+  - [~] 13.2 Write property tests for profile management
     - **Property 33: Profile update round-trip**
     - **Validates: Requirements 10.3**
 
 - [ ] 14. Wire up navigation and routing
-  - [ ] 14.1 Update `client/src/components/Navigation.tsx` Sidebar component
+  - [~] 14.1 Update `client/src/components/Navigation.tsx` Sidebar component
     - Add organizer/promoter role case with nav items: Dashboard (/dashboard), Discover (/organizer/discover), Events (/organizer/events), Bookings (/bookings), Messages (/organizer/messages), Profile (/profile)
     - Include unread message count badge on Messages link
     - _Requirements: 1.7, 13.1_
-  - [ ] 14.2 Update `client/src/App.tsx` with organizer routes and role-based components
+  - [~] 14.2 Update `client/src/App.tsx` with organizer routes and role-based components
     - Add `useOrganizerStatus` hook (similar to existing useProfileStatus/useVenueStatus) to check profile completion
     - Add organizer profile completion redirect in PrivateRoute: if role is organizer/promoter and profile not complete and not on /organizer/setup, redirect to /organizer/setup
     - Add new routes: /organizer/setup, /organizer/discover, /organizer/events, /organizer/events/create, /organizer/messages
@@ -249,7 +249,7 @@ Implement the complete Organizer/Promoter role workflow for the BANDWIDTH platfo
     - Update RoleBasedBookings: organizer/promoter → OrganizerBookings
     - Update RoleBasedProfile: organizer/promoter → OrganizerProfile
     - _Requirements: 1.2, 13.1, 13.2, 13.3, 13.4, 13.5_
-  - [ ] 14.3 Write property tests for routing and auth guards
+  - [~] 14.3 Write property tests for routing and auth guards
     - **Property 2: Incomplete profile triggers redirect**
     - **Property 39: Unauthenticated access redirects to auth**
     - **Validates: Requirements 1.2, 13.5**

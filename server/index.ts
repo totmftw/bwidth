@@ -111,15 +111,10 @@ app.use((req, res, next) => {
       // Contract deadline enforcement: check every 5 minutes
       setInterval(async () => {
         try {
-          const res = await fetch(`http://127.0.0.1:${port}/api/contracts/check-deadlines`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.voided > 0) {
-              log(`[ContractTimeout] Voided ${data.voided} expired contract(s)`);
-            }
+          const { checkContractDeadlines } = await import("./routes/contracts");
+          const voided = await checkContractDeadlines();
+          if (voided > 0) {
+            log(`[ContractTimeout] Voided ${voided} expired contract(s)`);
           }
         } catch (err) {
           // Silent fail - server may not be fully ready yet

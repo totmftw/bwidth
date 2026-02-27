@@ -4,14 +4,32 @@ import {
   contractVersions, contractEditRequests, contractSignatures, messages, conversations, conversationParticipants,
   roles,
   userRoles,
+  payments,
   type User, type Artist, type Organizer, type Venue, type Booking, type Event, type Contract, type AuditLog,
   type InsertUser, type InsertArtist, type InsertOrganizer, type InsertVenue, type InsertBooking, type InsertContract, type InsertAuditLog, type InsertEvent,
   type ContractVersion, type InsertContractVersion,
   type ContractEditRequest, type InsertContractEditRequest,
   type ContractSignature, type InsertContractSignature,
-  type Message
+  type Message,
+  type Payment
 } from "@shared/schema";
-import { eq, sql, or, and, desc } from "drizzle-orm";
+
+export interface OrganizerDashboardStats {
+  totalEvents: number;
+  upcomingEvents: number;
+  activeBookings: number;
+  pendingNegotiations: number;
+  totalSpent: number;
+  trustScore: number;
+}
+
+export interface BookingSummary {
+  totalBookings: number;
+  completedBookings: number;
+  cancellationRate: number;
+  averageBookingValue: number;
+}
+import { eq, sql, or, and, desc, asc } from "drizzle-orm";
 
 export interface IStorage {
   // User & Auth
@@ -28,6 +46,7 @@ export interface IStorage {
 
   getOrganizerByUserId(userId: number): Promise<Organizer | undefined>;
   createOrganizer(organizer: InsertOrganizer): Promise<Organizer>;
+  updateOrganizer(id: number, data: Partial<InsertOrganizer>): Promise<Organizer>;
   getOrganizer(id: number): Promise<(Organizer & { user: User, [key: string]: any }) | undefined>;
 
   getVenueByUserId(userId: number): Promise<Venue | undefined>;
@@ -78,10 +97,27 @@ export interface IStorage {
 
   // Audit Logs
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+  getRecentActivity(userId: number, limit?: number): Promise<AuditLog[]>;
 
   // Venue Dashboard
   getVenueUpcomingEvents(venueId: number): Promise<any[]>;
   getVenueDashboardStats(venueId: number): Promise<any>;
+
+  // Organizer Dashboard
+  getOrganizerDashboardStats(promoterId: number): Promise<OrganizerDashboardStats>;
+
+  // Organizer Bookings
+  getOrganizerBookingSummary(organizerId: number): Promise<BookingSummary>;
+
+  // Organizer Events
+  getEventsByOrganizer(organizerId: number, status?: string): Promise<Event[]>;
+  hasActiveBookings(eventId: number): Promise<boolean>;
+  deleteEvent(eventId: number): Promise<void>;
+
+  // Organizer Payments
+  getPaymentsByBooking(bookingId: number): Promise<Payment[]>;
+  getOrganizerPaymentTotal(organizerId: number): Promise<number>;
+
   // Admin Methods
   getAllUsers(): Promise<User[]>;
   updateUserStatus(id: number, status: string): Promise<User>;
@@ -191,6 +227,11 @@ export class DatabaseStorage implements IStorage {
   async createOrganizer(organizer: InsertOrganizer): Promise<Organizer> {
     const [newOrganizer] = await db.insert(promoters).values(organizer).returning();
     return newOrganizer;
+  }
+
+  async updateOrganizer(id: number, data: Partial<InsertOrganizer>): Promise<Organizer> {
+    const [updated] = await db.update(promoters).set({ ...data, updatedAt: new Date() }).where(eq(promoters.id, id)).returning();
+    return updated;
   }
 
   async getOrganizer(id: number): Promise<(Organizer & { user: User, [key: string]: any }) | undefined> {
@@ -587,6 +628,15 @@ export class DatabaseStorage implements IStorage {
     return newLog;
   }
 
+  async getRecentActivity(userId: number, limit: number = 10): Promise<AuditLog[]> {
+    return await db
+      .select()
+      .from(auditLogs)
+      .where(eq(auditLogs.who, userId))
+      .orderBy(desc(auditLogs.occurredAt))
+      .limit(limit);
+  }
+
   async getVenueUpcomingEvents(venueId: number): Promise<any[]> {
     const results = await db
       .select({
@@ -643,6 +693,170 @@ export class DatabaseStorage implements IStorage {
       trustScore: 88, // Mock for now
       pendingRequests: Number(pendingRequestsCount?.count || 0),
     };
+  }
+
+  async getOrganizerDashboardStats(promoterId: number): Promise<OrganizerDashboardStats> {
+    const now = new Date();
+
+    // Count total events by organizer
+    const [totalEventsResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(events)
+      .where(eq(events.organizerId, promoterId));
+
+    // Count upcoming events (start_time > now)
+    const [upcomingEventsResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(events)
+      .where(sql`${events.organizerId} = ${promoterId} AND ${events.startTime} > ${now}`);
+
+    // Count active bookings (non-terminal statuses: not cancelled, completed, refunded)
+    const [activeBookingsResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .innerJoin(events, eq(bookings.eventId, events.id))
+      .where(
+        sql`${events.organizerId} = ${promoterId} AND ${bookings.status} NOT IN ('cancelled', 'completed', 'refunded')`
+      );
+
+    // Count negotiating bookings
+    const [negotiatingResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .innerJoin(events, eq(bookings.eventId, events.id))
+      .where(
+        sql`${events.organizerId} = ${promoterId} AND ${bookings.status} = 'negotiating'`
+      );
+
+    // Sum completed payment amounts for organizer's bookings
+    const [totalSpentResult] = await db
+      .select({ total: sql<string>`COALESCE(SUM(${payments.amount}), 0)` })
+      .from(payments)
+      .innerJoin(bookings, eq(payments.bookingId, bookings.id))
+      .innerJoin(events, eq(bookings.eventId, events.id))
+      .where(
+        sql`${events.organizerId} = ${promoterId} AND ${payments.status} = 'captured'`
+      );
+
+    // Read trustScore from promoter metadata
+    const [promoter] = await db
+      .select({ metadata: promoters.metadata })
+      .from(promoters)
+      .where(eq(promoters.id, promoterId));
+
+    const metadata = (promoter?.metadata as Record<string, any>) || {};
+    const trustScore = typeof metadata.trustScore === 'number' ? metadata.trustScore : 0;
+
+    return {
+      totalEvents: Number(totalEventsResult?.count || 0),
+      upcomingEvents: Number(upcomingEventsResult?.count || 0),
+      activeBookings: Number(activeBookingsResult?.count || 0),
+      pendingNegotiations: Number(negotiatingResult?.count || 0),
+      totalSpent: parseFloat(totalSpentResult?.total || '0'),
+      trustScore,
+    };
+  }
+
+  async getEventsByOrganizer(organizerId: number, status?: string): Promise<Event[]> {
+    const conditions = [eq(events.organizerId, organizerId)];
+    if (status) {
+      conditions.push(eq(events.status, status));
+    }
+    return await db
+      .select()
+      .from(events)
+      .where(and(...conditions))
+      .orderBy(asc(events.startTime));
+  }
+
+  async hasActiveBookings(eventId: number): Promise<boolean> {
+    const [result] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .where(
+        sql`${bookings.eventId} = ${eventId} AND ${bookings.status} NOT IN ('cancelled', 'completed', 'refunded')`
+      );
+    return Number(result?.count || 0) > 0;
+  }
+
+  async deleteEvent(eventId: number): Promise<void> {
+    await db.delete(events).where(eq(events.id, eventId));
+  }
+
+  async getOrganizerBookingSummary(organizerId: number): Promise<BookingSummary> {
+    // Count total bookings for organizer's events
+    const [totalResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .innerJoin(events, eq(bookings.eventId, events.id))
+      .where(eq(events.organizerId, organizerId));
+
+    const totalBookings = Number(totalResult?.count || 0);
+
+    // Count completed bookings
+    const [completedResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .innerJoin(events, eq(bookings.eventId, events.id))
+      .where(
+        sql`${events.organizerId} = ${organizerId} AND ${bookings.status} = 'completed'`
+      );
+
+    const completedBookings = Number(completedResult?.count || 0);
+
+    // Count cancelled bookings
+    const [cancelledResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .innerJoin(events, eq(bookings.eventId, events.id))
+      .where(
+        sql`${events.organizerId} = ${organizerId} AND ${bookings.status} = 'cancelled'`
+      );
+
+    const cancelledBookings = Number(cancelledResult?.count || 0);
+
+    // Calculate cancellation rate (handle division by zero)
+    const cancellationRate = totalBookings > 0
+      ? (cancelledBookings / totalBookings) * 100
+      : 0;
+
+    // Calculate average booking value from completed bookings' finalAmount
+    const [avgResult] = await db
+      .select({ avg: sql<string>`COALESCE(AVG(${bookings.finalAmount}), 0)` })
+      .from(bookings)
+      .innerJoin(events, eq(bookings.eventId, events.id))
+      .where(
+        sql`${events.organizerId} = ${organizerId} AND ${bookings.status} = 'completed'`
+      );
+
+    const averageBookingValue = parseFloat(avgResult?.avg || '0');
+
+    return {
+      totalBookings,
+      completedBookings,
+      cancellationRate,
+      averageBookingValue,
+    };
+  }
+
+  // Organizer Payments
+  async getPaymentsByBooking(bookingId: number): Promise<Payment[]> {
+    return await db
+      .select()
+      .from(payments)
+      .where(eq(payments.bookingId, bookingId));
+  }
+
+  async getOrganizerPaymentTotal(organizerId: number): Promise<number> {
+    const [result] = await db
+      .select({ total: sql<string>`COALESCE(SUM(${payments.amount}), 0)` })
+      .from(payments)
+      .innerJoin(bookings, eq(payments.bookingId, bookings.id))
+      .innerJoin(events, eq(bookings.eventId, events.id))
+      .where(
+        sql`${events.organizerId} = ${organizerId} AND ${payments.status} = 'captured'`
+      );
+    return parseFloat(result?.total || '0');
   }
 
   // Admin Methods
