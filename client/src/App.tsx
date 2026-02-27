@@ -33,6 +33,9 @@ import OrganizerDashboard from "@/pages/organizer/OrganizerDashboard";
 import OrganizerSetup from "@/pages/organizer/OrganizerSetup";
 import OrganizerEvents from "@/pages/organizer/OrganizerEvents";
 import OrganizerEventCreate from "@/pages/organizer/OrganizerEventCreate";
+import OrganizerMessages from "@/pages/organizer/OrganizerMessages";
+import OrganizerBookings from "@/pages/organizer/OrganizerBookings";
+import OrganizerProfile from "@/pages/organizer/OrganizerProfile";
 
 // Legacy pages as fallback
 import Dashboard from "@/pages/Dashboard";
@@ -72,6 +75,20 @@ function useVenueStatus() {
       return await res.json();
     },
     enabled: !!user && (user.role === "venue_manager" || user.role === "venue"),
+    staleTime: 60000,
+  });
+}
+
+function useOrganizerStatus() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["/api/organizer/profile/status"],
+    queryFn: async () => {
+      const res = await fetch("/api/organizer/profile/status", { credentials: "include" });
+      if (!res.ok) return { isComplete: true };
+      return await res.json();
+    },
+    enabled: !!user && (user.role === "organizer" || user.role === "promoter"),
     staleTime: 60000,
   });
 }
@@ -119,9 +136,10 @@ function PrivateRoute({ component: Component }: { component: React.ComponentType
   const { user, isLoading } = useAuth();
   const { data: artistStatus, isLoading: isArtistLoading } = useProfileStatus();
   const { data: venueStatus, isLoading: isVenueLoading } = useVenueStatus();
+  const { data: organizerStatus, isLoading: isOrganizerLoading } = useOrganizerStatus();
   const [location, setLocation] = useLocation();
 
-  if (isLoading || isArtistLoading || isVenueLoading) {
+  if (isLoading || isArtistLoading || isVenueLoading || isOrganizerLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background text-primary">
         <Loader2 className="w-10 h-10 animate-spin" />
@@ -143,6 +161,10 @@ function PrivateRoute({ component: Component }: { component: React.ComponentType
 
     if ((user.role === "venue_manager" || user.role === "venue") && venueStatus && !venueStatus.isComplete && !location.startsWith("/venue/setup") && !location.startsWith("/venue-onboarding")) {
       return <Redirect to="/venue/setup" />;
+    }
+
+    if ((user.role === "organizer" || user.role === "promoter") && organizerStatus && !organizerStatus.isComplete && !location.startsWith("/organizer/setup")) {
+      return <Redirect to="/organizer/setup" />;
     }
   }
 
@@ -213,6 +235,9 @@ function RoleBasedBookings() {
   switch (role) {
     case "artist":
       return <ArtistBookings />;
+    case "organizer":
+    case "promoter":
+      return <OrganizerBookings />;
     case "venue":
     case "venue_manager":
       return <VenueBookings />;
@@ -231,6 +256,9 @@ function RoleBasedProfile() {
   switch (role) {
     case "artist":
       return <ArtistProfile />;
+    case "organizer":
+    case "promoter":
+      return <OrganizerProfile />;
     case "venue":
     case "venue_manager":
       return <VenueProfile />;
@@ -272,9 +300,6 @@ function Router() {
       <Route path="/organizer/setup">
         <OrganizerSetup />
       </Route>
-      <Route path="/organizer/dashboard">
-        <PrivateRoute component={OrganizerDashboard} />
-      </Route>
       <Route path="/organizer/discover">
         <PrivateRoute component={OrganizerDiscover} />
       </Route>
@@ -283,6 +308,9 @@ function Router() {
       </Route>
       <Route path="/organizer/events/create">
         <PrivateRoute component={OrganizerEventCreate} />
+      </Route>
+      <Route path="/organizer/messages">
+        <PrivateRoute component={OrganizerMessages} />
       </Route>
 
       {/* Protected Routes */}

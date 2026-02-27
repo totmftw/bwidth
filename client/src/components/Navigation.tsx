@@ -8,7 +8,9 @@ import {
   LogOut,
   LayoutDashboard,
   Settings,
-  Search
+  Search,
+  CalendarDays,
+  MessageSquare
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -28,32 +30,77 @@ export function Sidebar() {
 
   const role = user.role;
 
-  const navItems = [
-    {
-      label: "Dashboard",
-      href: "/dashboard",
-      icon: LayoutDashboard,
-      show: true
-    },
-    {
-      label: "Discover",
-      href: role === "organizer" || role === "promoter" ? "/organizer/discover" : "/explore",
-      icon: Search,
-      show: role === "organizer" || role === "promoter" || role === "venue_manager" || role === "venue"
-    },
-    {
-      label: "Bookings",
-      href: "/bookings",
-      icon: Calendar,
-      show: true
-    },
-    {
-      label: "Profile",
-      href: "/profile",
-      icon: Users,
-      show: true
-    }
-  ];
+  // Define nav items based on role
+  let navItems;
+
+  if (role === "organizer" || role === "promoter") {
+    navItems = [
+      {
+        label: "Dashboard",
+        href: "/dashboard",
+        icon: LayoutDashboard,
+        show: true
+      },
+      {
+        label: "Discover",
+        href: "/organizer/discover",
+        icon: Search,
+        show: true
+      },
+      {
+        label: "Events",
+        href: "/organizer/events",
+        icon: CalendarDays,
+        show: true
+      },
+      {
+        label: "Bookings",
+        href: "/bookings",
+        icon: Calendar,
+        show: true
+      },
+      {
+        label: "Messages",
+        href: "/organizer/messages",
+        icon: MessageSquare,
+        show: true,
+        badge: 0 // TODO: Wire up unread count from useConversations hook
+      },
+      {
+        label: "Profile",
+        href: "/profile",
+        icon: Users,
+        show: true
+      }
+    ];
+  } else {
+    navItems = [
+      {
+        label: "Dashboard",
+        href: "/dashboard",
+        icon: LayoutDashboard,
+        show: true
+      },
+      {
+        label: "Discover",
+        href: role === "venue_manager" || role === "venue" ? "/explore" : "/explore",
+        icon: Search,
+        show: role === "venue_manager" || role === "venue"
+      },
+      {
+        label: "Bookings",
+        href: "/bookings",
+        icon: Calendar,
+        show: true
+      },
+      {
+        label: "Profile",
+        href: "/profile",
+        icon: Users,
+        show: true
+      }
+    ];
+  }
 
   return (
     <div className="hidden md:flex h-screen w-64 flex-col border-r border-border/50 bg-card/30 backdrop-blur-xl fixed left-0 top-0">
@@ -69,7 +116,7 @@ export function Sidebar() {
           <Link key={item.href} href={item.href}>
             <div
               className={`
-                flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 cursor-pointer
+                flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 cursor-pointer relative
                 ${location === item.href
                   ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
                   : "text-muted-foreground hover:text-foreground hover:bg-white/5"}
@@ -77,6 +124,11 @@ export function Sidebar() {
             >
               <item.icon className="w-5 h-5" />
               <span className="font-medium">{item.label}</span>
+              {item.badge !== undefined && item.badge > 0 && (
+                <span className="ml-auto bg-destructive text-destructive-foreground text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                  {item.badge > 9 ? '9+' : item.badge}
+                </span>
+              )}
             </div>
           </Link>
         ))}

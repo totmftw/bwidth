@@ -212,36 +212,36 @@ Implement the complete Organizer/Promoter role workflow for the BANDWIDTH platfo
     - **Property 37: Completion confirmation records feedback**
     - **Validates: Requirements 6.2, 6.7, 7.1, 7.2, 7.6, 8.1, 12.2, 12.3**
 
-- [ ] 12. Implement Organizer Messages page
-  - [~] 12.1 Create `client/src/pages/organizer/OrganizerMessages.tsx`
+- [x] 12. Implement Organizer Messages page
+  - [x] 12.1 Create `client/src/pages/organizer/OrganizerMessages.tsx`
     - Display conversation list sorted by last message timestamp descending, showing other participant name, last message preview, unread indicator
     - Conversation detail view: full message history with sender name, body, timestamp
     - Message input form: send message via existing conversations API, update conversation lastMessageAt
     - Unread message count badge (used by navigation)
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
-  - [~] 12.2 Write property tests for messaging
+  - [x] 12.2 Write property tests for messaging
     - **Property 30: Conversation auto-creation on booking**
     - **Property 31: Conversations sorted by last message**
     - **Property 32: Message creation updates conversation timestamp**
     - **Validates: Requirements 9.1, 9.2, 9.4**
 
-- [ ] 13. Implement Organizer Profile page
-  - [~] 13.1 Create `client/src/pages/organizer/OrganizerProfile.tsx`
+- [x] 13. Implement Organizer Profile page
+  - [x] 13.1 Create `client/src/pages/organizer/OrganizerProfile.tsx`
     - Display view mode: organization name, description, contact person, website, past events count, trust score, account creation date
     - Edit mode: update organization name, description, contact person, website, social media links — validate with organizerProfileUpdateSchema
     - Read-only trust score section with score value and calculation explanation
     - Booking history summary: total bookings, completed, cancellation rate, average booking value using useOrganizerBookingSummary
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
-  - [~] 13.2 Write property tests for profile management
+  - [x] 13.2 Write property tests for profile management
     - **Property 33: Profile update round-trip**
     - **Validates: Requirements 10.3**
 
-- [ ] 14. Wire up navigation and routing
-  - [~] 14.1 Update `client/src/components/Navigation.tsx` Sidebar component
+- [x] 14. Wire up navigation and routing
+  - [x] 14.1 Update `client/src/components/Navigation.tsx` Sidebar component
     - Add organizer/promoter role case with nav items: Dashboard (/dashboard), Discover (/organizer/discover), Events (/organizer/events), Bookings (/bookings), Messages (/organizer/messages), Profile (/profile)
     - Include unread message count badge on Messages link
     - _Requirements: 1.7, 13.1_
-  - [~] 14.2 Update `client/src/App.tsx` with organizer routes and role-based components
+  - [x] 14.2 Update `client/src/App.tsx` with organizer routes and role-based components
     - Add `useOrganizerStatus` hook (similar to existing useProfileStatus/useVenueStatus) to check profile completion
     - Add organizer profile completion redirect in PrivateRoute: if role is organizer/promoter and profile not complete and not on /organizer/setup, redirect to /organizer/setup
     - Add new routes: /organizer/setup, /organizer/discover, /organizer/events, /organizer/events/create, /organizer/messages
@@ -249,12 +249,12 @@ Implement the complete Organizer/Promoter role workflow for the BANDWIDTH platfo
     - Update RoleBasedBookings: organizer/promoter → OrganizerBookings
     - Update RoleBasedProfile: organizer/promoter → OrganizerProfile
     - _Requirements: 1.2, 13.1, 13.2, 13.3, 13.4, 13.5_
-  - [~] 14.3 Write property tests for routing and auth guards
+  - [x] 14.3 Write property tests for routing and auth guards
     - **Property 2: Incomplete profile triggers redirect**
     - **Property 39: Unauthenticated access redirects to auth**
     - **Validates: Requirements 1.2, 13.5**
 
-- [ ] 15. Final checkpoint - Ensure all tests pass
+- [x] 15. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
