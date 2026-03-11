@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -9,6 +9,17 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Send, MessageSquare } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+
+// ─── Constants ─────────────────────────────────────────────────────────────
+
+/** Polling interval for fetching new messages (in milliseconds) */
+const POLLING_INTERVAL_MS = 5000;
+
+/** Width of the conversation list sidebar (in pixels, matches w-80 Tailwind class) */
+const CONVERSATION_LIST_WIDTH_PX = 320;
+
+/** Maximum width percentage for message bubbles */
+const MAX_MESSAGE_WIDTH_PERCENT = 70;
 
 /**
  * OrganizerMessages — Real-time messaging interface for organizers.
@@ -103,7 +114,7 @@ export default function OrganizerMessages() {
       return await res.json();
     },
     enabled: !!selectedConversationId,
-    refetchInterval: 5000, // Poll for new messages every 5 seconds
+    refetchInterval: POLLING_INTERVAL_MS,
   });
 
   /**
@@ -247,13 +258,16 @@ export default function OrganizerMessages() {
    * Conversations without a lastMessageAt timestamp are sorted to the bottom
    * (treated as timestamp 0).
    * 
-   * @returns Sorted array of conversation objects
+   * Memoized to avoid unnecessary recalculations on every render.
    */
-  const sortedConversations = [...conversations].sort((a, b) => {
-    const aTime = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
-    const bTime = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
-    return bTime - aTime; // Descending order (most recent first)
-  });
+  const sortedConversations = useMemo(() => 
+    [...conversations].sort((a, b) => {
+      const aTime = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+      const bTime = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+      return bTime - aTime; // Descending order (most recent first)
+    }),
+    [conversations]
+  );
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
