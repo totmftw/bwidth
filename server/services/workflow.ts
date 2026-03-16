@@ -93,10 +93,23 @@ class WorkflowEngine {
         const initialSlot = bookingMeta.slotTime ||
             (event?.startTime ? new Date(event.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : "TBD");
 
-        // Get user display names
+        // Get user display names — artist shows stage name (given name)
         const artistUser = await db.query.users.findFirst({ where: eq(users.id, artist.userId!) });
         const organizerUser = await db.query.users.findFirst({ where: eq(users.id, organizerUserId) });
-        const artistName = artist.name || artistUser?.displayName || artistUser?.firstName || "Artist";
+
+        const stageName = artist.name || "";
+        const givenName = [artistUser?.firstName, artistUser?.lastName].filter(Boolean).join(" ") || artistUser?.displayName || "";
+        // e.g. "DJ Spark (Rahul Sharma)" or just "Rahul Sharma" if no stage name
+        const artistName = stageName && givenName && stageName !== givenName
+            ? `${stageName} (${givenName})`
+            : stageName || givenName || "Artist";
+
+        // Organizer: prefer promoter.name, fall back to user profile
+        if (organizerName === "Organizer" && organizerUser) {
+            organizerName = organizerUser.displayName
+                || [organizerUser.firstName, organizerUser.lastName].filter(Boolean).join(" ")
+                || "Organizer";
+        }
 
         return await db.transaction(async (tx) => {
             // Create Conversation
@@ -314,14 +327,24 @@ class WorkflowEngine {
                 nextAwaitingUserId = null;
 
                 if (bookingId) {
-                    // Set final amount from current offer
+                    // Read the latest booking to get the current (last-agreed) offer amount
                     const currentBooking = await tx.query.bookings.findFirst({
                         where: eq(bookings.id, bookingId)
                     });
+                    const lastAgreedAmount = currentBooking?.offerAmount || null;
+                    const lastAgreedSlot = updatedContext.currentSlot || null;
+
+                    // Store final agreed amount + slot into the booking
+                    const existingMeta = (currentBooking?.meta as any) || {};
                     await tx.update(bookings)
                         .set({
                             status: 'contracting',
-                            finalAmount: currentBooking?.offerAmount || null
+                            finalAmount: lastAgreedAmount,
+                            meta: {
+                                ...existingMeta,
+                                finalSlot: lastAgreedSlot,
+                                agreedAt: new Date().toISOString(),
+                            }
                         })
                         .where(eq(bookings.id, bookingId));
                 }
