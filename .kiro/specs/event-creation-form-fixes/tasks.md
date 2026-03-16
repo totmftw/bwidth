@@ -1,0 +1,148 @@
+# Implementation Plan
+
+- [x] 1. Write bug condition exploration test
+  - **Property 1: Bug Condition** - Datetime Validation, Mobile UX, Door Time, and Temporary Venue Issues
+  - **CRITICAL**: This test MUST FAIL on unfixed code - failure confirms the bug exists
+  - **DO NOT attempt to fix the test or the code when it fails**
+  - **NOTE**: This test encodes the expected behavior - it will validate the fix when it passes after implementation
+  - **GOAL**: Surface counterexamples that demonstrate the bugs exist
+  - **Scoped PBT Approach**: Scope the property to concrete failing cases:
+    - Datetime-local format "2024-01-15T20:00" causing Zod validation errors
+    - Door Time field present in form
+    - No temporary venue creation option available
+    - Date format not DD-MM-YYYY or time format not 24-hour
+  - Test that form submission with datetime-local format fails Zod validation (from Bug Condition in design)
+  - Test that doorTime field exists in current form structure
+  - Test that temporary venue creation is not supported (no UI option)
+  - Test that date/time inputs don't use India-preferred formats
+  - The test assertions should match the Expected Behavior Properties from design
+  - Run test on UNFIXED code
+  - **EXPECTED OUTCOME**: Test FAILS (this is correct - it proves the bugs exist)
+  - Document counterexamples found to understand root causes:
+    - Specific datetime format that triggers "Invalid datetime" error
+    - Presence of doorTime field in form
+    - Absence of temporary venue option
+    - Current date/time format used
+  - Mark task complete when test is written, run, and failures are documented
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8_
+
+- [-] 2. Write preservation property tests (BEFORE implementing fix)
+  - **Property 2: Preservation** - Existing Event Creation Flow
+  - **IMPORTANT**: Follow observation-first methodology
+  - Observe behavior on UNFIXED code for non-buggy inputs:
+    - Event creation with registered venues
+    - Title, description, capacity, currency, visibility inputs
+    - Stage management (add, remove, configure)
+    - Pre-filled venue from discovery page
+    - Cancel button navigation
+    - Draft status on creation
+  - Write property-based tests capturing observed behavior patterns from Preservation Requirements:
+    - For all valid title/description inputs, storage behavior is preserved
+    - For all valid capacity/currency/visibility inputs, storage behavior is preserved
+    - For all registered venue selections, venueId linking is preserved
+    - For all stage configurations (non-datetime), storage behavior is preserved
+    - Navigation and routing behavior is preserved
+  - Property-based testing generates many test cases for stronger guarantees
+  - Run tests on UNFIXED code
+  - **EXPECTED OUTCOME**: Tests PASS (this confirms baseline behavior to preserve)
+  - Mark task complete when tests are written, run, and passing on unfixed code
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8_
+
+- [ ] 3. Fix for event creation form datetime, door time, and venue issues
+
+  - [ ] 3.1 Create temporary venues database table
+    - Add temporaryVenues table to shared/schema.ts with fields: id, eventId, name, location, mapsLink, directions, landmark, contactName, contactPhone, createdAt, metadata
+    - Add foreign key reference to events table with cascade delete
+    - Generate and run migration
+    - _Bug_Condition: isBugCondition(input) where input.venueId IS null AND NOT canCreateTemporaryVenue()_
+    - _Expected_Behavior: Temporary venue data can be stored and linked to events_
+    - _Preservation: Existing events table and venue relationships remain unchanged_
+    - _Requirements: 2.5, 2.8_
+
+  - [ ] 3.2 Update API schemas to support new form structure
+    - Update createEventSchema in shared/routes.ts:
+      - Remove doorTime field or make it optional (prefer removal)
+      - Add optional temporaryVenue object with fields: name, location, mapsLink, directions, landmark, contactName, contactPhone
+      - Keep venueId optional (either venueId OR temporaryVenue should be provided)
+    - _Bug_Condition: isBugCondition(input) where input.doorTime IS present OR NOT canCreateTemporaryVenue()_
+    - _Expected_Behavior: Schema accepts separate date/time, excludes doorTime, supports temporary venues_
+    - _Preservation: All other event fields validation remains unchanged_
+    - _Requirements: 2.4, 2.5, 2.8_
+
+  - [ ] 3.3 Update server-side event creation handler
+    - Modify POST /api/organizer/events in server/routes/organizer.ts:
+      - Accept temporaryVenue data in request body
+      - If temporaryVenue provided, insert into temporary_venues table first
+      - Link event to temporary venue via eventId
+      - Validate that either venueId OR temporaryVenue is provided (not both, not neither)
+      - Remove doorTime processing
+    - Add createTemporaryVenue function to server/storage.ts
+    - Update createEvent function to handle temporary venue creation and linking
+    - _Bug_Condition: isBugCondition(input) where input.venueId IS null AND NOT canCreateTemporaryVenue() OR input.doorTime IS present_
+    - _Expected_Behavior: Server correctly handles temporary venue creation and excludes doorTime_
+    - _Preservation: Existing event creation with registered venues works exactly as before_
+    - _Requirements: 2.4, 2.5, 2.8_
+
+  - [ ] 3.4 Update event creation form component
+    - Modify client/src/pages/organizer/OrganizerEventCreate.tsx:
+      - Split datetime-local inputs into separate date and time inputs:
+        - Add date input with type="date" for DD-MM-YYYY display
+        - Add time input with type="time" with step="60" for HH:MM format
+        - Apply to: startTime, endTime (remove doorTime)
+        - Apply same pattern to stage startTime and endTime
+      - Remove Door Time field completely
+      - Add venue selection toggle: "Select Registered Venue" vs "Add Temporary Venue"
+      - When "Add Temporary Venue" selected, show fields:
+        - Venue Name (required)
+        - Location/Address (required)
+        - Maps Link (optional, URL validation)
+        - Directions (optional, textarea)
+        - Landmark (optional)
+        - Contact Name (optional)
+        - Contact Phone (optional)
+      - Update onSubmit to:
+        - Combine separate date and time inputs into ISO 8601 format
+        - Handle DD-MM-YYYY to YYYY-MM-DD conversion
+        - Include temporary venue data in payload if provided
+        - Remove doorTime from payload
+      - Update defaultValues to use separate date/time fields and remove doorTime
+    - _Bug_Condition: isBugCondition(input) where input.startTime IS datetime-local format OR input.deviceType == "mobile" OR input.doorTime IS present OR NOT canCreateTemporaryVenue() OR input.dateFormat != "DD-MM-YYYY"_
+    - _Expected_Behavior: Form uses separate date/time inputs, excludes doorTime, supports temporary venues, uses India formats_
+    - _Preservation: All non-datetime fields, registered venue selection, stage management, navigation remain unchanged_
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8_
+
+  - [ ] 3.5 Verify bug condition exploration test now passes
+    - **Property 1: Expected Behavior** - Datetime Validation, Mobile UX, Door Time Removal, and Temporary Venue Support
+    - **IMPORTANT**: Re-run the SAME test from task 1 - do NOT write a new test
+    - The test from task 1 encodes the expected behavior
+    - When this test passes, it confirms the expected behavior is satisfied
+    - Run bug condition exploration test from step 1
+    - **EXPECTED OUTCOME**: Test PASSES (confirms bugs are fixed)
+    - Verify:
+      - Datetime validation works with separate date/time inputs
+      - Door Time field is removed
+      - Temporary venue creation is supported
+      - India-preferred formats are used
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8_
+
+  - [ ] 3.6 Verify preservation tests still pass
+    - **Property 2: Preservation** - Existing Event Creation Flow
+    - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
+    - Run preservation property tests from step 2
+    - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions)
+    - Confirm all tests still pass after fix:
+      - Title, description, capacity, currency, visibility work as before
+      - Registered venue selection works as before
+      - Stage management works as before
+      - Pre-filled venue flow works as before
+      - Cancel navigation works as before
+      - Draft status on creation works as before
+
+- [ ] 4. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise
+  - Verify datetime validation works correctly with new format
+  - Verify mobile UX is improved with separate inputs
+  - Verify Door Time field is completely removed
+  - Verify temporary venue creation works end-to-end
+  - Verify India-preferred formats are used
+  - Verify all existing functionality is preserved

@@ -386,6 +386,20 @@ export const eventStages = pgTable("event_stages", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const temporaryVenues = pgTable("temporary_venues", {
+  id: serial("id").primaryKey(),
+  eventId: integer("event_id").references(() => events.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  location: text("location").notNull(),
+  mapsLink: text("maps_link"),
+  directions: text("directions"),
+  landmark: text("landmark"),
+  contactName: text("contact_name"),
+  contactPhone: text("contact_phone"),
+  createdAt: timestamp("created_at").defaultNow(),
+  metadata: jsonb("metadata").default({}),
+});
+
 // ============================================================================
 // BOOKINGS
 // ============================================================================
@@ -636,7 +650,7 @@ export const messageReads = pgTable("message_reads", {
 // ============================================================================
 
 export const auditLogs = pgTable("audit_logs", {
-  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   occurredAt: timestamp("occurred_at").defaultNow(),
   who: integer("who").references(() => users.id),
   action: text("action").notNull(),
@@ -708,9 +722,24 @@ export const eventsRelations = relations(events, ({ one, many }: any) => ({
 export const conversationsRelations = relations(conversations, ({ many, one }: any) => ({
   participants: many(conversationParticipants),
   messages: many(messages),
-  workflowInstance: one(conversationWorkflowInstances, {
-    fields: [conversations.id],
-    references: [conversationWorkflowInstances.conversationId],
+  workflowInstance: one(conversationWorkflowInstances),
+}));
+
+export const conversationWorkflowInstancesRelations = relations(conversationWorkflowInstances, ({ one }: any) => ({
+  conversation: one(conversations, {
+    fields: [conversationWorkflowInstances.conversationId],
+    references: [conversations.id],
+  }),
+}));
+
+export const conversationParticipantsRelations = relations(conversationParticipants, ({ one }: any) => ({
+  conversation: one(conversations, {
+    fields: [conversationParticipants.conversationId],
+    references: [conversations.id],
+  }),
+  user: one(users, {
+    fields: [conversationParticipants.userId],
+    references: [users.id],
   }),
 }));
 
@@ -737,6 +766,8 @@ export type Venue = typeof venues.$inferSelect;
 export type InsertVenue = typeof venues.$inferInsert;
 export type Event = typeof events.$inferSelect;
 export type InsertEvent = typeof events.$inferInsert;
+export type TemporaryVenue = typeof temporaryVenues.$inferSelect;
+export type InsertTemporaryVenue = typeof temporaryVenues.$inferInsert;
 export type Booking = typeof bookings.$inferSelect;
 export type InsertBooking = typeof bookings.$inferInsert;
 export type Contract = typeof contracts.$inferSelect;
@@ -785,6 +816,8 @@ export const insertBookingSchema = createInsertSchema(bookings);
 export const selectBookingSchema = createSelectSchema(bookings);
 export const insertEventSchema = createInsertSchema(events);
 export const selectEventSchema = createSelectSchema(events);
+export const insertTemporaryVenueSchema = createInsertSchema(temporaryVenues);
+export const selectTemporaryVenueSchema = createSelectSchema(temporaryVenues);
 export const insertAuditLogSchema = createInsertSchema(auditLogs);
 export const selectAuditLogSchema = createSelectSchema(auditLogs);
 export const insertConversationSchema = createInsertSchema(conversations);

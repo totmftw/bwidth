@@ -1,12 +1,12 @@
 import { db } from "./db";
 import {
-  users, artists, organizers, venues, bookings, events, promoters, contracts, auditLogs, eventStages,
+  users, artists, organizers, venues, bookings, events, promoters, contracts, auditLogs, eventStages, temporaryVenues,
   contractVersions, contractEditRequests, contractSignatures, messages, conversations, conversationParticipants,
   roles,
   userRoles,
   payments,
-  type User, type Artist, type Organizer, type Venue, type Booking, type Event, type Contract, type AuditLog,
-  type InsertUser, type InsertArtist, type InsertOrganizer, type InsertVenue, type InsertBooking, type InsertContract, type InsertAuditLog, type InsertEvent,
+  type User, type Artist, type Organizer, type Venue, type Booking, type Event, type Contract, type AuditLog, type TemporaryVenue,
+  type InsertUser, type InsertArtist, type InsertOrganizer, type InsertVenue, type InsertBooking, type InsertContract, type InsertAuditLog, type InsertEvent, type InsertTemporaryVenue,
   type ContractVersion, type InsertContractVersion,
   type ContractEditRequest, type InsertContractEditRequest,
   type ContractSignature, type InsertContractSignature,
@@ -68,7 +68,7 @@ export interface IStorage {
 
   // Opportunities
   getOpportunities(filters?: { genre?: string; minBudget?: number; maxBudget?: number; location?: string }): Promise<Event[]>;
-  createEvent(event: InsertEvent): Promise<Event>;
+  createEvent(event: InsertEvent & { stages?: any[], temporaryVenue?: any }): Promise<Event>;
   updateEvent(id: number, event: Partial<InsertEvent>): Promise<Event>;
   getEvent(id: number): Promise<Event | undefined>;
 
@@ -503,8 +503,8 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async createEvent(event: InsertEvent & { stages?: any[] }): Promise<Event> {
-    const { stages, ...eventData } = event;
+  async createEvent(event: InsertEvent & { stages?: any[], temporaryVenue?: any }): Promise<Event> {
+    const { stages, temporaryVenue, ...eventData } = event;
     const [newEvent] = await db.insert(events).values(eventData).returning();
 
     if (stages && stages.length > 0) {
@@ -513,6 +513,13 @@ export class DatabaseStorage implements IStorage {
         eventId: newEvent.id
       }));
       await db.insert(eventStages).values(stagesWithEventId);
+    }
+    
+    if (temporaryVenue) {
+      await db.insert(temporaryVenues).values({
+        ...temporaryVenue,
+        eventId: newEvent.id
+      });
     }
 
     return newEvent;

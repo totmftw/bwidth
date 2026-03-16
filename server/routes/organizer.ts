@@ -22,9 +22,8 @@ function isOrganizer(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-// Apply middleware to all routes in this router
-router.use(isAuthenticated);
-router.use(isOrganizer);
+// Apply middleware to organizer routes only
+router.use("/organizer", isAuthenticated, isOrganizer);
 
 // GET /organizer/profile — return organizer profile with user data
 router.get("/organizer/profile", async (req: Request, res: Response) => {
@@ -183,12 +182,20 @@ router.post("/organizer/events", async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Organizer profile not found" });
     }
 
-    const { stages, ...eventData } = parsed.data;
+    const { stages, temporaryVenue, ...eventData } = parsed.data;
+    
+    // Validate that either venueId OR temporaryVenue is provided
+    if (!eventData.venueId && !temporaryVenue) {
+      return res.status(400).json({ message: "Validation failed: Either venueId or temporary venue must be provided" });
+    }
+    if (eventData.venueId && temporaryVenue) {
+      return res.status(400).json({ message: "Validation failed: Cannot provide both venueId and temporary venue" });
+    }
+
     const event = await storage.createEvent({
       ...eventData,
       startTime: new Date(eventData.startTime),
       endTime: eventData.endTime ? new Date(eventData.endTime) : undefined,
-      doorTime: eventData.doorTime ? new Date(eventData.doorTime) : undefined,
       organizerId: organizer.id,
       status: "draft",
       stages: stages?.map((s) => ({
@@ -196,6 +203,7 @@ router.post("/organizer/events", async (req: Request, res: Response) => {
         startTime: s.startTime ? new Date(s.startTime) : undefined,
         endTime: s.endTime ? new Date(s.endTime) : undefined,
       })),
+      temporaryVenue,
     });
 
     return res.status(201).json(event);
@@ -248,7 +256,6 @@ router.put("/organizer/events/:id", async (req: Request, res: Response) => {
     const updateData: Record<string, any> = { ...parsed.data };
     if (updateData.startTime) updateData.startTime = new Date(updateData.startTime);
     if (updateData.endTime) updateData.endTime = new Date(updateData.endTime);
-    if (updateData.doorTime) updateData.doorTime = new Date(updateData.doorTime);
     // Remove stages from update data — stages are managed separately
     delete updateData.stages;
 

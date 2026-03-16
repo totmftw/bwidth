@@ -17,8 +17,9 @@
  * Shared components reused from client/src/components/booking/:
  *   ContractViewer, NegotiationFlow, OfferComparison
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useOrganizerBookings, useOrganizerBooking, useCompleteBooking } from "@/hooks/use-organizer-bookings";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -80,115 +81,6 @@ function StatusBadge({ status }: { status: BookingStatus }) {
   );
 }
 
-// ─── Negotiation Display (Task 11.2) ────────────────────────────────────────
-
-/**
- * NegotiationDisplay — Shows the current negotiation state for a booking.
- *
- * Renders:
- *  - Round counter (current / max of 3)
- *  - Side-by-side offer comparison (original vs latest) via OfferComparison
- *  - Chronological negotiation history timeline
- *  - "Open Negotiation" CTA when counter-offers are still allowed
- *  - Warning banner when max rounds are exhausted
- *
- * @param booking            - Enriched booking object from the API
- * @param onOpenNegotiation  - Callback to switch BookingDetail into negotiation mode
- */
-function NegotiationDisplay({ booking, onOpenNegotiation }: { booking: any; onOpenNegotiation: () => void }) {
-  const meta = booking.meta || {};
-  const history = meta.history || [];
-  const round = meta.negotiationRound || 0;
-  // Platform enforces a maximum of 3 negotiation rounds (see design doc §7)
-  const maxRounds = 3;
-  // Counter-offers are only allowed when rounds remain AND booking is in a negotiable status
-  const canCounter = round < maxRounds && (booking.status === "negotiating" || booking.status === "inquiry" || booking.status === "offered");
-
-  // Find original and latest offers from history
-  const originalEntry = history.find((h: any) => h.action === "offered" || h.action === "inquiry");
-  const latestEntry = history.length > 0 ? history[history.length - 1] : null;
-
-  const originalOffer = {
-    offerAmount: originalEntry?.amount || booking.offerAmount || "0",
-    currency: booking.offerCurrency || "INR",
-    eventDate: booking.event?.startTime,
-    slotTime: originalEntry?.slotTime || meta.slotTime,
-  };
-
-  const currentOffer = {
-    offerAmount: latestEntry?.amount || booking.offerAmount || "0",
-    currency: booking.offerCurrency || "INR",
-    eventDate: booking.event?.startTime,
-    slotTime: latestEntry?.slotTime || meta.slotTime,
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-sm">Negotiation</h3>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-xs">
-            Round {round}/{maxRounds}
-          </Badge>
-          {round >= maxRounds && (
-            <Badge variant="destructive" className="text-xs">Max rounds reached</Badge>
-          )}
-        </div>
-      </div>
-
-      {/* Offer comparison table */}
-      {history.length > 1 && (
-        <OfferComparison
-          currentOffer={originalOffer}
-          newOffer={currentOffer}
-          userRole="organizer"
-        />
-      )}
-
-      {/* Negotiation history */}
-      {history.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">History</h4>
-          {history.map((entry: any, idx: number) => (
-            <div key={idx} className="flex items-start gap-3 text-sm border-l-2 border-primary/20 pl-3 py-1">
-              <div className="flex-1">
-                <div className="font-medium capitalize">{entry.action?.replace(/_/g, " ")}</div>
-                {entry.message && (
-                  <p className="text-muted-foreground text-xs mt-1">{entry.message}</p>
-                )}
-                {entry.amount && (
-                  <p className="text-xs mt-1">
-                    Amount: {booking.offerCurrency} {Number(entry.amount).toLocaleString()}
-                  </p>
-                )}
-              </div>
-              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                {entry.at ? format(new Date(entry.at), "MMM d, p") : ""}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Action buttons */}
-      {canCounter && (
-        <div className="pt-2">
-          <Button onClick={onOpenNegotiation} className="w-full">
-            <MessageSquare className="w-4 h-4 mr-2" />
-            Open Negotiation
-          </Button>
-        </div>
-      )}
-
-      {round >= maxRounds && booking.status === "negotiating" && (
-        <div className="flex items-center gap-2 text-amber-500 text-sm bg-amber-500/10 p-3 rounded-lg">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          Max negotiation rounds reached. You must Accept or Decline.
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─── Contract Management Section (Task 11.3) ────────────────────────────────
 
@@ -561,8 +453,18 @@ function CompletionConfirmation({ booking }: { booking: any }) {
  * @param bookingId - Booking ID to fetch and display
  * @param onBack    - Callback to return to the booking list
  */
-function BookingDetail({ bookingId, onBack }: { bookingId: number; onBack: () => void }) {
-  const [viewMode, setViewMode] = useState<"detail" | "contract" | "negotiation">("detail");
+function BookingDetail({
+  bookingId,
+  onBack,
+  openInNegotiation = false,
+}: {
+  bookingId: number;
+  onBack: () => void;
+  openInNegotiation?: boolean;
+}) {
+  const [viewMode, setViewMode] = useState<"detail" | "contract" | "negotiation">(
+    openInNegotiation ? "negotiation" : "detail"
+  );
   const { data: booking, isLoading } = useOrganizerBooking(bookingId);
 
   if (isLoading || !booking) {
@@ -658,23 +560,41 @@ function BookingDetail({ bookingId, onBack }: { bookingId: number; onBack: () =>
             </div>
           )}
 
-          {/* Inquiry action buttons */}
+          {/* Negotiate CTA for inquiry status */}
           {status === "inquiry" && (
-            <div className="flex gap-3 pt-4 border-t mt-4">
-              <Button variant="default" onClick={() => setViewMode("negotiation")}>Accept</Button>
-              <Button variant="outline" onClick={() => setViewMode("negotiation")}>Counter-Offer</Button>
-              <Button variant="destructive" onClick={() => setViewMode("negotiation")}>Decline</Button>
+            <div className="pt-4 border-t mt-4">
+              <Button
+                className="w-full h-14 text-base font-semibold gap-2"
+                onClick={() => setViewMode("negotiation")}
+              >
+                <MessageSquare className="w-5 h-5" />
+                Open Negotiation Chat
+              </Button>
             </div>
           )}
         </Card>
 
-        {/* Negotiation Section (11.2) */}
-        {(status === "negotiating" || status === "offered" || status === "inquiry") && (
+        {/* Negotiation CTA for offered / negotiating */}
+        {(status === "offered" || status === "negotiating") && (
           <Card className="p-6">
-            <NegotiationDisplay
-              booking={booking}
-              onOpenNegotiation={() => setViewMode("negotiation")}
-            />
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold">Negotiation</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {status === "offered" ? "Artist has received your offer" : "Negotiation in progress"}
+                  </p>
+                </div>
+                <Badge variant="outline" className="capitalize">{status}</Badge>
+              </div>
+              <Button
+                className="w-full h-14 text-base font-semibold gap-2"
+                onClick={() => setViewMode("negotiation")}
+              >
+                <MessageSquare className="w-5 h-5" />
+                Open Negotiation Chat
+              </Button>
+            </div>
           </Card>
         )}
 
@@ -718,6 +638,23 @@ export default function OrganizerBookings() {
   const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
   // When set, switches from list mode to BookingDetail
   const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
+  const [openInNegotiation, setOpenInNegotiation] = useState(false);
+  const [location, setLocation] = useLocation();
+
+  // Read ?bookingId from URL to deep-link directly into a booking's negotiation view
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const bookingIdParam = params.get("bookingId");
+    if (bookingIdParam) {
+      const id = parseInt(bookingIdParam, 10);
+      if (!isNaN(id)) {
+        setSelectedBookingId(id);
+        setOpenInNegotiation(true);
+        // Clean the URL so refreshing doesn't re-trigger
+        setLocation("/organizer/bookings", { replace: true });
+      }
+    }
+  }, []);
 
   const { data: bookings = [], isLoading, error } = useOrganizerBookings(selectedStatus);
 
@@ -733,7 +670,8 @@ export default function OrganizerBookings() {
     return (
       <BookingDetail
         bookingId={selectedBookingId}
-        onBack={() => setSelectedBookingId(null)}
+        onBack={() => { setSelectedBookingId(null); setOpenInNegotiation(false); }}
+        openInNegotiation={openInNegotiation}
       />
     );
   }

@@ -10,6 +10,7 @@ import { Loader2 } from "lucide-react";
 import Landing from "@/pages/Landing";
 import AuthPage from "@/pages/Auth";
 import Explore from "@/pages/Explore";
+import ContractSetup from "@/pages/ContractSetup";
 import NotFound from "@/pages/NotFound";
 
 // Artist Pages
@@ -328,6 +329,9 @@ function Router() {
       </Route>
       <Route path="/profile">
         <PrivateRoute component={RoleBasedProfile} />
+      </Route>
+      <Route path="/contract-setup">
+        <PrivateRoute component={ContractSetup} />
       </Route>
 
       {/* Admin Routes */}

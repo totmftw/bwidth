@@ -1,35 +1,29 @@
 import { useState } from "react";
-import { useBookings, useUpdateBooking } from "@/hooks/use-bookings";
+import { useBookings } from "@/hooks/use-bookings";
 import { useAuth } from "@/hooks/use-auth";
-import { format, isAfter, isBefore, parseISO } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { format, isAfter } from "date-fns";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import {
     Check,
-    X,
     Clock,
     Loader2,
     Calendar,
     MapPin,
-    DollarSign,
-    User,
-    FileText,
     MessageSquare,
-    ChevronRight,
-    Filter,
     Search,
     IndianRupee,
     AlertCircle,
     CheckCircle,
     XCircle,
     Eye,
-    ArrowUpRight
+    ArrowUpRight,
+    FileText,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -54,17 +48,12 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: str
 export default function ArtistBookings() {
     const { user } = useAuth();
     const { data: bookings, isLoading } = useBookings();
-    const updateMutation = useUpdateBooking();
 
     const [activeTab, setActiveTab] = useState<BookingStatus>("all");
     const [searchQuery, setSearchQuery] = useState("");
-    const [selectedBooking, setSelectedBooking] = useState<any>(null);
-    const [showDetailsDialog, setShowDetailsDialog] = useState(false);
-    const [showResponseDialog, setShowResponseDialog] = useState(false);
-    const [showNegotiation, setShowNegotiation] = useState(false);
-    const [showContract, setShowContract] = useState(false);
-    const [responseType, setResponseType] = useState<"accept" | "decline" | null>(null);
-    const [responseMessage, setResponseMessage] = useState("");
+    // Sheet state: which booking is open, and which view
+    const [sheetBooking, setSheetBooking] = useState<any>(null);
+    const [sheetView, setSheetView] = useState<"negotiate" | "contract">("negotiate");
 
     if (!user) return null;
 
@@ -72,7 +61,6 @@ export default function ArtistBookings() {
     const filteredBookings = bookings?.filter(booking => {
         const status = booking.status || "";
 
-        // Search filter
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             const organizer = (booking as any).organizer;
@@ -83,7 +71,6 @@ export default function ArtistBookings() {
             if (!matchesOrganizer && !matchesVenue) return false;
         }
 
-        // Tab filter
         switch (activeTab) {
             case "pending":
                 return ["inquiry", "offered", "negotiating"].includes(status);
@@ -102,30 +89,16 @@ export default function ArtistBookings() {
         return new Date(dateB).getTime() - new Date(dateA).getTime();
     }) || [];
 
-    // Count by status type
     const pendingCount = bookings?.filter(b => ["inquiry", "offered", "negotiating"].includes(b.status || "")).length || 0;
     const confirmedCount = bookings?.filter(b => ["confirmed", "paid_deposit", "scheduled"].includes(b.status || "")).length || 0;
     const completedCount = bookings?.filter(b => b.status === "completed").length || 0;
 
-    const handleStatusUpdate = async (id: number, status: string) => {
-        updateMutation.mutate({ id, status: status as any });
-        setShowResponseDialog(false);
-        setSelectedBooking(null);
-        setResponseMessage("");
+    const openSheet = (booking: any, view: "negotiate" | "contract" = "negotiate") => {
+        setSheetBooking(booking);
+        setSheetView(view);
     };
 
-    const handleCloseDetails = () => {
-        setShowDetailsDialog(false);
-        setShowNegotiation(false);
-        setShowContract(false);
-        setSelectedBooking(null);
-    };
-
-    const openResponseDialog = (booking: any, type: "accept" | "decline") => {
-        setSelectedBooking(booking);
-        setResponseType(type);
-        setShowResponseDialog(true);
-    };
+    const closeSheet = () => setSheetBooking(null);
 
     return (
         <div className="space-y-8">
@@ -136,7 +109,6 @@ export default function ArtistBookings() {
                     <p className="text-muted-foreground">Manage your gigs and booking requests</p>
                 </div>
 
-                {/* Search */}
                 <div className="relative w-full md:w-72">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
@@ -150,29 +122,10 @@ export default function ArtistBookings() {
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <StatsCard
-                    label="Total Bookings"
-                    value={bookings?.length || 0}
-                    icon={Calendar}
-                />
-                <StatsCard
-                    label="Pending"
-                    value={pendingCount}
-                    icon={Clock}
-                    highlight={pendingCount > 0}
-                />
-                <StatsCard
-                    label="Confirmed"
-                    value={confirmedCount}
-                    icon={CheckCircle}
-                    color="text-green-500"
-                />
-                <StatsCard
-                    label="Completed"
-                    value={completedCount}
-                    icon={Check}
-                    color="text-violet-500"
-                />
+                <StatsCard label="Total Bookings" value={bookings?.length || 0} icon={Calendar} />
+                <StatsCard label="Pending" value={pendingCount} icon={Clock} highlight={pendingCount > 0} />
+                <StatsCard label="Confirmed" value={confirmedCount} icon={CheckCircle} color="text-green-500" />
+                <StatsCard label="Completed" value={completedCount} icon={Check} color="text-violet-500" />
             </div>
 
             {/* Tabs */}
@@ -206,13 +159,7 @@ export default function ArtistBookings() {
                                         key={booking.id}
                                         booking={booking}
                                         index={index}
-                                        onAccept={() => openResponseDialog(booking, "accept")}
-                                        onDecline={() => openResponseDialog(booking, "decline")}
-                                        onViewDetails={() => {
-                                            setSelectedBooking(booking);
-                                            setShowDetailsDialog(true);
-                                        }}
-                                        isUpdating={updateMutation.isPending}
+                                        onOpen={(view) => openSheet(booking, view)}
                                     />
                                 ))}
                             </AnimatePresence>
@@ -223,214 +170,43 @@ export default function ArtistBookings() {
                 </TabsContent>
             </Tabs>
 
-            {/* Details Dialog */}
-            <Dialog open={showDetailsDialog} onOpenChange={(open) => !open && handleCloseDetails()}>
-                <DialogContent className="max-w-2xl">
-                    {selectedBooking && (
-                        <>
-                            {showNegotiation ? (
-                                <NegotiationFlow
-                                    booking={selectedBooking}
-                                    onClose={() => setShowNegotiation(false)}
-                                />
-                            ) : showContract ? (
-                                <ContractViewer
-                                    bookingId={selectedBooking.id}
-                                    onClose={() => setShowContract(false)}
-                                />
-                            ) : (
-                                <>
-                                    <DialogHeader>
-                                        <DialogTitle className="flex items-center gap-2">
-                                            Booking Details
-                                            <StatusBadge status={selectedBooking.status} />
-                                        </DialogTitle>
-                                        <DialogDescription>
-                                            {format(new Date(selectedBooking.eventDate), "EEEE, MMMM d, yyyy")}
-                                        </DialogDescription>
-                                    </DialogHeader>
-
-                                    <div className="grid grid-cols-2 gap-6 py-4">
-                                        <div className="space-y-4">
-                                            <div>
-                                                <Label className="text-muted-foreground text-xs">Organizer</Label>
-                                                <p className="font-medium">{selectedBooking.organizer?.organizationName && selectedBooking.organizer.organizationName !== 'Unknown' ? selectedBooking.organizer.organizationName : (selectedBooking.organizer?.user?.name || selectedBooking.organizer?.name || "Organizer")}</p>
-                                            </div>
-                                            {selectedBooking.venue && (
-                                                <div>
-                                                    <Label className="text-muted-foreground text-xs">Venue</Label>
-                                                    <p className="font-medium">{selectedBooking.venue.name}</p>
-                                                    <p className="text-sm text-muted-foreground">{selectedBooking.venue.address?.street || selectedBooking.venue.address || ""}</p>
-                                                </div>
-                                            )}
-                                            <div>
-                                                <Label className="text-muted-foreground text-xs">Slot Time</Label>
-                                                <p className="font-medium">{selectedBooking.slotTime || (selectedBooking.event?.startTime ? format(new Date(selectedBooking.event.startTime), "p") : "To be confirmed")}</p>
-                                            </div>
-                                        </div>
-                                        <div className="space-y-4">
-                                            <div>
-                                                <Label className="text-muted-foreground text-xs">Offered Amount</Label>
-                                                <p className="text-2xl font-bold">₹{Number(selectedBooking.offerAmount).toLocaleString('en-IN')}</p>
-                                            </div>
-                                            <div>
-                                                <Label className="text-muted-foreground text-xs">Currency</Label>
-                                                <p className="font-medium">{selectedBooking.currency || "INR"}</p>
-                                            </div>
-                                            {selectedBooking.notes && (
-                                                <div>
-                                                    <Label className="text-muted-foreground text-xs">Notes</Label>
-                                                    <p className="text-sm">{selectedBooking.notes}</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <DialogFooter>
-                                        {["inquiry", "offered", "negotiating"].includes(selectedBooking.status) && (
-                                            <Button variant="outline" onClick={() => setShowNegotiation(true)}>
-                                                <MessageSquare className="w-4 h-4 mr-2" />
-                                                Negotiate
-                                            </Button>
-                                        )}
-
-                                        {["confirmed", "scheduled", "paid_deposit"].includes(selectedBooking.status) && (
-                                            <Button variant="outline" onClick={() => setShowContract(true)}>
-                                                <FileText className="w-4 h-4 mr-2" />
-                                                View Contract
-                                            </Button>
-                                        )}
-                                        {["inquiry", "offered"].includes(selectedBooking.status) && (
-                                            <>
-                                                <Button
-                                                    variant="outline"
-                                                    onClick={() => {
-                                                        setShowDetailsDialog(false);
-                                                        openResponseDialog(selectedBooking, "decline");
-                                                    }}
-                                                >
-                                                    Decline
-                                                </Button>
-                                                <Button
-                                                    className="bg-green-600 hover:bg-green-500"
-                                                    onClick={() => {
-                                                        setShowDetailsDialog(false);
-                                                        openResponseDialog(selectedBooking, "accept");
-                                                    }}
-                                                >
-                                                    Accept Offer
-                                                </Button>
-                                            </>
-                                        )}
-                                        {!["inquiry", "offered"].includes(selectedBooking.status) && (
-                                            <Button variant="outline" onClick={handleCloseDetails}>
-                                                Close
-                                            </Button>
-                                        )}
-                                    </DialogFooter>
-                                </>
-                            )}
-                        </>
+            {/* Full-height Sheet — slides up from bottom on mobile, side on desktop */}
+            <Sheet open={!!sheetBooking} onOpenChange={(open) => !open && closeSheet()}>
+                <SheetContent
+                    side="bottom"
+                    className="h-[95vh] p-0 flex flex-col rounded-t-2xl overflow-hidden"
+                >
+                    <VisuallyHidden><SheetTitle>Booking Details</SheetTitle></VisuallyHidden>
+                    {sheetBooking && sheetView === "negotiate" && (
+                        <NegotiationFlow
+                            booking={sheetBooking}
+                            onClose={closeSheet}
+                        />
                     )}
-                </DialogContent>
-            </Dialog>
-
-            {/* Response Dialog */}
-            <Dialog open={showResponseDialog} onOpenChange={setShowResponseDialog}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>
-                            {responseType === "accept" ? "Accept Booking" : "Decline Booking"}
-                        </DialogTitle>
-                        <DialogDescription>
-                            {responseType === "accept"
-                                ? "Confirm that you want to accept this booking offer."
-                                : "Let the organizer know why you're declining this offer."}
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    {selectedBooking && (
-                        <div className="py-4">
-                            <div className="p-4 rounded-xl bg-background/60 border border-white/10 mb-4">
-                                <div className="flex justify-between items-start">
-                                    <div>
-                                        <p className="font-medium">{selectedBooking.organizer?.organizationName || "Booking"}</p>
-                                        <p className="text-sm text-muted-foreground">
-                                            {format(new Date(selectedBooking.eventDate), "MMM d, yyyy")}
-                                        </p>
-                                    </div>
-                                    <p className="text-xl font-bold">₹{Number(selectedBooking.offerAmount).toLocaleString('en-IN')}</p>
-                                </div>
-                            </div>
-
-                            {responseType === "decline" && (
-                                <div className="space-y-2">
-                                    <Label>Reason (optional)</Label>
-                                    <Textarea
-                                        placeholder="Let them know why you're declining..."
-                                        value={responseMessage}
-                                        onChange={(e) => setResponseMessage(e.target.value)}
-                                        className="bg-background/60"
-                                    />
-                                </div>
-                            )}
-
-                            {responseType === "accept" && (
-                                <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20">
-                                    <div className="flex items-start gap-3">
-                                        <CheckCircle className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-                                        <div>
-                                            <p className="font-medium text-green-500">Ready to accept?</p>
-                                            <p className="text-sm text-muted-foreground">
-                                                By accepting, you're committing to this performance. The organizer will be notified and can proceed with the contract.
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                    {sheetBooking && sheetView === "contract" && (
+                        <ContractViewer
+                            bookingId={sheetBooking.id}
+                            onClose={closeSheet}
+                        />
                     )}
-
-                    <DialogFooter>
-                        <Button variant="ghost" onClick={() => setShowResponseDialog(false)}>
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={() => handleStatusUpdate(
-                                selectedBooking?.id,
-                                responseType === "accept" ? "confirmed" : "cancelled"
-                            )}
-                            disabled={updateMutation.isPending}
-                            className={responseType === "accept" ? "bg-green-600 hover:bg-green-500" : "bg-red-600 hover:bg-red-500"}
-                        >
-                            {updateMutation.isPending ? (
-                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                            ) : null}
-                            {responseType === "accept" ? "Confirm & Accept" : "Decline Booking"}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </div >
+                </SheetContent>
+            </Sheet>
+        </div>
     );
 }
 
 function BookingCard({
     booking,
     index,
-    onAccept,
-    onDecline,
-    onViewDetails,
-    isUpdating
+    onOpen,
 }: {
     booking: any;
     index: number;
-    onAccept: () => void;
-    onDecline: () => void;
-    onViewDetails: () => void;
-    isUpdating: boolean;
+    onOpen: (view: "negotiate" | "contract") => void;
 }) {
-    const isPending = ["inquiry", "offered", "negotiating"].includes(booking.status);
+    const status = booking.status || "inquiry";
+    const isPending = ["inquiry", "offered", "negotiating"].includes(status);
+    const isConfirmed = ["confirmed", "scheduled", "paid_deposit"].includes(status);
     const eventDate = new Date(booking.eventDate);
     const isUpcoming = isAfter(eventDate, new Date());
 
@@ -459,7 +235,9 @@ function BookingCard({
                             <div className="flex items-start justify-between gap-4 mb-2">
                                 <div>
                                     <h3 className="font-semibold group-hover:text-primary transition-colors">
-                                        {booking.organizer?.organizationName && booking.organizer.organizationName !== 'Unknown' ? booking.organizer.organizationName : (booking.organizer?.user?.name || booking.organizer?.name || "Organizer")}
+                                        {booking.organizer?.organizationName && booking.organizer.organizationName !== 'Unknown'
+                                            ? booking.organizer.organizationName
+                                            : (booking.organizer?.user?.name || booking.organizer?.name || "Organizer")}
                                     </h3>
                                     <div className="flex items-center gap-3 text-sm text-muted-foreground">
                                         {booking.venue && (
@@ -470,11 +248,13 @@ function BookingCard({
                                         )}
                                         <span className="flex items-center gap-1">
                                             <Clock className="w-3 h-3" />
-                                            {booking.slotTime || (booking.event?.startTime ? format(new Date(booking.event.startTime), "p") : "TBC")}
+                                            {booking.slotTime || (booking.event?.startTime
+                                                ? format(new Date(booking.event.startTime), "p")
+                                                : "TBC")}
                                         </span>
                                     </div>
                                 </div>
-                                <StatusBadge status={booking.status} />
+                                <StatusBadge status={status} />
                             </div>
 
                             {booking.notes && (
@@ -485,7 +265,7 @@ function BookingCard({
                         </div>
 
                         {/* Amount & Actions */}
-                        <div className="flex items-center gap-4 md:flex-col md:items-end">
+                        <div className="flex items-center gap-3 md:flex-col md:items-end">
                             <div className="text-right">
                                 <p className="text-xl font-bold">
                                     ₹{Number(booking.offerAmount).toLocaleString('en-IN')}
@@ -493,15 +273,45 @@ function BookingCard({
                                 <p className="text-xs text-muted-foreground">{booking.currency || "INR"}</p>
                             </div>
 
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                className="hover:bg-primary/10 text-primary"
-                                onClick={onViewDetails}
-                            >
-                                View Details
-                                <ArrowUpRight className="w-4 h-4 ml-2" />
-                            </Button>
+                            <div className="flex gap-2 md:flex-col">
+                                {/* Negotiate / Respond CTA for pending bookings */}
+                                {isPending && (
+                                    <Button
+                                        size="sm"
+                                        className="bg-primary/90 hover:bg-primary text-white"
+                                        onClick={() => onOpen("negotiate")}
+                                    >
+                                        <MessageSquare className="w-4 h-4 mr-2" />
+                                        {status === "offered" ? "Respond" : "Negotiate"}
+                                    </Button>
+                                )}
+
+                                {/* Contract for confirmed bookings */}
+                                {isConfirmed && (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="hover:bg-primary/10"
+                                        onClick={() => onOpen("contract")}
+                                    >
+                                        <FileText className="w-4 h-4 mr-2" />
+                                        Contract
+                                    </Button>
+                                )}
+
+                                {/* View negotiation for any booking that isn't just completed/cancelled */}
+                                {!isPending && !isConfirmed && (
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="hover:bg-primary/10 text-primary"
+                                        onClick={() => onOpen("negotiate")}
+                                    >
+                                        View Chat
+                                        <ArrowUpRight className="w-4 h-4 ml-2" />
+                                    </Button>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </CardContent>
@@ -530,7 +340,7 @@ function StatsCard({
     value,
     icon: Icon,
     color = "text-foreground",
-    highlight = false
+    highlight = false,
 }: {
     label: string;
     value: number;

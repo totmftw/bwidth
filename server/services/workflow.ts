@@ -11,13 +11,46 @@ import {
 import { eq, and, desc, sql } from "drizzle-orm";
 import { storage } from "../storage";
 
+/**
+ * WorkflowEngine — orchestrates the booking negotiation state machine.
+ *
+ * Negotiation Rules:
+ *   - Cost: Each party gets 2 counter-offers. After both exhaust theirs → cost auto-locks.
+ *   - Slot: Each party gets 1 slot change. After both exhaust theirs → slot auto-locks.
+ *   - Either party can ACCEPT at any time to finalize the deal.
+ *   - Either party can WALK_AWAY at any time to cancel the booking.
+ *   - After acceptance, booking moves to "contracting" status.
+ *
+ * Context JSONB stored in conversation_workflow_instances:
+ * {
+ *   originalOffer: { amount, currency },
+ *   currentSlot: string,
+ *   costRoundsOrganizer: 0,   // max 2
+ *   costRoundsArtist: 0,      // max 2
+ *   slotRoundsOrganizer: 0,   // max 1
+ *   slotRoundsArtist: 0,      // max 1
+ *   costLocked: false,
+ *   slotLocked: false,
+ *   initiatedBy: "organizer" | "artist",
+ *   artistUserId: number,
+ *   organizerUserId: number,
+ *   artistName: string,
+ *   organizerName: string
+ * }
+ */
+
 class WorkflowEngine {
-    // Initialize a negotiation
+    /**
+     * Open or retrieve an existing negotiation conversation for a booking.
+     * Sets the initial turn based on who initiated:
+     *   - organizer booked artist → artist responds first
+     *   - artist applied for gig → organizer responds first
+     */
     async openNegotiation(bookingId: number, initiatorId: number) {
         const booking = await storage.getBooking(bookingId);
         if (!booking) throw new Error("Booking not found");
 
-        // Check if conversation exists
+        // Check if conversation exists (idempotent)
         let convo = await db.query.conversations.findFirst({
             where: and(
                 eq(conversations.entityType, 'booking'),
@@ -28,29 +61,42 @@ class WorkflowEngine {
 
         if (convo) return convo;
 
-        // Create new
+        // Resolve participants
         if (!booking.artistId) throw new Error("Artist ID missing from booking");
         const artist = await storage.getArtist(booking.artistId);
-        // Find artist user ID.
-        // Assuming artist.userId is present. If not, error.
         if (!artist || !artist.userId) throw new Error("Artist user not found");
 
-        // Find organizer user ID.
         const event = booking.eventId ? await storage.getEvent(booking.eventId) : null;
-        let organizerId: number | null = null;
+        let organizerUserId: number | null = null;
+        let organizerName = "Organizer";
         if (event && event.organizerId) {
-            const promoter = await storage.getPromoter(event.organizerId); // promoter is organizer
-            if (promoter) organizerId = promoter.userId!;
+            const promoter = await storage.getPromoter(event.organizerId);
+            if (promoter) {
+                organizerUserId = promoter.userId!;
+                organizerName = promoter.name || "Organizer";
+            }
         }
 
-        // Fallback or explicit check
-        if (!organizerId) {
-            // Maybe throw error or proceed if allowing null (system user)
-            // For negotiation, we need two parties.
+        if (!organizerUserId) {
             throw new Error("Organizer user not found for negotiation");
         }
 
-        const subject = `Negotiation: ${artist.name}`;
+        // Determine who initiated the booking
+        const isOrganizerInitiator = initiatorId === organizerUserId;
+        const initiatedBy = isOrganizerInitiator ? "organizer" : "artist";
+
+        // The responder acts first (responds to the offer)
+        const firstMoverUserId = isOrganizerInitiator ? artist.userId! : organizerUserId;
+
+        // Resolve the slot time from booking meta or event
+        const bookingMeta = (booking.meta as any) || {};
+        const initialSlot = bookingMeta.slotTime ||
+            (event?.startTime ? new Date(event.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : "TBD");
+
+        // Get user display names
+        const artistUser = await db.query.users.findFirst({ where: eq(users.id, artist.userId!) });
+        const organizerUser = await db.query.users.findFirst({ where: eq(users.id, organizerUserId) });
+        const artistName = artist.name || artistUser?.displayName || artistUser?.firstName || "Artist";
 
         return await db.transaction(async (tx) => {
             // Create Conversation
@@ -58,182 +104,303 @@ class WorkflowEngine {
                 entityType: 'booking',
                 entityId: bookingId,
                 conversationType: 'negotiation',
-                subject: `Negotiation: ${artist.name} @ ${event?.title || 'Event'}`,
+                subject: `Negotiation: ${artistName} @ ${event?.title || 'Event'}`,
                 status: 'open',
                 lastMessageAt: new Date()
             }).returning();
 
-            // Add Participants
-            await tx.insert(conversationParticipants).values([
-                { conversationId: newConvo.id, userId: initiatorId },
-                { conversationId: newConvo.id, userId: artist.userId! },
-                { conversationId: newConvo.id, userId: organizerId! }
-            ]).onConflictDoNothing();
+            // Add Participants (deduplicate if initiator is already artist or organizer)
+            const participantIds = Array.from(new Set([initiatorId, artist.userId!, organizerUserId]));
+            await tx.insert(conversationParticipants).values(
+                participantIds.map(uid => ({ conversationId: newConvo.id, userId: uid }))
+            ).onConflictDoNothing();
 
             // Create Workflow Instance
-            const [instance] = await tx.insert(conversationWorkflowInstances).values({
+            await tx.insert(conversationWorkflowInstances).values({
                 conversationId: newConvo.id,
-                workflowKey: 'negotiation-v1', // Hardcoded for now
+                workflowKey: 'negotiation-v2',
                 currentNodeKey: 'NEGOTIATING',
                 context: {
                     originalOffer: {
                         amount: booking.offerAmount,
                         currency: booking.offerCurrency
                     },
-                    currentProposal: null,
-                    rounds: 0
+                    currentSlot: initialSlot,
+                    costRoundsOrganizer: 0,
+                    costRoundsArtist: 0,
+                    slotRoundsOrganizer: 0,
+                    slotRoundsArtist: 0,
+                    costLocked: false,
+                    slotLocked: false,
+                    initiatedBy,
+                    artistUserId: artist.userId!,
+                    organizerUserId,
+                    artistName,
+                    organizerName
                 },
-                awaitingUserId: artist.userId // Artist to act
+                awaitingUserId: firstMoverUserId,
+                round: 0,
+                maxRounds: 4  // Total max cost rounds (2 per party)
             }).returning();
 
-            // System Message: "Negotiation started. Current offer: ..."
+            // System Message: negotiation started
             await tx.insert(messages).values({
                 conversationId: newConvo.id,
-                senderId: null, // System
+                senderId: null,
                 messageType: 'system',
-                body: `Negotiation started. Offer: ${booking.offerCurrency} ${booking.offerAmount}`,
+                body: `Negotiation started. Initial offer: ${booking.offerCurrency} ${Number(booking.offerAmount).toLocaleString('en-IN')} | Slot: ${initialSlot}`,
                 workflowNodeKey: 'START',
-                payload: { action: 'start', offer: (instance.context as any).originalOffer }
+                payload: {}
             });
+
+            // Update booking status to negotiating
+            await tx.update(bookings)
+                .set({ status: 'negotiating' })
+                .where(eq(bookings.id, bookingId));
 
             return newConvo;
         });
     }
 
-    // Handle an action
+    /**
+     * Handle a workflow action (PROPOSE_COST, PROPOSE_SLOT, ACCEPT, WALK_AWAY).
+     */
     async handleAction(conversationId: number, userId: number, actionKey: string, payload: any, clientMsgId: string) {
         return await db.transaction(async (tx) => {
-            // 1. Lock and fetch instance
-            // "For Update" isn't directly supported by drizzle query builder easily in a standard way across drivers without raw SQL.
-            // We will just query normally and rely on logic validation.
+            // 1. Fetch workflow instance
             const wfInstance = await tx.query.conversationWorkflowInstances.findFirst({
                 where: eq(conversationWorkflowInstances.conversationId, conversationId)
             });
 
             if (!wfInstance) throw new Error("Workflow instance not found");
-            if (wfInstance.locked) throw new Error("Workflow is locked");
+            if (wfInstance.locked) throw new Error("Negotiation is locked (already finalized)");
 
-            // 2. Validate Turn
-            // Wait, awaitingUserId might be null if finalized?
-            if (wfInstance.awaitingUserId !== userId) {
-                throw new Error(`Not your turn. Awaiting user ${wfInstance.awaitingUserId}`);
+            const ctx = (wfInstance.context as any) || {};
+
+            // 2. Validate turn — WALK_AWAY is always allowed regardless of turn
+            if (actionKey !== 'WALK_AWAY' && actionKey !== 'DECLINE') {
+                if (wfInstance.awaitingUserId !== userId) {
+                    throw new Error(`Not your turn. Please wait for the other party to respond.`);
+                }
             }
 
-            // 3. Validate Action based on State (currentNodeKey)
-            // Simple state machine switch
-            // Allowed: ACCEPT, DECLINE, PROPOSE_CHANGE, ASK_PRESET_QUESTION
-            const validActions = ['ACCEPT', 'DECLINE', 'PROPOSE_CHANGE', 'ASK_PRESET_QUESTION'];
-            if (!validActions.includes(actionKey)) throw new Error("Invalid action");
+            // 3. Validate action
+            const validActions = ['PROPOSE_COST', 'PROPOSE_SLOT', 'ACCEPT', 'WALK_AWAY', 'DECLINE',
+                // Keep legacy support
+                'PROPOSE_CHANGE'];
+            if (!validActions.includes(actionKey)) throw new Error("Invalid action: " + actionKey);
 
-            // Logic per action
-            let nextNodeKey = wfInstance.currentNodeKey; // Default stay same
-            let nextAwaitingUserId: number | null = wfInstance.awaitingUserId; // Default same
-            let isProposal = false;
-            let bookingUpdate = null;
-            let newProposalId = null;
+            // Map legacy action
+            if (actionKey === 'PROPOSE_CHANGE') actionKey = 'PROPOSE_COST';
+            if (actionKey === 'DECLINE') actionKey = 'WALK_AWAY';
 
-            // Current awaiting user role?
-            // We need to swap to the OTHER participant.
+            // Determine the actor's role
+            const isArtist = userId === ctx.artistUserId;
+            const isOrganizer = userId === ctx.organizerUserId;
+            const actorRole = isArtist ? "artist" : "organizer";
+            const actorName = isArtist ? ctx.artistName : ctx.organizerName;
+
+            // Find other party
             const participants = await tx.query.conversationParticipants.findMany({
                 where: eq(conversationParticipants.conversationId, conversationId)
             });
-            const otherParticipant = participants.find(p => p.userId !== userId);
-            if (!otherParticipant) throw new Error("Other participant not found");
+            const otherParticipants = participants.filter(p => p.userId !== userId);
+            if (!otherParticipants.length) throw new Error("Other participant not found");
+            const otherUserId = otherParticipants[0].userId;
 
-            if (actionKey === 'PROPOSE_CHANGE') {
-                const maxRounds = wfInstance.maxRounds ?? 3;
-                if (wfInstance.round >= maxRounds) {
-                    throw new Error("Max rounds reached. Must Accept or Decline.");
+            let nextNodeKey = wfInstance.currentNodeKey;
+            let nextAwaitingUserId: number | null = otherUserId;
+            let systemMessages: string[] = [];
+            let updatedContext = { ...ctx };
+
+            // Get conversation for booking updates
+            const convo = await tx.query.conversations.findFirst({
+                where: eq(conversations.id, conversationId)
+            });
+            const bookingId = convo?.entityId;
+
+            // ── PROPOSE_COST ──
+            if (actionKey === 'PROPOSE_COST') {
+                if (ctx.costLocked) {
+                    throw new Error("Cost is already locked. You cannot make further cost proposals.");
                 }
 
-                // Validate payload (Fee +/- 20% etc)
-                // Implementation skipped for brevity, handled by frontend/basic check.
-
-                nextNodeKey = (wfInstance.currentNodeKey === 'AWAITING_ARTIST') ? 'AWAITING_ORGANIZER' : 'AWAITING_ARTIST';
-                nextAwaitingUserId = otherParticipant.userId;
-
-                // Create Proposal
-                const [proposal] = await tx.insert(bookingProposals).values({
-                    bookingId: (await tx.query.conversations.findFirst({ where: eq(conversations.id, conversationId) }))!.entityId!,
-                    createdBy: userId,
-                    round: wfInstance.round + 1,
-                    proposedTerms: payload, // { offerAmount, ... }
-                    status: 'active'
-                }).returning();
-                newProposalId = proposal.id;
-                isProposal = true;
-
-                // Update Booking (live fields) ?
-                // User says "Update booking's live fields... so other parts of app read current terms"
-                // We'll update offerAmount if changed.
-                if (payload.offerAmount) {
-                    // Determine booking ID from conversation
-                    const convo = await tx.query.conversations.findFirst({ where: eq(conversations.id, conversationId) });
-                    if (convo && convo.entityType === 'booking') {
-                        await tx.update(bookings)
-                            .set({ offerAmount: String(payload.offerAmount), status: 'negotiating' })
-                            .where(eq(bookings.id, convo.entityId!));
-                    }
+                const costKey = isArtist ? 'costRoundsArtist' : 'costRoundsOrganizer';
+                const currentRounds = ctx[costKey] || 0;
+                if (currentRounds >= 2) {
+                    throw new Error(`You have used all 2 cost negotiation rounds.`);
                 }
 
-            } else if (actionKey === 'ACCEPT') {
-                nextNodeKey = 'ACCEPTED';
-                nextAwaitingUserId = null; // No one awaiting
-                // Update Booking status to confirmed
-                const convo = await tx.query.conversations.findFirst({ where: eq(conversations.id, conversationId) });
-                if (convo && convo.entityType === 'booking') {
+                // Validate payload
+                if (!payload?.offerAmount || Number(payload.offerAmount) <= 0) {
+                    throw new Error("Please provide a valid offer amount.");
+                }
+
+                // Create proposal
+                if (bookingId) {
+                    await tx.insert(bookingProposals).values({
+                        bookingId,
+                        createdBy: userId,
+                        round: wfInstance.round + 1,
+                        proposedTerms: { offerAmount: payload.offerAmount, type: 'cost' },
+                        note: payload.note || null,
+                        status: 'active'
+                    });
+
+                    // Update live booking offer
                     await tx.update(bookings)
-                        .set({ status: 'contracting' })
-                        .where(eq(bookings.id, convo.entityId!));
+                        .set({ offerAmount: String(payload.offerAmount), status: 'negotiating' })
+                        .where(eq(bookings.id, bookingId));
                 }
 
-            } else if (actionKey === 'DECLINE') {
+                // Update context
+                updatedContext[costKey] = currentRounds + 1;
+
+                // Check if cost should auto-lock
+                const otherCostKey = isArtist ? 'costRoundsOrganizer' : 'costRoundsArtist';
+                if (updatedContext[costKey] >= 2 && updatedContext[otherCostKey] >= 2) {
+                    updatedContext.costLocked = true;
+                    systemMessages.push(`💰 Cost locked at ₹${Number(payload.offerAmount).toLocaleString('en-IN')}. No further cost changes allowed.`);
+                }
+
+                nextNodeKey = 'NEGOTIATING';
+            }
+
+            // ── PROPOSE_SLOT ──
+            else if (actionKey === 'PROPOSE_SLOT') {
+                if (ctx.slotLocked) {
+                    throw new Error("Time slot is already locked. You cannot propose further slot changes.");
+                }
+
+                const slotKey = isArtist ? 'slotRoundsArtist' : 'slotRoundsOrganizer';
+                const currentSlotRounds = ctx[slotKey] || 0;
+                if (currentSlotRounds >= 1) {
+                    throw new Error(`You have used your slot change.`);
+                }
+
+                if (!payload?.slotTime) {
+                    throw new Error("Please provide a time slot.");
+                }
+
+                // Create proposal
+                if (bookingId) {
+                    await tx.insert(bookingProposals).values({
+                        bookingId,
+                        createdBy: userId,
+                        round: wfInstance.round + 1,
+                        proposedTerms: { slotTime: payload.slotTime, type: 'slot' },
+                        note: payload.note || null,
+                        status: 'active'
+                    });
+                }
+
+                // Update context
+                updatedContext[slotKey] = currentSlotRounds + 1;
+                updatedContext.currentSlot = payload.slotTime;
+
+                // Check if slot should auto-lock
+                const otherSlotKey = isArtist ? 'slotRoundsOrganizer' : 'slotRoundsArtist';
+                if (updatedContext[slotKey] >= 1 && updatedContext[otherSlotKey] >= 1) {
+                    updatedContext.slotLocked = true;
+                    systemMessages.push(`🕐 Time slot locked at ${payload.slotTime}. No further slot changes allowed.`);
+                }
+
+                nextNodeKey = 'NEGOTIATING';
+            }
+
+            // ── ACCEPT ──
+            else if (actionKey === 'ACCEPT') {
+                nextNodeKey = 'ACCEPTED';
+                nextAwaitingUserId = null;
+
+                if (bookingId) {
+                    // Set final amount from current offer
+                    const currentBooking = await tx.query.bookings.findFirst({
+                        where: eq(bookings.id, bookingId)
+                    });
+                    await tx.update(bookings)
+                        .set({
+                            status: 'contracting',
+                            finalAmount: currentBooking?.offerAmount || null
+                        })
+                        .where(eq(bookings.id, bookingId));
+                }
+
+                // Lock both if not already
+                updatedContext.costLocked = true;
+                updatedContext.slotLocked = true;
+
+                systemMessages.push(`🎉 Deal agreed! Both parties accepted the terms.`);
+            }
+
+            // ── WALK_AWAY ──
+            else if (actionKey === 'WALK_AWAY') {
                 nextNodeKey = 'DECLINED';
                 nextAwaitingUserId = null;
-                const convo = await tx.query.conversations.findFirst({ where: eq(conversations.id, conversationId) });
-                if (convo && convo.entityType === 'booking') {
+
+                if (bookingId) {
                     await tx.update(bookings)
                         .set({ status: 'cancelled' })
-                        .where(eq(bookings.id, convo.entityId!));
+                        .where(eq(bookings.id, bookingId));
                 }
+
+                systemMessages.push(`${actorName} walked away from the deal.`);
             }
-            // ASK_PRESET_QUESTION -> specific logic (swap turn if required response, else stay)
+
+            // Check if both cost and slot are now locked → suggest finalization
+            if (!['ACCEPTED', 'DECLINED'].includes(nextNodeKey) &&
+                updatedContext.costLocked && updatedContext.slotLocked) {
+                systemMessages.push(`✅ All terms locked. Either party can now Accept the deal or Walk Away.`);
+            }
 
             // 4. Update Workflow Instance
             const isTerminal = ['ACCEPTED', 'DECLINED'].includes(nextNodeKey);
+            const isProposal = ['PROPOSE_COST', 'PROPOSE_SLOT'].includes(actionKey);
             await tx.update(conversationWorkflowInstances)
                 .set({
                     currentNodeKey: nextNodeKey,
                     awaitingUserId: nextAwaitingUserId,
-                    round: (isProposal) ? wfInstance.round + 1 : wfInstance.round,
-                    locked: isTerminal ? true : wfInstance.locked,
+                    round: isProposal ? wfInstance.round + 1 : wfInstance.round,
+                    locked: isTerminal,
+                    context: updatedContext,
                     updatedAt: new Date(),
-                    deadlineAt: (nextAwaitingUserId) ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null
+                    deadlineAt: nextAwaitingUserId ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null
                 })
                 .where(eq(conversationWorkflowInstances.conversationId, conversationId));
 
-            // 5. Insert Message
+            // 5. Insert action message with sender name
             const [msg] = await tx.insert(messages).values({
                 conversationId,
                 senderId: userId,
-                messageType: 'action', // Typed event
+                messageType: 'action',
                 actionKey,
-                payload: { ...payload, proposalId: newProposalId },
-                workflowNodeKey: wfInstance.currentNodeKey, // The state *before* action? or after? User says "current node key", usually the state in which action was taken.
+                body: payload?.note || null,
+                payload: {
+                    ...payload,
+                    senderName: actorName,
+                    senderRole: actorRole,
+                },
+                workflowNodeKey: wfInstance.currentNodeKey,
                 round: wfInstance.round,
                 clientMsgId
             }).returning();
 
-            // System message if state changed significantly (Accepted/Declined) ?
-            if (['ACCEPTED', 'DECLINED'].includes(nextNodeKey)) {
+            // 6. Insert system messages
+            for (const sysBody of systemMessages) {
                 await tx.insert(messages).values({
                     conversationId,
                     senderId: null,
                     messageType: 'system',
-                    body: `Negotiation ${nextNodeKey.toLowerCase()}.`,
-                    workflowNodeKey: nextNodeKey
+                    body: sysBody,
+                    workflowNodeKey: nextNodeKey,
+                    payload: {}
                 });
             }
+
+            // Update conversation lastMessageAt
+            await tx.update(conversations)
+                .set({ lastMessageAt: new Date() })
+                .where(eq(conversations.id, conversationId));
 
             return msg;
         });

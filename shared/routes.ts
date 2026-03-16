@@ -216,8 +216,16 @@ export const createEventSchema = z.object({
   startTime: z.string().datetime(),
   /** ISO 8601 datetime for event end (optional) */
   endTime: z.string().datetime().optional(),
-  /** ISO 8601 datetime for doors opening (optional) */
-  doorTime: z.string().datetime().optional(),
+  /** Temporary venue details, if venue is unregistered */
+  temporaryVenue: z.object({
+    name: z.string().min(1, "Venue name is required"),
+    location: z.string().min(1, "Location is required"),
+    mapsLink: z.string().url("Must be a valid URL").optional().or(z.literal("")),
+    directions: z.string().optional(),
+    landmark: z.string().optional(),
+    contactName: z.string().optional(),
+    contactPhone: z.string().optional(),
+  }).optional(),
   /** FK to venues table — omit for TBA / manual venue entry */
   venueId: z.number().optional(),
   /** Total event capacity (positive integer) */

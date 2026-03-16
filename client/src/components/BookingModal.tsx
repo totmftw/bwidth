@@ -9,7 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,11 +36,30 @@ interface BookingModalProps {
   artistId: number;
   artistName: string;
   organizerId: number;
+  /** Controlled open state — if provided, the parent manages open/close */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Called with the newly created booking ID on success */
+  onSuccess?: (bookingId: number) => void;
 }
 
-export function BookingModal({ artistId, artistName, organizerId }: BookingModalProps) {
-  const [open, setOpen] = useState(false);
+export function BookingModal({
+  artistId,
+  artistName,
+  organizerId,
+  open: controlledOpen,
+  onOpenChange,
+  onSuccess,
+}: BookingModalProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const { mutate, isPending } = useCreateBooking();
+
+  // Support both controlled (via open/onOpenChange) and uncontrolled modes
+  const isOpen = controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
+  const setOpen = (v: boolean) => {
+    onOpenChange?.(v);
+    if (controlledOpen === undefined) setUncontrolledOpen(v);
+  };
 
   const form = useForm<BookingFormValues>({
     resolver: zodResolver(formSchema),
@@ -52,8 +70,7 @@ export function BookingModal({ artistId, artistName, organizerId }: BookingModal
       status: "offered",
       offerAmount: 0,
       notes: "",
-      // eventDate is required but no good default, so undefined/null handled by resolver or init
-    }
+    },
   });
 
   function onSubmit(data: BookingFormValues) {
@@ -62,17 +79,17 @@ export function BookingModal({ artistId, artistName, organizerId }: BookingModal
       depositAmount: data.depositAmount ?? undefined,
     };
     mutate(submitData as any, {
-      onSuccess: () => setOpen(false),
+      onSuccess: (booking: any) => {
+        setOpen(false);
+        if (onSuccess && booking?.id) {
+          onSuccess(booking.id);
+        }
+      },
     });
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold shadow-lg shadow-primary/20">
-          Book Now
-        </Button>
-      </DialogTrigger>
+    <Dialog open={isOpen} onOpenChange={setOpen}>
       <DialogContent className="sm:max-w-[425px] bg-card border-border">
         <DialogHeader>
           <DialogTitle>Book {artistName}</DialogTitle>

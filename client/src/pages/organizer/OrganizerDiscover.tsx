@@ -14,7 +14,7 @@ import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Music, MapPin, Star, TrendingUp, DollarSign, Filter, X, Building2, Users } from "lucide-react";
+import { Search, Music, MapPin, Star, TrendingUp, DollarSign, Filter, X, Building2, Users, CalendarPlus } from "lucide-react";
 import { Artist, User, Venue } from "@shared/schema";
 
 type ArtistWithUser = Artist & { user: User };
@@ -81,6 +81,8 @@ export default function OrganizerDiscover() {
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>("relevance");
   const [showFilters, setShowFilters] = useState(false);
+  // Tracks which artist the organizer clicked "Book Now" on
+  const [bookingArtist, setBookingArtist] = useState<ArtistWithUser | null>(null);
   
   const [filters, setFilters] = useState<Filters>({
     search: "",
@@ -440,7 +442,7 @@ export default function OrganizerDiscover() {
                 return (
                   <Card
                     key={artist.id}
-                    className="hover:shadow-lg transition-shadow cursor-pointer"
+                    className="hover:shadow-lg transition-shadow cursor-pointer flex flex-col"
                     onClick={() => setSelectedArtist(artist)}
                   >
                     <CardHeader>
@@ -458,7 +460,7 @@ export default function OrganizerDiscover() {
                         </Badge>
                       </div>
                     </CardHeader>
-                    <CardContent className="space-y-3">
+                    <CardContent className="space-y-3 flex-1">
                       {/* Genres */}
                       {genres.length > 0 && (
                         <div className="flex flex-wrap gap-1">
@@ -491,6 +493,23 @@ export default function OrganizerDiscover() {
                       {artist.bio && (
                         <p className="text-sm text-muted-foreground line-clamp-2">{artist.bio}</p>
                       )}
+
+                      {/* Book Now CTA */}
+                      <div className="pt-2">
+                        <Button
+                          id={`book-now-${artist.id}`}
+                          className="w-full bg-primary hover:bg-primary/90 text-white font-semibold shadow-sm"
+                          onClick={(e) => {
+                            e.stopPropagation(); // Don't open profile dialog
+                            setBookingArtist(artist);
+                          }}
+                          disabled={!organizerId}
+                          title={!organizerId ? "Complete your organizer profile to book artists" : undefined}
+                        >
+                          <CalendarPlus className="h-4 w-4 mr-2" />
+                          Book Now
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 );
@@ -799,15 +818,20 @@ export default function OrganizerDiscover() {
               )}
 
               {/* Booking Button */}
-              {organizerId && (
-                <div className="pt-4 border-t">
-                  <BookingModal
-                    artistId={selectedArtist.id}
-                    artistName={selectedArtist.name}
-                    organizerId={organizerId}
-                  />
-                </div>
-              )}
+              <div className="pt-4 border-t">
+                <Button
+                  className="w-full bg-primary hover:bg-primary/90 text-white font-semibold"
+                  disabled={!organizerId}
+                  title={!organizerId ? "Complete your organizer profile to book artists" : undefined}
+                  onClick={() => {
+                    setBookingArtist(selectedArtist);
+                    setSelectedArtist(null);
+                  }}
+                >
+                  <CalendarPlus className="h-4 w-4 mr-2" />
+                  Book Now
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
@@ -933,6 +957,20 @@ export default function OrganizerDiscover() {
             </div>
           </DialogContent>
         </Dialog>
+      )}
+      {/* Controlled BookingModal for Book Now flow */}
+      {bookingArtist && organizerId && (
+        <BookingModal
+          artistId={bookingArtist.id}
+          artistName={bookingArtist.name}
+          organizerId={organizerId}
+          open={!!bookingArtist}
+          onOpenChange={(open) => { if (!open) setBookingArtist(null); }}
+          onSuccess={(bookingId) => {
+            setBookingArtist(null);
+            setLocation(`/organizer/bookings?bookingId=${bookingId}`);
+          }}
+        />
       )}
     </div>
   );

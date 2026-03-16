@@ -1,0 +1,7 @@
+
+> rest-express@1.0.0 dev
+> tsx --env-file=.env --tsconfig tsconfig.json server/index.ts
+
+8:36:14 AM [express] Setting up Vite dev server...
+8:36:14 AM [express] Vite dev server ready
+8:36:14 AM [express] serving on port 5000
