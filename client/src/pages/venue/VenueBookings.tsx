@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -204,23 +206,11 @@ export default function VenueBookings() {
             </Tabs>
 
             {/* Details Dialog */}
-            <Dialog open={showDetailsDialog} onOpenChange={(open) => !open && handleCloseDetails()}>
+            <Dialog open={showDetailsDialog && !showNegotiation && !showContract} onOpenChange={(open) => !open && handleCloseDetails()}>
                 <DialogContent className="max-w-2xl">
-                    {selectedBooking && (
+                    {selectedBooking && !showNegotiation && !showContract && (
                         <>
-                            {showNegotiation ? (
-                                <NegotiationFlow
-                                    booking={selectedBooking}
-                                    onClose={() => setShowNegotiation(false)}
-                                />
-                            ) : showContract ? (
-                                <ContractViewer
-                                    bookingId={selectedBooking.id}
-                                    onClose={() => setShowContract(false)}
-                                />
-                            ) : (
-                                <>
-                                    <DialogHeader>
+                            <DialogHeader>
                                         <DialogTitle className="flex items-center gap-2">
                                             Booking Details
                                             <StatusBadge status={selectedBooking.status} />
@@ -303,11 +293,31 @@ export default function VenueBookings() {
                                         )}
                                     </DialogFooter>
                                 </>
-                            )}
-                        </>
                     )}
                 </DialogContent>
             </Dialog>
+
+            {/* Negotiation & Contract Sheet */}
+            <Sheet open={!!selectedBooking && (showNegotiation || showContract)} onOpenChange={(open) => !open && handleCloseDetails()}>
+                <SheetContent
+                    side="right"
+                    className="w-full sm:max-w-md h-full p-0 flex flex-col overflow-hidden border-l border-white/10"
+                >
+                    <VisuallyHidden><SheetTitle>{showNegotiation ? "Negotiation" : "Contract"}</SheetTitle></VisuallyHidden>
+                    {selectedBooking && showNegotiation && (
+                        <NegotiationFlow
+                            booking={selectedBooking}
+                            onClose={() => setShowNegotiation(false)}
+                        />
+                    )}
+                    {selectedBooking && showContract && (
+                        <ContractViewer
+                            bookingId={selectedBooking.id}
+                            onClose={() => setShowContract(false)}
+                        />
+                    )}
+                </SheetContent>
+            </Sheet>
 
             {/* Response Dialog (Accept/Decline) */}
             <Dialog open={showResponseDialog} onOpenChange={setShowResponseDialog}>

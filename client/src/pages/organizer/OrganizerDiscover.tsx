@@ -824,8 +824,8 @@ export default function OrganizerDiscover() {
                   disabled={!organizerId}
                   title={!organizerId ? "Complete your organizer profile to book artists" : undefined}
                   onClick={() => {
-                    setBookingArtist(selectedArtist);
                     setSelectedArtist(null);
+                    setTimeout(() => setBookingArtist(selectedArtist), 50);
                   }}
                 >
                   <CalendarPlus className="h-4 w-4 mr-2" />

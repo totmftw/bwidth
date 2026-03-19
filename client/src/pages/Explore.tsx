@@ -92,6 +92,7 @@ export default function Explore() {
                   artistId={artist.id}
                   artistName={artist.user.displayName || artist.user.username || 'Artist'}
                   organizerId={organizerId}
+                  trigger={<Button className="w-full">Book Now</Button>}
                 />
               </CardFooter>
             </Card>

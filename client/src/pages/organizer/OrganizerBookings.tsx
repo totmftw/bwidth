@@ -174,11 +174,11 @@ export default function OrganizerBookings() {
                 </TabsContent>
             </Tabs>
 
-            {/* Full-height Sheet */}
+            {/* Full-height Sheet — slides in from right */}
             <Sheet open={!!sheetBooking} onOpenChange={(open) => !open && closeSheet()}>
                 <SheetContent
-                    side="bottom"
-                    className="h-[95vh] p-0 flex flex-col rounded-t-2xl overflow-hidden"
+                    side="right"
+                    className="w-full sm:max-w-md h-full p-0 flex flex-col overflow-hidden border-l border-white/10"
                 >
                     <VisuallyHidden><SheetTitle>Booking Details</SheetTitle></VisuallyHidden>
                     {sheetBooking && sheetView === "negotiate" && (

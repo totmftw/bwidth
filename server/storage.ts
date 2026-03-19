@@ -29,7 +29,7 @@ export interface BookingSummary {
   cancellationRate: number;
   averageBookingValue: number;
 }
-import { eq, sql, or, and, desc, asc } from "drizzle-orm";
+import { eq, sql, or, and, desc, asc, gt, isNull } from "drizzle-orm";
 
 export interface IStorage {
   // User & Auth
@@ -459,9 +459,20 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(venues, eq(events.venueId, venues.id))
       .leftJoin(promoters, eq(events.organizerId, promoters.id))
       .where(
-        or(
-          eq(events.visibility, 'public'),
-          eq(events.status, 'published')
+        and(
+          or(
+            eq(events.visibility, 'public'),
+            eq(events.status, 'published')
+          ),
+          or(
+            // Event has not yet ended
+            gt(events.endTime, new Date()),
+            // Or if no end time is specified, the event has not yet started
+            and(
+              isNull(events.endTime),
+              gt(events.startTime, new Date())
+            )
+          )
         )
       );
 

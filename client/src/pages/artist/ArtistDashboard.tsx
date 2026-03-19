@@ -256,7 +256,7 @@ export default function ArtistDashboard() {
                                     <Calendar className="w-8 h-8 text-primary" />
                                 </div>
                                 <p className="text-muted-foreground mb-4">No upcoming gigs scheduled</p>
-                                <Link href="/bookings">
+                                <Link href="/find-gigs">
                                     <Button className="bg-primary gap-2">
                                         <Music className="w-4 h-4" />
                                         Find Opportunities
