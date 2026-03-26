@@ -1,6 +1,18 @@
 # Database Migration History
 
-| Version | Date | Description |
-|---|---|---|
-| 001 | 2026-02-04 | Initial schema snapshot documentation based on shared/schema.ts |
-| 002 | 2026-02-13 | Add `contracting` value to `booking_status` enum (after `negotiating`); add `admin_review` value to `contract_status` enum (after `signed_by_artist`) |
+## Overview
+This file serves to track major structural modifications via Drizzle ORM pushing to the platform schema.
+
+---
+
+### [Initial Version] - Groundwork
+**Date**: Initial Release Setup
+**Description**: Established core PostgreSQL schema covering User profiles, Artists, Promoters, Venues, Events, Bookings, Contracts, Messaging workflows, and Auditing.
+
+**Key Changes**:
+- Enums setup for standard fields.
+- Base tables with UUID / Increment IDs.
+- Core relationship indexing mapping.
+- Implemented `conversation_workflow_instances` for negotiation tracking.
+
+*(Add future migrations natively utilizing `drizzle-kit generate` inside the backend directory)* 
