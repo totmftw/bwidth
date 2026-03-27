@@ -34,6 +34,7 @@ import OrganizerDashboard from "@/pages/organizer/OrganizerDashboard";
 import OrganizerSetup from "@/pages/organizer/OrganizerSetup";
 import OrganizerEvents from "@/pages/organizer/OrganizerEvents";
 import OrganizerEventCreate from "@/pages/organizer/OrganizerEventCreate";
+import OrganizerEventEdit from "@/pages/organizer/OrganizerEventEdit";
 import OrganizerMessages from "@/pages/organizer/OrganizerMessages";
 import OrganizerBookings from "@/pages/organizer/OrganizerBookings";
 import OrganizerProfile from "@/pages/organizer/OrganizerProfile";
@@ -312,6 +313,9 @@ function Router() {
       </Route>
       <Route path="/organizer/events/create">
         <PrivateRoute component={OrganizerEventCreate} />
+      </Route>
+      <Route path="/organizer/events/:id/edit">
+        <PrivateRoute component={OrganizerEventEdit} />
       </Route>
       <Route path="/organizer/messages">
         <PrivateRoute component={OrganizerMessages} />

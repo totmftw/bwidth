@@ -1,31 +1,29 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLocation, useRoute } from "wouter";
-import { useEvents, useCreateEvent } from "@/hooks/use-organizer-events";
+import { useOrganizerEvent, useUpdateEvent } from "@/hooks/use-organizer-events";
 import { useVenues } from "@/hooks/use-venues";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Calendar as CalendarIcon } from "lucide-react";
+import { ArrowLeft, Calendar as CalendarIcon, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { EventForm, EventFormValues } from "@/components/EventForm";
 import { format } from "date-fns";
 
-export default function OrganizerEventCreate() {
+export default function OrganizerEventEdit() {
+  const [, params] = useRoute("/organizer/events/:id/edit");
+  const eventId = params?.id ? parseInt(params.id, 10) : null;
   const [location, setLocation] = useLocation();
-  const createMutation = useCreateEvent();
+
+  const { data: event, isLoading: eventLoading } = useOrganizerEvent(eventId!);
+  const updateMutation = useUpdateEvent();
   const { data: venues, isLoading: venuesLoading } = useVenues();
-  const [prefilledVenueId, setPrefilledVenueId] = useState<number | null>(null);
 
-  // Handle pre-filled venue from discovery page
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const venueIdParam = params.get("venueId");
-    const state = (window.history.state as any)?.usr;
-    const venueIdFromState = state?.venueId;
-
-    const venueId = venueIdParam ? parseInt(venueIdParam, 10) : venueIdFromState;
-    if (venueId && !isNaN(venueId)) {
-      setPrefilledVenueId(venueId);
-    }
-  }, []);
+  if (eventLoading || !event) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const onSubmit = (data: EventFormValues) => {
     // Convert separate date and time to ISO 8601
@@ -65,7 +63,7 @@ export default function OrganizerEventCreate() {
       }),
     };
 
-    createMutation.mutate(payload as any, {
+    updateMutation.mutate({ id: eventId!, data: payload as any }, {
       onSuccess: () => {
         setLocation("/organizer/events");
       },
@@ -90,10 +88,10 @@ export default function OrganizerEventCreate() {
         <div>
           <h1 className="text-3xl font-display font-bold flex items-center gap-3">
             <CalendarIcon className="w-8 h-8 text-primary" />
-            Create Event
+            Edit Event
           </h1>
           <p className="text-muted-foreground mt-1">
-            Set up a new event and invite artists
+            Update the details for "{event.title}"
           </p>
         </div>
       </motion.div>
@@ -104,13 +102,13 @@ export default function OrganizerEventCreate() {
         transition={{ delay: 0.1 }}
       >
         <EventForm 
-          mode="create"
+          mode="edit"
+          initialData={event}
           venues={venues || []}
           venuesLoading={venuesLoading}
-          prefilledVenueId={prefilledVenueId}
           onSubmit={onSubmit}
           onCancel={() => setLocation("/organizer/events")}
-          isSubmitting={createMutation.isPending}
+          isSubmitting={updateMutation.isPending}
         />
       </motion.div>
     </div>

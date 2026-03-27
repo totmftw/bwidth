@@ -212,6 +212,35 @@ router.post("/organizer/events", async (req: Request, res: Response) => {
   }
 });
 
+// GET /organizer/events/:id — fetch a single event
+router.get("/organizer/events/:id", async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    const idParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const eventId = parseInt(idParam, 10);
+    if (isNaN(eventId)) {
+      return res.status(400).json({ message: "Invalid event ID" });
+    }
+
+    const organizer = await storage.getOrganizerByUserId(user.id);
+    if (!organizer) {
+      return res.status(404).json({ message: "Organizer profile not found" });
+    }
+
+    const event = await storage.getEvent(eventId);
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+    if (event.organizerId !== organizer.id) {
+      return res.status(403).json({ message: "Not authorized to access this event" });
+    }
+
+    return res.status(200).json(event);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch event" });
+  }
+});
+
 // PUT /organizer/events/:id — update an event with ownership and edit restriction checks
 router.put("/organizer/events/:id", async (req: Request, res: Response) => {
   try {

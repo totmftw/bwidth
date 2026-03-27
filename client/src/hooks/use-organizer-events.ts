@@ -22,6 +22,19 @@ export function useOrganizerEvents(status?: string) {
   });
 }
 
+export function useOrganizerEvent(id: number) {
+  return useQuery({
+    queryKey: [api.organizer.events.list.path, id],
+    queryFn: async () => {
+      const url = `/api/organizer/events/${id}`; // Manually construct, we'll implement this backend route
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch event");
+      return await res.json() as Event;
+    },
+    enabled: !!id,
+  });
+}
+
 export function useCreateEvent() {
   const queryClient = useQueryClient();
   const { toast } = useToast();

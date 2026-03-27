@@ -6,13 +6,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Badge } from "@/components/ui/badge";
 import { Search, MapPin, Calendar, DollarSign, Music, SlidersHorizontal, ArrowUpRight } from "lucide-react";
 import { GigApplicationModal } from "@/components/GigApplicationModal";
+import { EventDetailModal } from "@/components/EventDetailModal";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function FindGigs() {
     const [search, setSearch] = useState("");
     const [selectedGig, setSelectedGig] = useState<any>(null);
-    const [modalOpen, setModalOpen] = useState(false);
+    const [applyModalOpen, setApplyModalOpen] = useState(false);
+    const [detailModalOpen, setDetailModalOpen] = useState(false);
+    const [selectedOpportunity, setSelectedOpportunity] = useState<any>(null);
 
     const { data: opportunities, isLoading } = useQuery({
         queryKey: ["/api/opportunities", search],
@@ -25,9 +28,16 @@ export default function FindGigs() {
         }
     });
 
-    const handleApply = (gig: any, stage?: any) => {
-        setSelectedGig({ event: gig, stage });
-        setModalOpen(true);
+    const handleApply = (opportunity: any, stage?: any) => {
+        // opportunity object contains { event, venue, organizer }
+        // The modal expects just the event object
+        setSelectedGig({ event: opportunity.event || opportunity, stage });
+        setApplyModalOpen(true);
+    };
+
+    const handleViewDetails = (gig: any) => {
+        setSelectedOpportunity(gig);
+        setDetailModalOpen(true);
     };
 
     // Client-side filtering for now
@@ -35,9 +45,10 @@ export default function FindGigs() {
         if (!search) return true;
         const term = search.toLowerCase();
         return (
-            op.title?.toLowerCase().includes(term) ||
-            op.description?.toLowerCase().includes(term) ||
-            // op.genre?.toLowerCase().includes(term) || // If genre exists on event
+            op.event.title?.toLowerCase().includes(term) ||
+            op.event.description?.toLowerCase().includes(term) ||
+            op.venue?.name?.toLowerCase().includes(term) ||
+            op.venue?.location?.toLowerCase().includes(term) ||
             false
         );
     });
@@ -72,43 +83,52 @@ export default function FindGigs() {
                 </div>
             ) : filteredOpportunities?.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredOpportunities.map((gig: any) => (
-                        <Card key={gig.id} className="group overflow-hidden border-white/5 bg-card/40 hover:bg-card/60 transition-all hover:border-primary/30 flex flex-col">
+                    {filteredOpportunities.map((op: any) => {
+                        const { event, venue, organizer } = op;
+                        const venueAddress = venue?.address ? Object.values(venue.address).filter(Boolean).join(", ") : venue?.location || "TBA";
+                        
+                        return (
+                        <Card key={event.id} className="group overflow-hidden border-white/5 bg-card/40 hover:bg-card/60 transition-all hover:border-primary/30 flex flex-col">
                             <div className="h-32 bg-gradient-to-br from-indigo-900/50 to-purple-900/50 p-6 flex flex-col justify-end relative">
-                                <div className="absolute top-4 right-4">
-                                    <Badge variant="secondary" className="bg-white/10 text-white backdrop-blur-md">
-                                        {gig.status}
+                                <div className="absolute top-4 right-4 text-right">
+                                    <Badge variant="secondary" className="bg-white/10 text-white backdrop-blur-md mb-2">
+                                        {event.status}
                                     </Badge>
                                 </div>
-                                <h3 className="text-xl font-bold font-display text-white">{gig.title}</h3>
-                                <p className="text-sm text-gray-300 flex items-center gap-1">
-                                    <MapPin className="w-3 h-3" /> {gig.venue?.name || "TBD"}
+                                <h3 className="text-xl font-bold font-display text-white">{event.title}</h3>
+                                <p className="text-sm text-gray-300 flex items-center gap-1 truncate pb-1">
+                                    <MapPin className="w-3 h-3 flex-shrink-0" /> {venue?.name || "TBD"}
                                 </p>
                             </div>
 
                             <CardContent className="p-5 flex-1 space-y-4">
                                 <div className="flex flex-col gap-2 text-sm">
                                     <div className="flex items-center gap-1.5 text-muted-foreground">
-                                        <Calendar className="w-4 h-4" />
-                                        <span>{gig.startTime ? format(new Date(gig.startTime), "MMM d, yyyy") : "Date TBD"}</span>
+                                        <Calendar className="w-4 h-4 text-primary/70" />
+                                        <span>{event.startTime ? format(new Date(event.startTime), "MMM d, yyyy") : "Date TBD"}</span>
+                                        {event.endTime && <span className="text-xs opacity-70 border-l border-white/20 pl-1.5 ml-0.5">{format(new Date(event.endTime), "MMM d")}</span>}
                                     </div>
-                                    {(gig.metadata as any)?.genre && (
+                                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                                        <Music className="w-4 h-4 text-primary/70" />
+                                        <span>By {organizer?.name || "Organizer"}</span>
+                                    </div>
+                                    {(venue?.capacityTotal || venue?.capacity) && (
                                         <div className="flex items-center gap-1.5 text-muted-foreground">
-                                            <Music className="w-4 h-4" />
-                                            <span>{(gig.metadata as any).genre}</span>
+                                            <Music className="w-4 h-4 text-primary/70 opacity-0" /> {/* Spacer */}
+                                            <span className="text-xs px-2 py-0.5 bg-white/5 rounded-full border border-white/5">Capacity: {venue.capacityTotal || venue.capacity} Pax</span>
                                         </div>
                                     )}
                                 </div>
 
-                                <p className="text-sm text-muted-foreground line-clamp-3">
-                                    {gig.description || "No description provided."}
+                                <p className="text-sm text-muted-foreground line-clamp-2">
+                                    {event.description || "No description provided."}
                                 </p>
 
-                                {gig.stages && gig.stages.length > 0 ? (
+                                {event.stages && event.stages.length > 0 ? (
                                     <div className="mt-4 space-y-2 border-t border-white/5 pt-4">
                                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Available Timeslots</p>
                                         <div className="grid gap-2">
-                                            {gig.stages.map((stage: any) => (
+                                            {event.stages.map((stage: any) => (
                                                 <div key={stage.id} className="flex items-center justify-between p-2 rounded-md bg-white/5 border border-white/5 text-sm">
                                                     <div className="flex flex-col">
                                                         <span className="font-medium">{stage.name}</span>
@@ -117,7 +137,7 @@ export default function FindGigs() {
                                                             {stage.endTime ? ` - ${format(new Date(stage.endTime), "p")}` : ""}
                                                         </span>
                                                     </div>
-                                                    <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => handleApply(gig, stage)}>
+                                                    <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => handleApply(op, stage)}>
                                                         Apply
                                                     </Button>
                                                 </div>
@@ -132,12 +152,15 @@ export default function FindGigs() {
                             </CardContent>
 
                             <CardFooter className="p-5 pt-0 mt-auto flex items-center justify-between">
-                                <div className="font-semibold text-primary flex items-center gap-1">
-                                    {/* Display budget range if available (mock logic) */}
-
-                                </div>
-                                {!gig.stages || gig.stages.length === 0 ? (
-                                    <Button className="gap-2 group-hover:bg-primary/90" onClick={() => handleApply(gig)}>
+                                <Button 
+                                    variant="outline" 
+                                    className="border-white/10 hover:bg-white/5" 
+                                    onClick={() => handleViewDetails(op)}
+                                >
+                                    View Details
+                                </Button>
+                                {!event.stages || event.stages.length === 0 ? (
+                                    <Button className="gap-2 group-hover:bg-primary/90" onClick={() => handleApply(op)}>
                                         Apply Now
                                         <ArrowUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
                                     </Button>
@@ -146,7 +169,8 @@ export default function FindGigs() {
                                 )}
                             </CardFooter>
                         </Card>
-                    ))}
+                        );
+                    })}
                 </div>
             ) : (
                 <div className="text-center py-12">
@@ -157,8 +181,15 @@ export default function FindGigs() {
             <GigApplicationModal
                 event={selectedGig?.event}
                 stage={selectedGig?.stage}
-                open={modalOpen}
-                onOpenChange={setModalOpen}
+                open={applyModalOpen}
+                onOpenChange={setApplyModalOpen}
+            />
+
+            <EventDetailModal
+                opportunity={selectedOpportunity}
+                open={detailModalOpen}
+                onOpenChange={setDetailModalOpen}
+                onApply={handleApply}
             />
         </div>
     );
