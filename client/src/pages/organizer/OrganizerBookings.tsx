@@ -35,6 +35,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import { NegotiationFlow } from "@/components/booking/NegotiationFlow";
 import { ContractViewer } from "@/components/booking/ContractViewer";
+import { ArtistProfileModal } from "@/components/ArtistProfileModal";
 
 type BookingTab = "all" | "pending" | "confirmed" | "completed" | "cancelled";
 
@@ -211,6 +212,7 @@ function BookingCard({
     onOpen: (view: "negotiate" | "contract") => void;
 }) {
     const [, navigate] = useLocation();
+    const [showArtistProfile, setShowArtistProfile] = useState(false);
     const status = booking.status || "inquiry";
     const isPending = ["inquiry", "offered", "negotiating"].includes(status);
     const isContracting = status === "contracting";
@@ -259,7 +261,13 @@ function BookingCard({
                         <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-4 mb-2">
                                 <div>
-                                    <h3 className="font-semibold group-hover:text-primary transition-colors flex items-center gap-2">
+                                    <h3 
+                                        className="font-semibold hover:text-primary transition-colors flex items-center gap-2 cursor-pointer"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setShowArtistProfile(true);
+                                        }}
+                                    >
                                         <User className="w-4 h-4 text-muted-foreground" />
                                         {artistDisplay}
                                     </h3>
@@ -309,7 +317,7 @@ function BookingCard({
                                         onClick={() => onOpen("negotiate")}
                                     >
                                         <MessageSquare className="w-4 h-4 mr-2" />
-                                        {status === "inquiry" ? "Start Negotiation" : "Negotiate"}
+                                        {status === "negotiating" ? "Open Chat" : status === "inquiry" ? "Start Negotiation" : "Negotiate"}
                                     </Button>
                                 )}
 
@@ -355,6 +363,12 @@ function BookingCard({
                     </div>
                 </CardContent>
             </Card>
+
+            <ArtistProfileModal 
+                artist={artist} 
+                open={showArtistProfile} 
+                onOpenChange={setShowArtistProfile} 
+            />
         </motion.div>
     );
 }

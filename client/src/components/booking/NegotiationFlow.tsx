@@ -239,7 +239,6 @@ function CounterCostSheet({
   const handleSend = () => {
     const num = Number(amount);
     if (!num || num <= 0) { setError("Enter a valid amount"); return; }
-    if (!note.trim()) { setError("Add a short note explaining your offer"); return; }
     onSubmit({ offerAmount: num, note });
   };
 
@@ -268,12 +267,15 @@ function CounterCostSheet({
         />
       </div>
 
-      <Textarea
-        className="resize-none text-sm min-h-[70px]"
-        placeholder="Add a note explaining your offer…"
-        value={note}
-        onChange={e => { setNote(e.target.value); setError(""); }}
-      />
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground ml-1">Add a note (Optional)</Label>
+        <Textarea
+          className="resize-none text-sm min-h-[70px]"
+          placeholder="Explain your offer…"
+          value={note}
+          onChange={e => { setNote(e.target.value); setError(""); }}
+        />
+      </div>
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
@@ -563,7 +565,8 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
   // Derive state from workflow
   const wf = conversation?.workflowInstance;
   const ctx = (wf?.context as any) || {};
-  const isMyTurn = wf?.awaitingUserId === user?.id;
+  const isCostMyTurn = ctx.costAwaitingUserId === user?.id;
+  const isSlotMyTurn = ctx.slotAwaitingUserId === user?.id;
   const isTerminal = wf && ["ACCEPTED", "DECLINED"].includes(wf.currentNodeKey);
   const currentOffer = formatCurrency(booking.offerAmount, booking.offerCurrency);
 
@@ -670,7 +673,7 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
               })}
 
             {/* "Waiting" indicator */}
-            {!isTerminal && conversationId && !isMyTurn && (
+            {!isTerminal && conversationId && !isCostMyTurn && !isSlotMyTurn && (
               <div className="flex items-center gap-2 px-4 mt-3 text-muted-foreground">
                 <div className="flex gap-0.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:0ms]" />
@@ -736,7 +739,6 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
 
           {!sheet && (
             <div className="border-t bg-card/90 backdrop-blur-sm px-4 py-3 shrink-0">
-              {isMyTurn ? (
                 <div className="space-y-2">
                   {/* Negotiation actions */}
                   <div className="grid grid-cols-3 gap-2">
@@ -744,22 +746,22 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
                       variant="outline"
                       className="h-12 font-medium rounded-xl border-violet-500/40 text-violet-400 hover:bg-violet-500/10 flex-col gap-0 py-1"
                       onClick={() => setSheet("cost")}
-                      disabled={isActing || costLocked || costRemaining <= 0}
+                      disabled={isActing || costLocked || costRemaining <= 0 || !isCostMyTurn}
                     >
                       <span className="text-xs">💰 Cost</span>
                       <span className="text-[9px] text-muted-foreground">
-                        {costLocked ? "Locked" : `${costRemaining}/2 left`}
+                        {costLocked ? "Locked" : !isCostMyTurn ? "Waiting" : `${costRemaining}/2 left`}
                       </span>
                     </Button>
                     <Button
                       variant="outline"
                       className="h-12 font-medium rounded-xl border-blue-500/40 text-blue-400 hover:bg-blue-500/10 flex-col gap-0 py-1"
                       onClick={() => setSheet("slot")}
-                      disabled={isActing || slotLocked || slotRemaining <= 0}
+                      disabled={isActing || slotLocked || slotRemaining <= 0 || !isSlotMyTurn}
                     >
                       <span className="text-xs">🕐 Slot</span>
                       <span className="text-[9px] text-muted-foreground">
-                        {slotLocked ? "Locked" : `${slotRemaining}/1 left`}
+                        {slotLocked ? "Locked" : !isSlotMyTurn ? "Waiting" : `${slotRemaining}/1 left`}
                       </span>
                     </Button>
                     <Button
@@ -796,28 +798,6 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
                     Walk Away
                   </Button>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-center gap-2 py-2 text-muted-foreground text-sm">
-                    <Clock className="w-4 h-4" />
-                    Waiting for {counterName} to respond
-                  </div>
-                  {/* Walk Away option even when not your turn */}
-                  <Button
-                    variant="ghost"
-                    className="w-full h-10 text-sm font-medium text-destructive/70 hover:text-destructive hover:bg-destructive/10 rounded-xl"
-                    onClick={() => {
-                      // Allow walk away even when not your turn by calling the API directly
-                      // The server will need to be updated to allow this — for now show the sheet
-                      setSheet("walkaway");
-                    }}
-                    disabled={isActing}
-                  >
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Walk Away
-                  </Button>
-                </div>
-              )}
             </div>
           )}
         </>

@@ -85,8 +85,17 @@ class WorkflowEngine {
         const isOrganizerInitiator = initiatorId === organizerUserId;
         const initiatedBy = isOrganizerInitiator ? "organizer" : "artist";
 
-        // The responder acts first (responds to the offer)
-        const firstMoverUserId = isOrganizerInitiator ? artist.userId! : organizerUserId;
+        // If organizer initiated with an offer, they have nominally done round 1.
+        // But the requirement states: "organizer always goes first".
+        // To enforce this systematically:
+        // If Organizer initiated, they made the first offer -> Turn is Artist's.
+        // If Artist initiated (applied), they just requested -> Turn is Organizer's explicitly.
+        // We will track independent turns for cost and slot.
+        const startCostUserId = isOrganizerInitiator ? artist.userId! : organizerUserId;
+        const startSlotUserId = isOrganizerInitiator ? artist.userId! : organizerUserId;
+        
+        const initialCostRoundsOrg = isOrganizerInitiator ? 1 : 0;
+        const initialSlotRoundsOrg = isOrganizerInitiator ? 1 : 0;
 
         // Resolve the slot time from booking meta or event
         const bookingMeta = (booking.meta as any) || {};
@@ -139,19 +148,21 @@ class WorkflowEngine {
                         currency: booking.offerCurrency
                     },
                     currentSlot: initialSlot,
-                    costRoundsOrganizer: 0,
+                    costRoundsOrganizer: initialCostRoundsOrg,
                     costRoundsArtist: 0,
-                    slotRoundsOrganizer: 0,
+                    slotRoundsOrganizer: initialSlotRoundsOrg,
                     slotRoundsArtist: 0,
                     costLocked: false,
                     slotLocked: false,
+                    costAwaitingUserId: startCostUserId,
+                    slotAwaitingUserId: startSlotUserId,
                     initiatedBy,
                     artistUserId: artist.userId!,
                     organizerUserId,
                     artistName,
                     organizerName
                 },
-                awaitingUserId: firstMoverUserId,
+                awaitingUserId: null, // Removed in favor of costAwaitingUserId and slotAwaitingUserId
                 round: 0,
                 maxRounds: 4  // Total max cost rounds (2 per party)
             }).returning();
@@ -190,14 +201,7 @@ class WorkflowEngine {
 
             const ctx = (wfInstance.context as any) || {};
 
-            // 2. Validate turn — WALK_AWAY is always allowed regardless of turn
-            if (actionKey !== 'WALK_AWAY' && actionKey !== 'DECLINE') {
-                if (wfInstance.awaitingUserId !== userId) {
-                    throw new Error(`Not your turn. Please wait for the other party to respond.`);
-                }
-            }
-
-            // 3. Validate action
+            // 2. Turn validation moved into specific actions
             const validActions = ['PROPOSE_COST', 'PROPOSE_SLOT', 'PROPOSE_RIDER', 'ACCEPT', 'WALK_AWAY', 'DECLINE',
                 // Keep legacy support
                 'PROPOSE_CHANGE'];
@@ -222,7 +226,6 @@ class WorkflowEngine {
             const otherUserId = otherParticipants[0].userId;
 
             let nextNodeKey = wfInstance.currentNodeKey;
-            let nextAwaitingUserId: number | null = otherUserId;
             let systemMessages: string[] = [];
             let updatedContext = { ...ctx };
 
@@ -236,6 +239,9 @@ class WorkflowEngine {
             if (actionKey === 'PROPOSE_COST') {
                 if (ctx.costLocked) {
                     throw new Error("Cost is already locked. You cannot make further cost proposals.");
+                }
+                if (ctx.costAwaitingUserId !== userId) {
+                    throw new Error("Not your turn to negotiate cost.");
                 }
 
                 const costKey = isArtist ? 'costRoundsArtist' : 'costRoundsOrganizer';
@@ -268,6 +274,7 @@ class WorkflowEngine {
 
                 // Update context
                 updatedContext[costKey] = currentRounds + 1;
+                updatedContext.costAwaitingUserId = otherUserId;
 
                 // Check if cost should auto-lock
                 const otherCostKey = isArtist ? 'costRoundsOrganizer' : 'costRoundsArtist';
@@ -283,6 +290,9 @@ class WorkflowEngine {
             else if (actionKey === 'PROPOSE_SLOT') {
                 if (ctx.slotLocked) {
                     throw new Error("Time slot is already locked. You cannot propose further slot changes.");
+                }
+                if (ctx.slotAwaitingUserId !== userId) {
+                    throw new Error("Not your turn to negotiate slot.");
                 }
 
                 const slotKey = isArtist ? 'slotRoundsArtist' : 'slotRoundsOrganizer';
@@ -310,6 +320,7 @@ class WorkflowEngine {
                 // Update context
                 updatedContext[slotKey] = currentSlotRounds + 1;
                 updatedContext.currentSlot = payload.slotTime;
+                updatedContext.slotAwaitingUserId = otherUserId;
 
                 // Check if slot should auto-lock
                 const otherSlotKey = isArtist ? 'slotRoundsOrganizer' : 'slotRoundsArtist';
@@ -355,7 +366,6 @@ class WorkflowEngine {
             // ── ACCEPT ──
             else if (actionKey === 'ACCEPT') {
                 nextNodeKey = 'ACCEPTED';
-                nextAwaitingUserId = null;
 
                 if (bookingId) {
                     // Read the latest booking to get the current (last-agreed) offer amount
@@ -393,7 +403,6 @@ class WorkflowEngine {
             // ── WALK_AWAY ──
             else if (actionKey === 'WALK_AWAY') {
                 nextNodeKey = 'DECLINED';
-                nextAwaitingUserId = null;
 
                 if (bookingId) {
                     await tx.update(bookings)
@@ -416,12 +425,12 @@ class WorkflowEngine {
             await tx.update(conversationWorkflowInstances)
                 .set({
                     currentNodeKey: nextNodeKey,
-                    awaitingUserId: nextAwaitingUserId,
+                    awaitingUserId: null,
                     round: isProposal ? wfInstance.round + 1 : wfInstance.round,
                     locked: isTerminal,
                     context: updatedContext,
                     updatedAt: new Date(),
-                    deadlineAt: nextAwaitingUserId ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null
+                    deadlineAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
                 })
                 .where(eq(conversationWorkflowInstances.conversationId, conversationId));
 

@@ -1,6 +1,6 @@
 import { db } from "./db";
 import {
-  users, artists, organizers, venues, bookings, events, promoters, contracts, auditLogs, eventStages, temporaryVenues,
+  users, artists, organizers, venues, bookings, events, promoters, contracts, auditLogs, eventStages, temporaryVenues, media,
   contractVersions, contractEditRequests, contractSignatures, messages, conversations, conversationParticipants,
   roles,
   userRoles,
@@ -482,12 +482,38 @@ export class DatabaseStorage implements IStorage {
         )
       );
 
-    // Fetch stages for all events
+    // Fetch stages, venue photos, and temporaryVenue for all events
     const resultsWithStages = await Promise.all(results.map(async (r) => {
       const stages = await db.select().from(eventStages).where(eq(eventStages.eventId, r.event.id));
+      
+      // Fetch venue photos from media table if a venue is linked
+      let venuePhotos: any[] = [];
+      if (r.venue?.id) {
+        venuePhotos = await db
+          .select()
+          .from(media)
+          .where(
+            and(
+              eq(media.entityType, 'venue'),
+              eq(media.entityId, r.venue.id)
+            )
+          );
+      }
+
+      // Fetch temporaryVenue record if no registered venue
+      let tempVenue = null;
+      if (!r.event.venueId) {
+        const [tv] = await db
+          .select()
+          .from(temporaryVenues)
+          .where(eq(temporaryVenues.eventId, r.event.id));
+        tempVenue = tv || null;
+      }
+
       return {
         ...r.event,
-        venue: r.venue,
+        venue: r.venue ? { ...r.venue, photos: venuePhotos } : null,
+        temporaryVenue: tempVenue,
         organizer: r.organizer,
         stages: stages || [],
       };

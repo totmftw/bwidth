@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useBookings } from "@/hooks/use-bookings";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
@@ -55,6 +55,20 @@ export default function ArtistBookings() {
     // Sheet state: which booking is open, and which view
     const [sheetBooking, setSheetBooking] = useState<any>(null);
     const [sheetView, setSheetView] = useState<"negotiate" | "contract">("negotiate");
+
+    useEffect(() => {
+        if (bookings) {
+            const params = new URLSearchParams(window.location.search);
+            const bookingId = params.get("bookingId");
+            if (bookingId) {
+                const b = bookings.find((bk: any) => bk.id.toString() === bookingId);
+                if (b) {
+                    setSheetBooking(b);
+                    setSheetView("negotiate");
+                }
+            }
+        }
+    }, [bookings]);
 
     if (!user) return null;
 
@@ -286,7 +300,7 @@ function BookingCard({
                                         onClick={() => onOpen("negotiate")}
                                     >
                                         <MessageSquare className="w-4 h-4 mr-2" />
-                                        {status === "offered" ? "Respond" : "Negotiate"}
+                                        {status === "negotiating" ? "Open Chat" : status === "offered" ? "Respond" : "Negotiate"}
                                     </Button>
                                 )}
 

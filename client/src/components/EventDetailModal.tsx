@@ -4,127 +4,334 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
-    DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Calendar as CalendarIcon, MapPin, Users, Clock, AlignLeft, Utensils, Music, Info } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+    Calendar as CalendarIcon,
+    MapPin,
+    Users,
+    Clock,
+    AlignLeft,
+    Utensils,
+    Music,
+    Wifi,
+    Zap,
+    Car,
+    Camera,
+    Wind,
+    ShieldCheck,
+    ExternalLink,
+    ImageIcon,
+    Building2,
+    ChevronLeft,
+    ChevronRight,
+    Phone,
+    Globe,
+} from "lucide-react";
+import { useState } from "react";
 
 interface EventDetailModalProps {
-    opportunity: any; // The joined opportunity object
+    opportunity: any;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onApply: (opportunity: any, stage?: any) => void;
 }
 
+// Map keyword → icon for amenities
+const AMENITY_ICONS: Record<string, any> = {
+    food: Utensils,
+    catering: Utensils,
+    menu: Utensils,
+    parking: Car,
+    wifi: Wifi,
+    internet: Wifi,
+    power: Zap,
+    electricity: Zap,
+    generator: Zap,
+    ac: Wind,
+    "air condition": Wind,
+    cooling: Wind,
+    security: ShieldCheck,
+    cctv: Camera,
+    camera: Camera,
+    sound: Music,
+    audio: Music,
+    pa: Music,
+    dj: Music,
+    green: AlignLeft,  // green room
+};
+
+function amenityIcon(label: string) {
+    const lower = label.toLowerCase();
+    for (const [key, Icon] of Object.entries(AMENITY_ICONS)) {
+        if (lower.includes(key)) return Icon;
+    }
+    return ShieldCheck; // generic fallback
+}
+
+// Simple photo gallery with prev/next
+function PhotoGallery({ photos }: { photos: any[] }) {
+    const [idx, setIdx] = useState(0);
+    if (!photos || photos.length === 0) return null;
+
+    const current = photos[idx];
+    const src = current?.data || current?.url;
+
+    return (
+        <div className="relative w-full rounded-xl overflow-hidden bg-black/60" style={{ aspectRatio: "16/7" }}>
+            <img
+                src={src}
+                alt={current?.altText || "Venue photo"}
+                className="w-full h-full object-cover"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+            {photos.length > 1 && (
+                <>
+                    <button
+                        className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/80 rounded-full p-1 transition-colors"
+                        onClick={() => setIdx((i) => (i - 1 + photos.length) % photos.length)}
+                    >
+                        <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                        className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/80 rounded-full p-1 transition-colors"
+                        onClick={() => setIdx((i) => (i + 1) % photos.length)}
+                    >
+                        <ChevronRight className="w-4 h-4" />
+                    </button>
+                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                        {photos.map((_, i) => (
+                            <div
+                                key={i}
+                                onClick={() => setIdx(i)}
+                                className={`w-1.5 h-1.5 rounded-full cursor-pointer transition-colors ${i === idx ? 'bg-white' : 'bg-white/40'}`}
+                            />
+                        ))}
+                    </div>
+                </>
+            )}
+        </div>
+    );
+}
+
+// Render a venue address JSONB object into a readable string
+function formatAddress(address: any): string {
+    if (!address) return "";
+    if (typeof address === "string") return address;
+    const parts = [
+        address.line1,
+        address.line2,
+        address.city,
+        address.state,
+        address.pincode || address.zip,
+        address.country,
+    ].filter(Boolean);
+    return parts.join(", ");
+}
+
 export function EventDetailModal({ opportunity, open, onOpenChange, onApply }: EventDetailModalProps) {
-    if (!opportunity || !opportunity.event) return null;
+    if (!opportunity) return null;
 
-    const { event, venue, organizer } = opportunity;
+    // Support both flat and nested structures
+    const event = opportunity.event || opportunity;
+    const venue = opportunity.venue || event.venue || null;
+    const organizer = opportunity.organizer || event.organizer || null;
     const stages = event.stages || [];
+    const tempVenue = opportunity.temporaryVenue || event.temporaryVenue || null;
 
-    // Parse Venue Data
-    const venueCapacity = venue?.capacityTotal || venue?.capacity || event.capacityTotal || "Varies";
-    const venueAddress = venue?.address ? Object.values(venue.address).filter(Boolean).join(", ") : venue?.location || "TBA";
-    const venueAmenities = venue?.amenities ? (Array.isArray(venue.amenities) ? venue.amenities : [venue.amenities]) : [];
+    // Active venue display — prefer registered venue, fall back to temporaryVenue
+    const activeVenueName = venue?.name || tempVenue?.name || "Venue TBA";
+    const activeVenueAddress = formatAddress(venue?.address)
+        || tempVenue?.location
+        || "Address not provided";
+    const activeMapsLink = tempVenue?.mapsLink || venue?.metadata?.mapsLink || venue?.metadata?.googleMaps || null;
+
+    const photos: any[] = venue?.photos || [];
+    const amenities: any[] = venue?.amenities
+        ? (Array.isArray(venue.amenities) ? venue.amenities : Object.entries(venue.amenities).map(([k, v]) => `${k}${v !== true ? `: ${v}` : ''}`))
+        : [];
+
+    const capacityTotal = venue?.capacity || event.capacityTotal;
+    const capacitySeated = venue?.capacitySeated;
+    const capacityStanding = venue?.capacityStanding;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto p-0 gap-0 bg-[#0A0A0A] border-white/10">
-                {/* Header Image / Hero Area */}
-                <div className="w-full h-32 md:h-48 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent relative border-b border-white/10">
-                    <div className="absolute bottom-4 left-6 right-6 flex justify-between items-end">
-                        <div>
-                            <span className="text-xs font-bold uppercase tracking-wider text-primary mb-1 block">
-                                {event.visibility === 'public' ? 'Public Gig' : 'Private Invite'}
-                            </span>
-                            <DialogTitle className="text-3xl font-display font-bold text-white drop-shadow-md">
-                                {event.title}
-                            </DialogTitle>
-                            <p className="text-white/80 font-medium">By {organizer?.name || 'Unknown Organizer'}</p>
+            <DialogContent className="sm:max-w-[720px] max-h-[92vh] overflow-y-auto p-0 gap-0 bg-[#0A0A0C] border-white/10 rounded-2xl">
+
+                {/* Hero */}
+                <div className="w-full relative bg-gradient-to-br from-primary/20 via-indigo-900/20 to-black border-b border-white/8">
+                    <div className="px-6 pt-8 pb-5">
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <Badge
+                                    variant="outline"
+                                    className="mb-2 text-xs bg-primary/10 text-primary border-primary/30"
+                                >
+                                    {event.visibility === "public" ? "Public Gig" : "Private Invite"}
+                                </Badge>
+                                <DialogTitle className="text-3xl font-display font-bold text-white leading-tight">
+                                    {event.title}
+                                </DialogTitle>
+                                <p className="text-white/60 mt-1">
+                                    Hosted by <span className="text-white/90 font-medium">{organizer?.name || "Organizer"}</span>
+                                </p>
+                            </div>
                         </div>
+                    </div>
+
+                    {/* Quick stats bar */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 border-t border-white/8 divide-x divide-white/8">
+                        {[
+                            {
+                                icon: CalendarIcon,
+                                label: "Date",
+                                value: format(new Date(event.startTime), "MMM d, yyyy"),
+                            },
+                            {
+                                icon: Clock,
+                                label: "Time",
+                                value: `${format(new Date(event.startTime), "h:mm a")}${event.endTime ? ` – ${format(new Date(event.endTime), "h:mm a")}` : ""}`,
+                            },
+                            {
+                                icon: MapPin,
+                                label: "Venue",
+                                value: activeVenueName,
+                            },
+                            {
+                                icon: Users,
+                                label: "Capacity",
+                                value: capacityTotal ? `${capacityTotal} Pax` : "N/A",
+                            },
+                        ].map(({ icon: Icon, label, value }) => (
+                            <div key={label} className="flex flex-col gap-0.5 px-5 py-4">
+                                <span className="text-muted-foreground text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                    <Icon className="w-3.5 h-3.5" /> {label}
+                                </span>
+                                <span className="font-semibold text-sm leading-snug truncate" title={value}>{value}</span>
+                            </div>
+                        ))}
                     </div>
                 </div>
 
-                <div className="p-6 md:p-8 space-y-8">
-                    {/* Quick Stats Grid */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-6 border-b border-white/5">
-                        <div className="flex flex-col gap-1">
-                            <span className="text-muted-foreground text-xs uppercase tracking-wider flex items-center gap-1.5"><CalendarIcon className="w-3.5 h-3.5"/> Date</span>
-                            <span className="font-medium">{format(new Date(event.startTime), "MMM d, yyyy")}</span>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <span className="text-muted-foreground text-xs uppercase tracking-wider flex items-center gap-1.5"><Clock className="w-3.5 h-3.5"/> Time</span>
-                            <span className="font-medium">
-                                {format(new Date(event.startTime), "h:mm a")} 
-                                {event.endTime && ` - ${format(new Date(event.endTime), "h:mm a")}`}
-                            </span>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <span className="text-muted-foreground text-xs uppercase tracking-wider flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5"/> Location</span>
-                            <span className="font-medium truncate" title={venue?.name || 'Local Venue'}>{venue?.name || 'Local Venue'}</span>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <span className="text-muted-foreground text-xs uppercase tracking-wider flex items-center gap-1.5"><Users className="w-3.5 h-3.5"/> Capacity</span>
-                            <span className="font-medium">{venueCapacity} Pax</span>
-                        </div>
-                    </div>
-
-                    {/* About Section */}
+                <div className="p-6 space-y-8">
+                    {/* About */}
                     {event.description && (
-                        <div className="space-y-3">
-                            <h3 className="text-lg font-semibold flex items-center gap-2">
-                                <AlignLeft className="w-5 h-5 text-primary" /> About This Event
+                        <div className="space-y-2">
+                            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                <AlignLeft className="w-4 h-4" /> About
                             </h3>
-                            <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                            <p className="text-foreground/80 leading-relaxed whitespace-pre-wrap text-[15px]">
                                 {event.description}
                             </p>
                         </div>
                     )}
 
-                    {/* Venue Details */}
-                    <div className="space-y-4 pt-6 border-t border-white/5">
-                        <h3 className="text-lg font-semibold flex items-center gap-2">
-                            <MapPin className="w-5 h-5 text-primary" /> Venue Information
+                    {/* Venue Section */}
+                    <div className="space-y-4">
+                        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                            <Building2 className="w-4 h-4" /> Venue Information
                         </h3>
-                        <div className="bg-white/5 rounded-xl border border-white/10 p-5 space-y-4">
-                            <div>
-                                <h4 className="font-medium text-white text-lg">{venue?.name || 'Venue TBA'}</h4>
-                                <p className="text-muted-foreground text-sm mt-1">{venueAddress}</p>
+
+                        {/* Photo Gallery */}
+                        {photos.length > 0 ? (
+                            <PhotoGallery photos={photos} />
+                        ) : (
+                            <div className="flex items-center justify-center gap-2 text-muted-foreground/40 rounded-xl border border-dashed border-white/10 bg-black/20 py-8 text-sm">
+                                <ImageIcon className="w-5 h-5" /> No venue photos uploaded
                             </div>
-                            
-                            {(venue?.capacitySeated || venue?.capacityStanding) && (
-                                <div className="flex gap-6 mt-2 pt-4 border-t border-white/5">
-                                    {venue.capacitySeated && (
-                                        <div className="flex flex-col">
-                                            <span className="text-xs text-muted-foreground uppercase">Seated</span>
-                                            <span className="font-medium">{venue.capacitySeated}</span>
-                                        </div>
+                        )}
+
+                        <div className="rounded-xl border border-white/10 bg-white/3 divide-y divide-white/8 overflow-hidden">
+                            {/* Name + address */}
+                            <div className="p-5 space-y-3">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                        <h4 className="text-xl font-semibold">{activeVenueName}</h4>
+                                        {activeVenueAddress && activeVenueAddress !== "Address not provided" && (
+                                            <p className="text-muted-foreground text-sm mt-1 flex items-start gap-1.5">
+                                                <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary/60" />
+                                                {activeVenueAddress}
+                                            </p>
+                                        )}
+                                    </div>
+                                    {activeMapsLink && (
+                                        <a
+                                            href={activeMapsLink}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-medium border border-primary/20 transition-colors"
+                                        >
+                                            <ExternalLink className="w-3.5 h-3.5" />
+                                            Maps
+                                        </a>
                                     )}
-                                    {venue.capacityStanding && (
-                                        <div className="flex flex-col">
-                                            <span className="text-xs text-muted-foreground uppercase">Standing</span>
-                                            <span className="font-medium">{venue.capacityStanding}</span>
-                                        </div>
-                                    )}
+                                </div>
+
+                                {/* Directions / landmarks from temporaryVenue */}
+                                {tempVenue?.landmark && (
+                                    <p className="text-sm text-muted-foreground">
+                                        📍 Landmark: {tempVenue.landmark}
+                                    </p>
+                                )}
+                                {tempVenue?.directions && (
+                                    <p className="text-sm text-muted-foreground">
+                                        🗺 Directions: {tempVenue.directions}
+                                    </p>
+                                )}
+                                {tempVenue?.contactName && (
+                                    <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                                        <Phone className="w-3.5 h-3.5" />
+                                        {tempVenue.contactName}{tempVenue.contactPhone ? ` · ${tempVenue.contactPhone}` : ""}
+                                    </p>
+                                )}
+                            </div>
+
+                            {/* Capacity breakdown */}
+                            {(capacityTotal || capacitySeated || capacityStanding) && (
+                                <div className="px-5 py-4">
+                                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Capacity</p>
+                                    <div className="flex flex-wrap gap-4">
+                                        {capacityTotal && (
+                                            <div className="flex flex-col items-center bg-white/5 rounded-xl px-5 py-3 min-w-[80px]">
+                                                <Users className="w-4 h-4 text-primary mb-1" />
+                                                <span className="text-lg font-bold">{capacityTotal}</span>
+                                                <span className="text-xs text-muted-foreground">Total</span>
+                                            </div>
+                                        )}
+                                        {capacitySeated && (
+                                            <div className="flex flex-col items-center bg-white/5 rounded-xl px-5 py-3 min-w-[80px]">
+                                                <span className="text-lg">🪑</span>
+                                                <span className="text-lg font-bold">{capacitySeated}</span>
+                                                <span className="text-xs text-muted-foreground">Seated</span>
+                                            </div>
+                                        )}
+                                        {capacityStanding && (
+                                            <div className="flex flex-col items-center bg-white/5 rounded-xl px-5 py-3 min-w-[80px]">
+                                                <span className="text-lg">🧍</span>
+                                                <span className="text-lg font-bold">{capacityStanding}</span>
+                                                <span className="text-xs text-muted-foreground">Standing</span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
-                            {venueAmenities.length > 0 && (
-                                <div className="pt-4 border-t border-white/5">
-                                    <h5 className="text-sm font-medium mb-3 flex items-center gap-2">
-                                        <Info className="w-4 h-4 text-muted-foreground" /> Amenities Available
-                                    </h5>
+                            {/* Amenities */}
+                            {amenities.length > 0 && (
+                                <div className="px-5 py-4">
+                                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Amenities & Facilities</p>
                                     <div className="flex flex-wrap gap-2">
-                                        {venueAmenities.map((amenity: any, idx: number) => {
-                                            const label = typeof amenity === 'string' ? amenity : amenity.name || JSON.stringify(amenity);
-                                            // Quick icon mapping based on common terms
-                                            let Icon = Info;
-                                            if (label.toLowerCase().includes('food') || label.toLowerCase().includes('menu')) Icon = Utensils;
-                                            if (label.toLowerCase().includes('sound') || label.toLowerCase().includes('audio')) Icon = Music;
-                                            
+                                        {amenities.map((a: any, i: number) => {
+                                            const label = typeof a === "string" ? a : (a.name || a.label || JSON.stringify(a));
+                                            const Icon = amenityIcon(label);
                                             return (
-                                                <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full text-sm text-foreground/80 border border-white/10">
-                                                    <Icon className="w-3.5 h-3.5" />
+                                                <span
+                                                    key={i}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/5 rounded-full text-sm border border-white/8 text-foreground/80"
+                                                >
+                                                    <Icon className="w-3.5 h-3.5 text-primary/70" />
                                                     {label}
                                                 </span>
                                             );
@@ -132,32 +339,53 @@ export function EventDetailModal({ opportunity, open, onOpenChange, onApply }: E
                                     </div>
                                 </div>
                             )}
+
+                            {/* Space dimensions if present */}
+                            {venue?.spaceDimensions && (
+                                <div className="px-5 py-4">
+                                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Stage / Space</p>
+                                    <p className="text-sm text-muted-foreground">
+                                        {typeof venue.spaceDimensions === "string"
+                                            ? venue.spaceDimensions
+                                            : Object.entries(venue.spaceDimensions as Record<string, any>)
+                                                .map(([k, v]) => `${k}: ${v}`)
+                                                .join(" · ")}
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     </div>
 
-                    {/* Timeslots/Stages */}
+                    {/* Available Slots */}
                     {stages.length > 0 && (
-                        <div className="space-y-4 pt-6 border-t border-white/5 pb-20 md:pb-0">
-                            <h3 className="text-lg font-semibold flex items-center gap-2">
-                                <Clock className="w-5 h-5 text-primary" /> Available Slots
+                        <div className="space-y-3 pb-24 md:pb-4">
+                            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                                <Clock className="w-4 h-4" /> Available Slots
                             </h3>
                             <div className="grid gap-3">
                                 {stages.map((stage: any) => (
-                                    <div key={stage.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-white/10 bg-black/40 gap-4">
-                                        <div>
-                                            <h4 className="font-medium text-white">{stage.name || 'Main Stage'}</h4>
-                                            <p className="text-sm text-muted-foreground mt-1">
-                                                {stage.startTime && format(new Date(stage.startTime), "h:mm a")} 
-                                                {stage.endTime && ` - ${format(new Date(stage.endTime), "h:mm a")}`}
+                                    <div
+                                        key={stage.id}
+                                        className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-white/10 bg-black/30 gap-4"
+                                    >
+                                        <div className="space-y-0.5">
+                                            <h4 className="font-semibold">{stage.name || "Main Stage"}</h4>
+                                            <p className="text-sm text-muted-foreground">
+                                                {stage.startTime && format(new Date(stage.startTime), "h:mm a")}
+                                                {stage.endTime && ` – ${format(new Date(stage.endTime), "h:mm a")}`}
+                                                {stage.capacity && (
+                                                    <span className="ml-2 text-xs bg-white/5 px-2 py-0.5 rounded-full border border-white/10">
+                                                        {stage.capacity} cap
+                                                    </span>
+                                                )}
                                             </p>
                                         </div>
-                                        <Button 
+                                        <Button
+                                            size="sm"
                                             onClick={() => {
                                                 onOpenChange(false);
                                                 onApply(opportunity, stage);
                                             }}
-                                            className="w-full sm:w-auto"
-                                            size="sm"
                                         >
                                             Apply for Slot
                                         </Button>
@@ -168,12 +396,12 @@ export function EventDetailModal({ opportunity, open, onOpenChange, onApply }: E
                     )}
                 </div>
 
-                {/* Sticky Footer CTA - Only if no stages are specified (otherwise they apply per stage) */}
+                {/* Sticky footer CTA — only without specific slots */}
                 {stages.length === 0 && (
-                    <div className="sticky bottom-0 left-0 right-0 p-4 bg-[#0A0A0A]/80 backdrop-blur-xl border-t border-white/10 flex justify-end gap-3 z-10">
+                    <div className="sticky bottom-0 left-0 right-0 p-4 bg-[#0A0A0C]/90 backdrop-blur-xl border-t border-white/10 flex justify-end gap-3 z-10">
                         <Button variant="ghost" onClick={() => onOpenChange(false)}>Close</Button>
-                        <Button 
-                            className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 px-8" 
+                        <Button
+                            className="bg-primary hover:bg-primary/90 px-8 shadow-lg shadow-primary/20"
                             onClick={() => {
                                 onOpenChange(false);
                                 onApply(opportunity);

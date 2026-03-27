@@ -9,7 +9,8 @@ import {
     Trash2,
     Loader2,
     Check,
-    ChevronsUpDown
+    ChevronsUpDown,
+    X
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Calendar } from "@/components/ui/calendar";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollableTimePicker } from "@/components/ScrollableTimePicker";
 import { cn } from "@/lib/utils";
@@ -354,24 +354,35 @@ export function EventForm({
                             </div>
                         )}
 
-                        <div className="flex items-center space-x-2 pt-2">
-                            <Checkbox 
-                                id="isCustomVenue" 
-                                checked={form.watch("isCustomVenue")}
-                                onCheckedChange={(checked) => {
-                                    form.setValue("isCustomVenue", !!checked);
-                                    if (checked) {
-                                        form.setValue("venueId", undefined);
-                                    }
+
+                        {/* Helper link — only shown when NOT in custom mode */}
+                        {!form.watch("isCustomVenue") && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    form.setValue("isCustomVenue", true);
+                                    form.setValue("venueId", undefined);
                                 }}
-                            />
-                            <Label htmlFor="isCustomVenue" className="cursor-pointer">Venue isn't registered on platform yet</Label>
-                        </div>
+                                className="mt-1 text-sm text-primary/80 hover:text-primary underline underline-offset-2 transition-colors cursor-pointer"
+                            >
+                                Can't find the venue? Click here to add a custom venue and details.
+                            </button>
+                        )}
 
                         {form.watch("isCustomVenue") && (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-5 rounded-xl border border-primary/20 bg-primary/5 mt-4">
-                                <div className="space-y-2 mb-2 md:col-span-2">
-                                    <Label className="text-base text-primary font-medium">Temporary Venue Details</Label>
+                                <div className="flex items-center justify-between md:col-span-2 mb-1">
+                                    <Label className="text-base text-primary font-medium">Custom Venue Details</Label>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            form.setValue("isCustomVenue", false);
+                                            form.setValue("temporaryVenue", undefined);
+                                        }}
+                                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors"
+                                    >
+                                        <X className="w-3.5 h-3.5" /> Remove custom venue
+                                    </button>
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="tempVenueName">Venue Name <span className="text-destructive">*</span></Label>

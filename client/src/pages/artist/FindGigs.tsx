@@ -7,11 +7,16 @@ import { Badge } from "@/components/ui/badge";
 import { Search, MapPin, Calendar, DollarSign, Music, SlidersHorizontal, ArrowUpRight } from "lucide-react";
 import { GigApplicationModal } from "@/components/GigApplicationModal";
 import { EventDetailModal } from "@/components/EventDetailModal";
+import { useLocation } from "wouter";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useBookings, useUpdateBooking } from "@/hooks/use-bookings";
 
 export default function FindGigs() {
     const [search, setSearch] = useState("");
+    const [, setLocation] = useLocation();
+    const { data: bookings } = useBookings();
+    const { mutate: updateBooking } = useUpdateBooking();
     const [selectedGig, setSelectedGig] = useState<any>(null);
     const [applyModalOpen, setApplyModalOpen] = useState(false);
     const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -40,8 +45,25 @@ export default function FindGigs() {
         setDetailModalOpen(true);
     };
 
+    const handleWithdraw = (bookingId: number) => {
+        if (confirm("Are you sure you want to withdraw your application?")) {
+            updateBooking({ id: bookingId, status: "cancelled", notes: "Artist withdrew application." } as any);
+        }
+    };
+
+    // Normalize data structure to ensure { event, venue, organizer } format
+    const normalizedOpportunities = opportunities?.map((op: any) => {
+        if (op.event) return op;
+        const { venue, organizer, stages, ...eventData } = op;
+        return {
+            event: { ...eventData, stages },
+            venue,
+            organizer
+        };
+    });
+
     // Client-side filtering for now
-    const filteredOpportunities = opportunities?.filter((op: any) => {
+    const filteredOpportunities = normalizedOpportunities?.filter((op: any) => {
         if (!search) return true;
         const term = search.toLowerCase();
         return (
@@ -128,7 +150,9 @@ export default function FindGigs() {
                                     <div className="mt-4 space-y-2 border-t border-white/5 pt-4">
                                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Available Timeslots</p>
                                         <div className="grid gap-2">
-                                            {event.stages.map((stage: any) => (
+                                            {event.stages.map((stage: any) => {
+                                                const hasApplied = bookings?.find((b: any) => b.eventId === event.id && b.stageId === stage.id && b.status !== 'cancelled' && b.status !== 'rejected');
+                                                return (
                                                 <div key={stage.id} className="flex items-center justify-between p-2 rounded-md bg-white/5 border border-white/5 text-sm">
                                                     <div className="flex flex-col">
                                                         <span className="font-medium">{stage.name}</span>
@@ -137,11 +161,22 @@ export default function FindGigs() {
                                                             {stage.endTime ? ` - ${format(new Date(stage.endTime), "p")}` : ""}
                                                         </span>
                                                     </div>
-                                                    <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => handleApply(op, stage)}>
-                                                        Apply
-                                                    </Button>
+                                                    {hasApplied ? (
+                                                        <div className="flex items-center gap-2">
+                                                            <Button size="sm" variant="destructive" className="h-7 text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30" onClick={() => handleWithdraw(hasApplied.id)}>
+                                                                Withdraw
+                                                            </Button>
+                                                            <Button size="sm" variant="default" className="h-7 text-xs bg-primary/20 hover:bg-primary/30 text-primary-foreground border border-primary/30" onClick={() => setLocation(`/bookings?bookingId=${hasApplied.id}`)}>
+                                                                Go to chat
+                                                            </Button>
+                                                        </div>
+                                                    ) : (
+                                                        <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => handleApply(op, stage)}>
+                                                            Apply
+                                                        </Button>
+                                                    )}
                                                 </div>
-                                            ))}
+                                            )})}
                                         </div>
                                     </div>
                                 ) : (
@@ -160,10 +195,25 @@ export default function FindGigs() {
                                     View Details
                                 </Button>
                                 {!event.stages || event.stages.length === 0 ? (
-                                    <Button className="gap-2 group-hover:bg-primary/90" onClick={() => handleApply(op)}>
-                                        Apply Now
-                                        <ArrowUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-                                    </Button>
+                                    (() => {
+                                        const hasApplied = bookings?.find((b: any) => b.eventId === event.id && !b.stageId && b.status !== 'cancelled' && b.status !== 'rejected');
+                                        return hasApplied ? (
+                                            <div className="flex items-center gap-2">
+                                                <Button className="gap-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30" variant="outline" onClick={() => handleWithdraw(hasApplied.id)}>
+                                                    Withdraw
+                                                </Button>
+                                                <Button className="gap-2 group-hover:bg-primary/90" onClick={() => setLocation(`/bookings?bookingId=${hasApplied.id}`)}>
+                                                    Go to chat
+                                                    <ArrowUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                                                </Button>
+                                            </div>
+                                        ) : (
+                                            <Button className="gap-2 group-hover:bg-primary/90" onClick={() => handleApply(op)}>
+                                                Apply Now
+                                                <ArrowUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                                            </Button>
+                                        );
+                                    })()
                                 ) : (
                                     <span className="text-xs text-muted-foreground">Select a slot above</span>
                                 )}

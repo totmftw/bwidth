@@ -3,7 +3,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
 import {
     Dialog,
     DialogContent,
@@ -60,7 +59,30 @@ export function GigApplicationModal({ event, stage, open, onOpenChange }: GigApp
 
     const { mutate, isPending } = useMutation({
         mutationFn: async (data: ApplicationFormValues) => {
-            await apiRequest("POST", "/api/bookings/apply", data);
+            const res = await fetch("/api/bookings/apply", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(data),
+                credentials: "include",
+            });
+
+            if (!res.ok) {
+                let message = "Something went wrong. Please try again.";
+                try {
+                    const body = await res.json();
+                    message = body.message || message;
+                } catch {}
+
+                if (res.status === 404) {
+                    throw new Error("This event is no longer accepting applications. It may still be in draft stage or has been removed.");
+                }
+                if (res.status === 409) {
+                    throw new Error(message);
+                }
+                throw new Error(message);
+            }
+
+            return res.json();
         },
         onSuccess: () => {
             toast({
