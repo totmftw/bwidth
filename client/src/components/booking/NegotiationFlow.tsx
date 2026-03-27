@@ -162,15 +162,19 @@ function MessageBubble({ msg, isMe, currency }: { msg: any; isMe: boolean; curre
 
 // ─── Rider Update Sheet ─────────────────────────────────────────────────────
 
-function RiderUpdateSheet({ current, onConfirm, onCancel, isPending }: any) {
+function RiderUpdateSheet({ current, onConfirm, onCancel, isPending, isArtist }: any) {
   const [provided, setProvided] = useState(current?.providedEquipment?.join("\n") || "");
   const [requested, setRequested] = useState(current?.requestedEquipment?.join("\n") || "");
   const [note, setNote] = useState("");
 
   const handleSubmit = () => {
     onConfirm({
-      providedEquipment: provided.split("\n").map((s: string) => s.trim()).filter(Boolean),
-      requestedEquipment: requested.split("\n").map((s: string) => s.trim()).filter(Boolean),
+      providedEquipment: isArtist 
+        ? current?.providedEquipment 
+        : provided.split("\n").map((s: string) => s.trim()).filter(Boolean),
+      requestedEquipment: isArtist 
+        ? requested.split("\n").map((s: string) => s.trim()).filter(Boolean) 
+        : current?.requestedEquipment,
       note: note.trim()
     });
   };
@@ -179,24 +183,43 @@ function RiderUpdateSheet({ current, onConfirm, onCancel, isPending }: any) {
     <div className="border-t bg-card px-4 py-4 animate-in slide-in-from-bottom-2 shrink-0">
       <h3 className="font-semibold text-sm mb-3">Update Tech Rider</h3>
       <div className="space-y-3">
-        <div>
-          <label className="text-xs text-muted-foreground mb-1 block">Equipment Provided by Organizer</label>
-          <Textarea
-            placeholder="E.g., PA System, 2x Mics..."
-            value={provided}
-            onChange={(e) => setProvided(e.target.value)}
-            className="h-20 resize-none text-sm"
-          />
-        </div>
-        <div>
-          <label className="text-xs text-muted-foreground mb-1 block">Equipment Requested by Artist</label>
-          <Textarea
-            placeholder="E.g., Pioneer CDJ-3000, specific monitors..."
-            value={requested}
-            onChange={(e) => setRequested(e.target.value)}
-            className="h-20 resize-none text-sm"
-          />
-        </div>
+        {isArtist ? (
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Equipment Provided by Organizer</label>
+            <div className="text-sm bg-muted/40 p-3 rounded-md border border-white/5 text-muted-foreground min-h-[50px] whitespace-pre-wrap">
+              {provided || "None specified"}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Equipment Provided by Organizer</label>
+            <Textarea
+              placeholder="E.g., PA System, 2x Mics..."
+              value={provided}
+              onChange={(e) => setProvided(e.target.value)}
+              className="h-20 resize-none text-sm"
+            />
+          </div>
+        )}
+
+        {isArtist ? (
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Equipment Requested by Artist</label>
+            <Textarea
+              placeholder="E.g., Pioneer CDJ-3000, specific monitors..."
+              value={requested}
+              onChange={(e) => setRequested(e.target.value)}
+              className="h-20 resize-none text-sm"
+            />
+          </div>
+        ) : (
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Equipment Requested by Artist</label>
+            <div className="text-sm bg-muted/40 p-3 rounded-md border border-white/5 text-muted-foreground min-h-[50px] whitespace-pre-wrap">
+              {requested || "None specified"}
+            </div>
+          </div>
+        )}
         <div>
           <label className="text-xs text-muted-foreground mb-1 block">Note (Optional)</label>
           <Input
@@ -715,6 +738,7 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
           {sheet === "rider" && (
             <RiderUpdateSheet
               current={ctx.currentRider}
+              isArtist={isArtist}
               onConfirm={(payload: any) => handleAction("PROPOSE_RIDER", payload)}
               onCancel={() => setSheet(null)}
               isPending={isActing}
