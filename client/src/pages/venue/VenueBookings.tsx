@@ -308,6 +308,7 @@ export default function VenueBookings() {
                         <NegotiationFlow
                             booking={selectedBooking}
                             onClose={() => setShowNegotiation(false)}
+                            onStartContract={() => { setShowNegotiation(false); setShowContract(true); }}
                         />
                     )}
                     {selectedBooking && showContract && (

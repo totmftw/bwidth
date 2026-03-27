@@ -1,6 +1,9 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { z } from "zod";
+import { db } from "../db";
+import { appSettings } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 const router = Router();
 
@@ -156,6 +159,49 @@ router.get("/admin/conversations/:id/messages", async (req, res) => {
     } catch (error) {
         console.error("Error fetching conversation messages:", error);
         res.status(500).json({ message: "Failed to fetch messages" });
+    }
+});
+
+// === SETTINGS ===
+
+router.get("/admin/settings", async (req, res) => {
+    try {
+        const settings = await db.select().from(appSettings);
+        res.json(settings);
+    } catch (error) {
+        console.error("Error fetching settings:", error);
+        res.status(500).json({ message: "Failed to fetch settings" });
+    }
+});
+
+router.post("/admin/settings", async (req, res) => {
+    try {
+        const { key, value } = req.body;
+        if (!key) return res.status(400).json({ message: "Key is required" });
+
+        const existing = await db.select().from(appSettings).where(eq(appSettings.key, key));
+        
+        if (existing.length > 0) {
+            await db.update(appSettings)
+                .set({ value, updatedAt: new Date(), updatedBy: (req.user as any).id })
+                .where(eq(appSettings.key, key));
+        } else {
+            await db.insert(appSettings)
+                .values({ key, value, updatedBy: (req.user as any).id });
+        }
+
+        await storage.createAuditLog({
+            who: (req.user as any).id,
+            action: "admin_setting_updated",
+            entityType: "app_settings",
+            entityId: 0,
+            context: { key, value }
+        });
+
+        res.json({ success: true, message: "Setting updated" });
+    } catch (error) {
+        console.error("Error updating setting:", error);
+        res.status(500).json({ message: "Failed to update setting" });
     }
 });
 

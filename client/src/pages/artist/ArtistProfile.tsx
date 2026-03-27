@@ -86,6 +86,7 @@ function getArtistData(artist: any) {
         hasMeals: metadata?.hasMeals || false,
 
         trustScore: metadata?.trustScore || 50,
+        artistCategory: artist?.artistCategory || "mid_scale",
         verified: metadata?.verified || false,
         bankVerified: metadata?.bankVerified || false,
         profileImage: metadata?.profileImage || "",
@@ -122,6 +123,14 @@ export default function ArtistProfile() {
     const filledFields = profileFields.filter(f => f).length;
     const profileCompletion = Math.round((filledFields / profileFields.length) * 100);
 
+    const getTrustTier = (score: number) => {
+        if (score >= 90) return { label: 'Premium', color: 'text-purple-500 bg-purple-500/10 border-purple-500/20' };
+        if (score >= 75) return { label: 'Trusted', color: 'text-green-500 bg-green-500/10 border-green-500/20' };
+        if (score >= 50) return { label: 'Standard', color: 'text-blue-500 bg-blue-500/10 border-blue-500/20' };
+        if (score >= 30) return { label: 'High Risk', color: 'text-orange-500 bg-orange-500/10 border-orange-500/20' };
+        return { label: 'Critical', color: 'text-red-500 bg-red-500/10 border-red-500/20' };
+    };
+    const trustTier = getTrustTier(artist?.trustScore || 50);
 
     return (
         <div className="space-y-8 max-w-5xl mx-auto">
@@ -203,6 +212,12 @@ export default function ArtistProfile() {
                                         Verified Artist
                                     </Badge>
                                 )}
+                                {artist?.artistCategory && (
+                                    <Badge className="mt-2 bg-blue-500/10 text-blue-500 border-blue-500/20 capitalize">
+                                        <Star className="w-3 h-3 mr-1" />
+                                        {artist.artistCategory.replace('_', ' ')} Category
+                                    </Badge>
+                                )}
                             </div>
 
                             <Separator className="my-6 bg-white/10" />
@@ -211,9 +226,11 @@ export default function ArtistProfile() {
                                 <div className="flex items-center justify-between">
                                     <span className="text-sm text-muted-foreground flex items-center gap-2">
                                         <Star className="w-4 h-4 text-yellow-500" />
-                                        Trust Score
+                                        Trust Tier
                                     </span>
-                                    <span className="font-semibold">{artist?.trustScore || 50}/100</span>
+                                    <Badge className={`border ${trustTier.color}`}>
+                                        {trustTier.label} ({artist?.trustScore || 50})
+                                    </Badge>
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <span className="text-sm text-muted-foreground flex items-center gap-2">
@@ -313,6 +330,10 @@ export default function ArtistProfile() {
                                 <FileText className="w-4 h-4" />
                                 Technical
                             </TabsTrigger>
+                            <TabsTrigger value="legal" className="gap-2">
+                                <Shield className="w-4 h-4" />
+                                Legal & Bank
+                            </TabsTrigger>
                         </TabsList>
 
                         <TabsContent value="profile">
@@ -336,6 +357,12 @@ export default function ArtistProfile() {
                         <TabsContent value="technical">
                             {isArtist && artist && (
                                 <TechnicalTab artist={artist} updateMutation={updateArtist} />
+                            )}
+                        </TabsContent>
+
+                        <TabsContent value="legal">
+                            {user && (
+                                <LegalBankTab user={user} />
                             )}
                         </TabsContent>
                     </Tabs>
@@ -501,6 +528,112 @@ function ProfileTab({ artist, updateMutation }: { artist: any; updateMutation: a
                             {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                             <Save className="w-4 h-4" />
                             Save Changes
+                        </Button>
+                    </div>
+                </form>
+            </CardContent>
+        </Card>
+    );
+}
+
+function LegalBankTab({ user }: { user: any }) {
+    const { toast } = useToast();
+    const [isSaving, setIsSaving] = useState(false);
+    const form = useForm({
+        defaultValues: {
+            legalName: user.legalName || "",
+            permanentAddress: user.permanentAddress || "",
+            panNumber: user.panNumber || "",
+            gstin: user.gstin || "",
+            bankAccountNumber: user.bankAccountNumber || "",
+            bankIfsc: user.bankIfsc || "",
+            bankBranch: user.bankBranch || "",
+            bankAccountHolderName: user.bankAccountHolderName || "",
+        }
+    });
+
+    const onSubmit = async (data: any) => {
+        setIsSaving(true);
+        try {
+            const res = await fetch("/api/users/me", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(data),
+            });
+            if (!res.ok) throw new Error("Failed to update");
+            toast({ title: "Legal profile updated successfully" });
+        } catch (error) {
+            toast({ title: "Failed to update profile", variant: "destructive" });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <Card className="glass-card border-white/5">
+            <CardHeader>
+                <CardTitle>Legal & Bank Details</CardTitle>
+                <CardDescription>Mandatory information for contract generation and payments</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                    <div className="space-y-4">
+                        <h3 className="font-medium flex items-center gap-2 text-primary">
+                            <Shield className="w-4 h-4" />
+                            Legal Identity
+                        </h3>
+                        <div className="grid sm:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Full Legal Name</Label>
+                                <Input {...form.register("legalName")} placeholder="As per PAN card" className="bg-background/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>PAN Number</Label>
+                                <Input {...form.register("panNumber")} placeholder="ABCDE1234F" className="bg-background/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>GSTIN (Optional)</Label>
+                                <Input {...form.register("gstin")} placeholder="GST Number if applicable" className="bg-background/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Permanent Address</Label>
+                                <Input {...form.register("permanentAddress")} placeholder="Full address for contracts" className="bg-background/60" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <Separator className="bg-white/5" />
+
+                    <div className="space-y-4">
+                        <h3 className="font-medium flex items-center gap-2 text-primary">
+                            <DollarSign className="w-4 h-4" />
+                            Bank Account Details
+                        </h3>
+                        <div className="grid sm:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Account Holder Name</Label>
+                                <Input {...form.register("bankAccountHolderName")} className="bg-background/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Account Number</Label>
+                                <Input {...form.register("bankAccountNumber")} type="password" placeholder="••••••••" className="bg-background/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>IFSC Code</Label>
+                                <Input {...form.register("bankIfsc")} placeholder="e.g. HDFC0001234" className="bg-background/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Branch Name</Label>
+                                <Input {...form.register("bankBranch")} placeholder="e.g. Bandra West" className="bg-background/60" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end pt-4">
+                        <Button type="submit" disabled={isSaving} className="bg-primary gap-2">
+                            {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                            <Save className="w-4 h-4" />
+                            Save Legal Details
                         </Button>
                     </div>
                 </form>

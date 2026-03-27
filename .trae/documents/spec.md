@@ -1,82 +1,58 @@
-# Artist Categorization and Commission System Specification
+# Contract UX & Signature Auto-Population Specification
 
-## 1. Overview
-The platform connects artists and organizers. This specification outlines the implementation of an artist categorization system, a robust commission rule engine, and an enhanced contract template system. The goal is to accurately group artists into market-facing categories (`budding`, `mid-scale`, `international`), separate this from their platform trust tier, and use both to drive financial splits and contract clauses.
+## 1. Technical Scope
+This specification defines the implementation of a mobile-first, full-page contract management experience. It includes auto-populating legal signature blocks from the database (with strict validation), rendering inline edit buttons within a raw text contract document, displaying a consolidated single-line progress tracker, and precisely formatting the financial breakdown.
 
-## 2. Core Concepts
-*   **Artist Category:** Represents the artist's market position (e.g., `budding`, `mid-scale`, `international`). Determines the base commission split and contract clauses.
-*   **Trust Score Tier:** Represents the artist's platform reliability (e.g., `critical`, `high risk`, `standard`, `trusted`, `premium`). Acts as a modifier for payment flexibility and deposits.
-*   **Snapshotting:** Financial math and categorizations are calculated at the time of booking confirmation and frozen (snapshotted) into the booking and contract records. This ensures historical contracts do not drift when artist profiles change later.
-*   **Double-Sided Monetization:** The platform charges both the artist and the organizer, keeping the spread. 
+## 2. Backend Implementation
+### 2.1. Signature Data Validation (`server/services/contract.service.ts`)
+- **Validation Check**: Before generating a contract in `generateContractFromSnapshot`, the system must assert that both the `artist` and `organizer` profiles have the following fields populated:
+  - `legalName` (fallback to `name` if appropriate, though strict legal name is preferred)
+  - `panNumber`
+  - `permanentAddress`
+- **Error Handling**: If any required field is missing, throw an error: `"DB Error: Missing required legal profile information (Legal Name, PAN, or Address). Please update your profile."`
 
-## 3. Database Schema Updates (`shared/schema.ts`)
-*   **New Enums:**
-    *   `artist_category`: `budding`, `mid_scale`, `international`, `custom`.
-    *   `artist_category_source`: `auto`, `manual`, `override`.
-*   **`artists` Table Extensions:**
-    *   `artist_category` (Enum)
-    *   `artist_category_source` (Enum)
-    *   `artist_category_locked` (Boolean)
-    *   `artist_category_assigned_at` (Timestamp)
-    *   `artist_category_assigned_by` (Integer, references users)
-    *   `artist_category_notes` (Text)
-    *   `commission_override_artist_pct` (Numeric)
-    *   `commission_override_organizer_pct` (Numeric)
-    *   `minimum_guaranteed_earnings` (Numeric)
-    *   `category_valid_from` (Timestamp)
-    *   `category_valid_to` (Timestamp)
-*   **New Tables:**
-    *   `artist_category_history`: `id`, `artist_id`, `old_category`, `new_category`, `reason`, `changed_by`, `changed_at`.
-    *   `commission_policies`: `id`, `artist_category`, `artist_pct`, `organizer_pct`, `platform_pct_total`, `min_artist_guarantee`, `active`, `effective_from`, `effective_to`.
-*   **`bookings` Table Extensions:**
-    *   `gross_booking_value` (Numeric)
-    *   `artist_fee` (Numeric)
-    *   `organizer_fee` (Numeric)
-    *   `artist_commission_pct` (Numeric)
-    *   `organizer_commission_pct` (Numeric)
-    *   `platform_revenue` (Numeric)
-    *   `artist_category_snapshot` (Text)
-    *   `trust_tier_snapshot` (Text)
-    *   `contract_id` (Integer)
-*   **`contracts` Table Extensions:**
-    *   `artist_category_snapshot` (Text)
-    *   `trust_score_snapshot` (Text)
-    *   `commission_breakdown_json` (Jsonb)
-    *   `negotiated_terms_json` (Jsonb)
-    *   `clause_version` (Integer)
-    *   `template_version` (Integer)
-    *   `organizer_signature_required` (Boolean)
-    *   `artist_signature_required` (Boolean)
-    *   `cancellation_policy_version` (Integer)
+### 2.2. Contract Text Generation (`server/contract-utils.ts`)
+- **Pre-filling**: In `generateContractText`, dynamically inject the `Name:` and `Title:` fields using the validated database details.
+- **Placeholders**: Replace the static `_________` lines for `Digital Signature`, `Date`, and `IP Address / Timestamp` with unique tokens:
+  - `[[ARTIST_SIGNATURE]]`, `[[ARTIST_DATE]]`, `[[ARTIST_IP]]`
+  - `[[PROMOTER_SIGNATURE]]`, `[[PROMOTER_DATE]]`, `[[PROMOTER_IP]]`
 
-## 4. Backend Services (`server/services/`)
-*   **`artistCategory.service.ts`:**
-    *   **Phase 1 (Auto-suggest):** Evaluate fee range, experience, trust score, and portfolio completeness during onboarding to suggest a category.
-    *   **Phase 2 (Admin Review):** Allow admins to confirm, override, and lock categories (specifically for premium/international talent). Enforce 90-day review cycles.
-*   **`commissionPolicy.service.ts`:**
-    *   Determine the base split using the artist's category (e.g., `budding` has a higher platform share but protected minimums; `international` has lower percentages but higher absolute fees).
-    *   Apply trust-score modifiers (e.g., standard/trusted allow flexible deposits; critical requires stricter terms).
-    *   Calculate exact settlement breakdown (Organizer Payable, Artist Receivable, Platform Fee).
-*   **`booking.service.ts`:**
-    *   On booking confirmation, calculate and snapshot all financial numbers and categories.
-    *   Move booking state to `contract_sent`, and later to `confirmed` once signatures and deposits are complete.
-*   **`contract.service.ts`:**
-    *   Generate contracts using the snapshotted data from the booking.
-    *   Select clauses based on category and trust tier. Ensure required clauses (performance date, fee, travel, technical rider, hospitality, branding, cancellation, slot protection, confidentiality, dispute) are included.
-    *   Manage the signing sequence: Artist signs first, Organizer signs second.
-    *   Initialize payment schedules based on the finalized contract terms.
+### 2.3. Signature Execution (`server/routes/contracts.ts`)
+- **String Replacement**: In `POST /api/contracts/:id/sign`, after validating the signature, run a `.replace()` on the current `contract.contractText`.
+- **Values**:
+  - `[[..._SIGNATURE]]` -> The user's typed/drawn signature data.
+  - `[[..._DATE]]` -> The current timestamp formatted as a readable date.
+  - `[[..._IP]]` -> The user's IP address.
+- **Persistence**: Save the modified `contractText` back to the database.
 
-## 5. UI Requirements
-*   **Artist Interface:** Display category and trust badges. Show minimum/standard/premium fees, estimated commission, contract status, signature deadlines, and payment timelines.
-*   **Organizer Interface:** Provide plain-English category explanations. Show transparent breakdown of total cost, artist share, and platform share. Display required deposits, cancellation penalties, and contract signing progress.
-*   **Admin Interface:** Dashboard for pending category approvals, overridden categories, contract template version management, and monitoring of signature progress/delays.
+## 3. Frontend Implementation
+### 3.1. Single-Line Status Tracker (`client/src/pages/contract/ContractPage.tsx`)
+- Remove the existing grid of `PartyStatusCard` components.
+- Implement a horizontal scrolling container (`overflow-x-auto whitespace-nowrap scrollbar-hide`).
+- Render a unified string format:
+  ```
+  Artist (You) • Reviewed [Icon] • Edit Used [Icon] • Accepted [Icon] • Signed [Icon]  │  Promoter • Reviewed [Icon] • Edit Used [Icon] • Accepted [Icon] • Signed [Icon]
+  ```
+- Use conditional rendering for icons (e.g., green `CheckCircle` for complete, gray `Clock` or blank for pending).
 
-## 6. Rollout Plan
-1.  Apply DB migrations and create history/policy tables.
-2.  Run one-time script to backfill existing artists as `custom` or `mid_scale`.
-3.  Deploy Admin review interfaces for categorization.
-4.  Introduce category badges and basic UI elements to the Artist/Organizer dashboards.
-5.  Implement and integrate the fee split and snapshot logic in the booking flow.
-6.  Deploy updated contract PDF generation using clause variations.
-7.  Verify through comprehensive testing.
-8.  Enable fully behind a feature flag and migrate existing active bookings incrementally.
+### 3.2. Financial Breakdown Formatting
+- Redesign the financial box to strictly match:
+  ```
+  Financial Breakdown
+  Gross Booking Value        ₹0
+  Platform Fee (%)          -₹0
+  Net Payout                 ₹0
+  ```
+- The `Platform Fee (%)` label must dynamically include the actual percentage from `commissionBreakdown.artistCommissionPct` or `organizerCommissionPct`.
+- The math must exactly match the values calculated and stored in the negotiation phase.
+
+### 3.3. Full-Page Document with Inline Edits
+- **Layout**: Remove the `max-h-[300px]` from the contract text viewer so it flows naturally down the page.
+- **Parsing**: Create a React utility function that splits `contract.contractText` by the regex `/(?=\n\d+\.\s+[A-Z])/` to isolate clauses (e.g., "1. EVENT DETAILS", "2. TRAVEL").
+- **Inline Buttons**: As the clauses are mapped to the UI, if a clause header matches an editable category (like "2. TRAVEL"), render a floating `Edit` button in the top-right corner of that specific text block.
+- **Edit UI**: Clicking an inline edit button opens a mobile-friendly `Sheet` (Drawer) at the bottom of the screen containing *only* the inputs for that specific category, replacing the bulky, multi-accordion form.
+
+### 3.4. Mobile UX Best Practices
+- **Sticky Actions**: Move the "Accept", "Sign", and "Walk Away" buttons to a fixed bar at the bottom of the screen (`sticky bottom-0 bg-background/95 backdrop-blur border-t p-4`).
+- **Touch Targets**: Ensure all buttons and inputs have a minimum height of `48px`.
+- **Typography**: Ensure the contract font is legible on small screens (e.g., `text-sm` or `text-base` instead of `text-xs`).

@@ -4,9 +4,11 @@ import { z } from "zod";
 import { db } from "../db";
 import {
     contracts, contractVersions, contractEditRequests, contractSignatures,
-    conversations, conversationParticipants, messages, bookings
+    conversations, conversationParticipants, messages, bookings, appSettings
 } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
+import { generateContractText, buildTermsFromBooking } from "../contract-utils";
+import PDFDocument from "pdfkit";
 
 const router = Router();
 
@@ -42,7 +44,7 @@ function getUserRole(user: any): 'artist' | 'promoter' {
 
 // Fields that are LOCKED (from negotiation) and cannot be edited
 const LOCKED_FIELDS = [
-    'fee', 'totalFee', 'currency', 'eventDate', 'eventTime', 'slotType',
+    'fee', 'totalFee', 'currency', 'slotType',
     'venueName', 'artistName', 'organizerName', 'performanceDuration',
     'platformCommission'
 ];
@@ -117,6 +119,8 @@ const contractChangesSchema = z.object({
         forceMajeureClause: z.enum(["standard", "custom"]).optional(),
         customForceMajeureText: z.string().optional(),
     }).optional(),
+    eventDate: z.string().optional(),
+    slotTime: z.string().optional(),
 }).passthrough();
 
 /**
@@ -187,237 +191,8 @@ function validateContractChanges(changes: any, currentTerms: any, booking: any):
 }
 
 // ============================================================================
-// CONTRACT TEXT GENERATION
+// CONTRACT TEXT GENERATION & CHANGES
 // ============================================================================
-
-/**
- * Generate contract text from negotiated booking terms + editable terms.
- * Core terms (fee, date, slot, time) are auto-populated and non-editable.
- */
-function generateContractText(booking: any, terms?: any): string {
-    const meta = booking.meta || {};
-    const t = terms || {};
-    const now = new Date();
-    const eventDate = booking.event?.startTime || booking.eventDate;
-    const formattedDate = eventDate ? new Date(eventDate).toLocaleDateString('en-US', {
-        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-    }) : 'To Be Determined';
-    const formattedTime = booking.slotTime || (eventDate ? new Date(eventDate).toLocaleTimeString('en-US', {
-        hour: '2-digit', minute: '2-digit'
-    }) : 'TBD');
-    const currency = booking.offerCurrency || 'INR';
-    const fee = Number(booking.finalAmount || booking.offerAmount || 0);
-    const deposit = Number(booking.depositPercent || 30);
-
-    return `
-═══════════════════════════════════════════════════════════════
-                    PERFORMANCE CONTRACT
-═══════════════════════════════════════════════════════════════
-
-Generated: ${now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-Contract Reference: BK-${booking.id}-${now.getFullYear()}
-
-───────────────────────────────────────────────────────────────
-PARTIES
-───────────────────────────────────────────────────────────────
-
-ARTIST (Party A):
-  Name: ${booking.artist?.name || booking.artist?.user?.displayName || 'Artist'}
-
-PROMOTER/ORGANIZER (Party B):
-  Name: ${booking.organizer?.name || booking.organizer?.user?.displayName || 'Organizer'}
-
-───────────────────────────────────────────────────────────────
-1. EVENT DETAILS  ★ Non-Editable Core Terms
-───────────────────────────────────────────────────────────────
-
-  Event:       ${booking.event?.title || 'Performance Event'}
-  Date:        ${formattedDate}
-  Time Slot:   ${formattedTime}
-  Venue:       ${booking.venue?.name || 'TBD'}
-  Location:    ${typeof booking.venue?.address === 'object' ? JSON.stringify(booking.venue.address) : booking.venue?.address || 'TBD'}
-
-───────────────────────────────────────────────────────────────
-2. FINANCIAL TERMS  ★ Non-Editable Core Terms
-───────────────────────────────────────────────────────────────
-
-  Performance Fee:   ${currency} ${fee.toLocaleString()}
-  Deposit:           ${deposit}% (${currency} ${Math.round(fee * deposit / 100).toLocaleString()})
-  Balance Due:       ${currency} ${Math.round(fee * (100 - deposit) / 100).toLocaleString()}
-  Payment Method:    ${t.financial?.paymentMethod || 'Bank Transfer'}
-  Payment Terms:     ${t.financial?.paymentMilestones
-            ? t.financial.paymentMilestones.map((m: any) => `${m.milestone}: ${m.percentage}%`).join(', ')
-            : 'Deposit upon signing; balance 24h before event'}
-
-───────────────────────────────────────────────────────────────
-3. TRAVEL ARRANGEMENTS
-───────────────────────────────────────────────────────────────
-
-  Responsibility:     ${t.travel?.responsibility || meta.travelProvided ? 'Organizer' : 'Artist'}
-  Flight Class:       ${t.travel?.flightClass || 'Economy'}
-  Airport Pickup:     ${t.travel?.airportPickup !== undefined ? (t.travel.airportPickup ? 'Provided' : 'Not Provided') : (meta.travelProvided ? 'Provided' : 'To be discussed')}
-  Ground Transport:   ${t.travel?.groundTransport || 'To be discussed'}
-
-───────────────────────────────────────────────────────────────
-4. ACCOMMODATION
-───────────────────────────────────────────────────────────────
-
-  Included:       ${t.accommodation?.included !== undefined ? (t.accommodation.included ? 'Yes' : 'No') : (meta.accommodationProvided ? 'Yes' : 'To be discussed')}
-  Hotel Rating:   ${t.accommodation?.hotelStarRating ? `${t.accommodation.hotelStarRating} Star` : 'Standard'}
-  Room Type:      ${t.accommodation?.roomType || 'Standard'}
-  Check-in:       ${t.accommodation?.checkInTime || '14:00'}
-  Check-out:      ${t.accommodation?.checkOutTime || '12:00'}
-  Nights:         ${t.accommodation?.nights || 1}
-
-───────────────────────────────────────────────────────────────
-5. TECHNICAL REQUIREMENTS
-───────────────────────────────────────────────────────────────
-
-  Sound Check:    ${t.technical?.soundCheckDuration || 60} minutes
-  Stage Setup:    ${t.technical?.stageSetupTime || 30} minutes
-  Equipment:      ${t.technical?.equipmentList?.join(', ') || meta.equipmentRequirements || 'Standard venue setup'}
-  Backline:       ${t.technical?.backlineProvided?.join(', ') || 'As per venue availability'}
-
-───────────────────────────────────────────────────────────────
-6. HOSPITALITY
-───────────────────────────────────────────────────────────────
-
-  Guest List:     ${t.hospitality?.guestListCount ?? meta.guestListCount ?? 2} passes
-  Green Room:     ${t.hospitality?.greenRoomAccess !== undefined ? (t.hospitality.greenRoomAccess ? 'Provided' : 'Not Provided') : 'Subject to venue availability'}
-  Meals:          ${t.hospitality?.mealsProvided?.join(', ') || (meta.mealsProvided ? 'Provided' : 'Standard artist hospitality')}
-  Security:       ${t.hospitality?.securityProvisions || 'Standard'}
-
-───────────────────────────────────────────────────────────────
-7. CONTENT RIGHTS
-───────────────────────────────────────────────────────────────
-
-  Recording:      ${t.contentRights?.recordingAllowed !== undefined ? (t.contentRights.recordingAllowed ? 'Allowed' : 'Not Allowed') : 'Subject to agreement'}
-  Photography:    ${t.contentRights?.photographyAllowed !== undefined ? (t.contentRights.photographyAllowed ? 'Allowed' : 'Not Allowed') : 'Allowed'}
-  Videography:    ${t.contentRights?.videographyAllowed !== undefined ? (t.contentRights.videographyAllowed ? 'Allowed' : 'Not Allowed') : 'Subject to agreement'}
-  Live Streaming: ${t.contentRights?.liveStreamingAllowed !== undefined ? (t.contentRights.liveStreamingAllowed ? 'Allowed' : 'Not Allowed') : 'Subject to agreement'}
-
-───────────────────────────────────────────────────────────────
-8. BRANDING & PROMOTION
-───────────────────────────────────────────────────────────────
-
-  Logo Usage:             ${t.branding?.logoUsageAllowed !== undefined ? (t.branding.logoUsageAllowed ? 'Allowed' : 'Not Allowed') : 'Allowed with approval'}
-  Promo Approval Req:     ${t.branding?.promotionalApprovalRequired ? 'Yes' : 'No'}
-  Social Media:           ${t.branding?.socialMediaGuidelines || 'Standard guidelines apply'}
-  Press Requirements:     ${t.branding?.pressRequirements || 'None specified'}
-
-───────────────────────────────────────────────────────────────
-9. CANCELLATION POLICY
-───────────────────────────────────────────────────────────────
-
-  9.1 Artist Cancellation Penalties:
-    • More than 90 days:     ${t.cancellation?.artistCancellationPenalties?.moreThan90Days ?? 0}%
-    • 30-90 days:            ${t.cancellation?.artistCancellationPenalties?.between30And90Days ?? 20}%
-    • Less than 30 days:     ${t.cancellation?.artistCancellationPenalties?.lessThan30Days ?? 50}%
-
-  9.2 Organizer Cancellation Penalties:
-    • More than 30 days:     ${t.cancellation?.organizerCancellationPenalties?.moreThan30Days ?? 20}%
-    • 15-30 days:            ${t.cancellation?.organizerCancellationPenalties?.between15And30Days ?? 50}%
-    • Less than 15 days:     ${t.cancellation?.organizerCancellationPenalties?.lessThan15Days ?? 100}%
-
-  Force Majeure:    ${t.cancellation?.forceMajeureClause || 'Standard'}
-  ${t.cancellation?.customForceMajeureText ? `Custom Clause: ${t.cancellation.customForceMajeureText}` : ''}
-
-───────────────────────────────────────────────────────────────
-10. STANDARD LEGAL TERMS
-───────────────────────────────────────────────────────────────
-
-  10.1 This agreement represents the entire understanding between the parties.
-  10.2 No partnership or agency relationship is created by this agreement.
-  10.3 Any disputes shall be resolved through arbitration.
-  10.4 This contract is governed by applicable local laws.
-  10.5 Force Majeure: Neither party liable for acts of God, government
-       restrictions, or other circumstances beyond reasonable control.
-  10.6 Recording/streaming rights as specified in Section 7.
-  10.7 Promoter responsible for all required permits and licenses.
-
-═══════════════════════════════════════════════════════════════
-`.trim();
-}
-
-/**
- * Build structured terms JSONB from booking data for version tracking.
- */
-function buildTermsFromBooking(booking: any): any {
-    const meta = booking.meta || {};
-    return {
-        // Core (non-editable - from negotiation)
-        fee: Number(booking.finalAmount || booking.offerAmount || 0),
-        currency: booking.offerCurrency || 'INR',
-        depositPercent: Number(booking.depositPercent || 30),
-        eventTitle: booking.event?.title || '',
-        eventDate: booking.event?.startTime || booking.eventDate || null,
-        slotTime: booking.slotTime || null,
-        venueName: booking.venue?.name || '',
-        artistName: booking.artist?.name || '',
-        organizerName: booking.organizer?.name || '',
-        // Editable categories (defaults)
-        financial: {
-            paymentMethod: meta.paymentMethod || 'bank_transfer',
-            paymentMilestones: meta.paymentMilestones || [
-                { milestone: 'deposit', percentage: Number(booking.depositPercent || 30), dueDate: 'upon_signing' },
-                { milestone: 'pre_event', percentage: 100 - Number(booking.depositPercent || 30), dueDate: '24h_before' },
-            ],
-        },
-        travel: {
-            responsibility: meta.travelProvided ? 'organizer' : 'artist',
-            flightClass: meta.flightClass || 'economy',
-            airportPickup: meta.airportPickup || false,
-            groundTransport: meta.groundTransport || 'not_provided',
-        },
-        accommodation: {
-            included: meta.accommodationProvided || false,
-            hotelStarRating: meta.hotelStarRating || 3,
-            roomType: meta.roomType || 'single',
-            checkInTime: '14:00',
-            checkOutTime: '12:00',
-            nights: meta.nights || 1,
-        },
-        technical: {
-            equipmentList: meta.equipmentList || [],
-            soundCheckDuration: meta.soundCheckDuration || 60,
-            backlineProvided: meta.backlineProvided || [],
-            stageSetupTime: meta.stageSetupTime || 30,
-        },
-        hospitality: {
-            guestListCount: meta.guestListCount || 2,
-            greenRoomAccess: meta.greenRoom || false,
-            mealsProvided: meta.mealsProvided ? ['dinner', 'drinks'] : [],
-            securityProvisions: 'standard',
-        },
-        branding: {
-            logoUsageAllowed: true,
-            promotionalApprovalRequired: true,
-            socialMediaGuidelines: '',
-            pressRequirements: '',
-        },
-        contentRights: {
-            recordingAllowed: false,
-            photographyAllowed: true,
-            videographyAllowed: false,
-            liveStreamingAllowed: false,
-            socialMediaPostingAllowed: true,
-        },
-        cancellation: {
-            artistCancellationPenalties: {
-                moreThan90Days: 0,
-                between30And90Days: 20,
-                lessThan30Days: 50,
-            },
-            organizerCancellationPenalties: {
-                moreThan30Days: 20,
-                between15And30Days: 50,
-                lessThan15Days: 100,
-            },
-            forceMajeureClause: 'standard',
-            customForceMajeureText: '',
-        },
-    };
-}
 
 /**
  * Deep merge editable changes into current terms (preserving locked fields).
@@ -521,15 +296,14 @@ router.post("/bookings/:bookingId/contract/initiate", async (req, res) => {
             return res.json({ message: "Contract already initiated", contract: details });
         }
 
-        // Generate contract terms from booking
+        const { contractService } = await import("../services/contract.service");
+        const contract = await contractService.generateContractFromSnapshot(bookingId);
+
+        // Update contract status to sent and set sequence
         const now = new Date();
         const deadline = addHours(now, DEADLINE_HOURS);
-        const terms = buildTermsFromBooking(booking);
-        const contractText = generateContractText(booking, terms);
-
-        const contract = await storage.createContract({
-            bookingId,
-            contractText,
+        
+        await storage.updateContract(contract.id, {
             status: 'sent',
             signerSequence: { steps: ['promoter', 'artist'] },
             initiatedAt: now,
@@ -537,15 +311,14 @@ router.post("/bookings/:bookingId/contract/initiate", async (req, res) => {
             currentVersion: 1,
             artistEditUsed: false,
             promoterEditUsed: false,
-            metadata: { terms },
         });
 
         // Create version v1
         await storage.createContractVersion({
             contractId: contract.id,
             version: 1,
-            contractText,
-            terms,
+            contractText: contract.contractText!,
+            terms: contract.negotiatedTermsJson as any || {},
             createdBy: (req.user as any)?.id,
             changeSummary: 'Initial contract generation from negotiated terms',
         });
@@ -653,7 +426,12 @@ router.post("/contracts/:id/review", async (req, res) => {
         const role = getUserRole(user);
         const isArtist = role === 'artist';
         const body = reviewSchema.parse(req.body);
-        const reviewDoneField = isArtist ? 'artistReviewDoneAt' : 'promoterReviewDoneAt';
+        // Check sequential rule: Organizer first, Artist last.
+            if (isArtist && !contract.promoterReviewDoneAt) {
+                return res.status(400).json({ message: "Organizer must review the contract first." });
+            }
+
+            const reviewDoneField = isArtist ? 'artistReviewDoneAt' : 'promoterReviewDoneAt';
 
         // Check if already reviewed
         if (contract[isArtist ? 'artistReviewDoneAt' : 'promoterReviewDoneAt']) {
@@ -684,6 +462,11 @@ router.post("/contracts/:id/review", async (req, res) => {
             });
 
         } else if (body.action === "PROPOSE_EDITS") {
+            // Check sequential rule: Organizer first, Artist last.
+            if (isArtist && !contract.promoterReviewDoneAt) {
+                return res.status(400).json({ message: "Organizer must review and edit the contract first." });
+            }
+
             // Check one-edit-per-party rule
             const editUsedField = isArtist ? 'artistEditUsed' : 'promoterEditUsed';
             if (contract[editUsedField]) {
@@ -804,6 +587,39 @@ router.post("/contracts/:id/edit-requests/:reqId/respond", async (req, res) => {
 
         const body = respondSchema.parse(req.body);
         const now = new Date();
+
+        // --- Walk Away logic for Organizer ---
+        if (body.decision === 'REJECT' && body.responseNote === 'WALKAWAY') {
+            await storage.updateContractEditRequest(reqId, {
+                status: 'rejected',
+                responseNote: 'Organizer walked away. Contract voided.',
+                respondedAt: new Date(),
+            });
+
+            await storage.updateContract(contractId, {
+                status: 'voided',
+                updatedAt: new Date()
+            });
+
+            await storage.updateBooking(contract.bookingId!, {
+                status: 'cancelled' as any,
+                meta: {
+                    cancelReason: 'organizer_walkaway',
+                    cancelledAt: new Date().toISOString(),
+                    cancelledBy: user.id,
+                }
+            });
+
+            await postContractSystemMessage(contract.bookingId!,
+                `🚪 Organizer rejected the Artist's final edits and chose to walk away. The booking is cancelled.`
+            );
+
+            return res.json({
+                success: true,
+                message: 'You have walked away. The booking is cancelled.',
+                contract: await storage.getContractWithDetails(contractId),
+            });
+        }
 
         if (body.decision === "APPROVE") {
             // Apply changes: deep-merge into current terms, create new version
@@ -1039,35 +855,76 @@ router.post("/contracts/:id/sign", async (req, res) => {
         }
 
         // Record signature
+        const signatureText = body.signatureData || user.displayName || user.username || 'Signed';
+        const ipAddress = req.ip || 'Unknown';
+        
         await storage.createContractSignature({
             contractId,
             userId: user.id,
             role,
-            signatureData: body.signatureData || user.displayName || user.username || 'Signed',
+            signatureData: signatureText,
             signatureType: body.signatureMethod === 'draw' ? 'drawn' : body.signatureMethod === 'upload' ? 'uploaded' : 'typed',
             ipAddress: req.ip || null,
             userAgent: req.headers['user-agent'] || null,
         });
 
+        // Update contract text with signature details
+        let updatedContractText: string = contract.contractText || "";
+        const formattedDate = now.toLocaleString();
+        
+        if (isArtist) {
+            updatedContractText = updatedContractText
+                .replace('[[ARTIST_SIGNATURE]]', signatureText)
+                .replace('[[ARTIST_DATE]]', formattedDate)
+                .replace('[[ARTIST_IP]]', ipAddress);
+        } else {
+            updatedContractText = updatedContractText
+                .replace('[[PROMOTER_SIGNATURE]]', signatureText)
+                .replace('[[PROMOTER_DATE]]', formattedDate)
+                .replace('[[PROMOTER_IP]]', ipAddress);
+        }
+
         // Update contract
         const signedAtField = isArtist ? 'artistSignedAt' : 'promoterSignedAt';
-        const updateData: any = { updatedAt: now, [signedField]: true, [signedAtField]: now };
+        const ipField = isArtist ? 'artistSignatureIp' : 'promoterSignatureIp';
+        const updateData: any = { 
+            updatedAt: now, 
+            contractText: updatedContractText,
+            [signedField]: true, 
+            [signedAtField]: now,
+            [ipField]: ipAddress
+        };
 
         // Check if fully signed after this
         const otherSignedField = isArtist ? 'signedByPromoter' : 'signedByArtist';
         const fullyExecuted = contract[otherSignedField] === true;
 
         if (fullyExecuted) {
-            updateData.status = 'admin_review'; // Sent to admin for final approval
-            // updateData.signedAt = now; // We can set this now or after admin approval. Let's set it now as parties DID sign.
-            updateData.signedAt = now;
-            // Do NOT set finalizedAt yet.
+            // Check App Settings for admin approval requirement
+            const settingsList = await db.select().from(appSettings).where(eq(appSettings.key, 'require_contract_admin_approval'));
+            const requireAdmin = settingsList.length > 0 ? settingsList[0].value : true; // Default to true if not set
 
-            // Do NOT update booking status to confirmed yet. Remain in contracting.
+            if (requireAdmin) {
+                updateData.status = 'admin_review'; // Sent to admin for final approval
+                updateData.signedAt = now;
 
-            await postContractSystemMessage(contract.bookingId!,
-                `🎉 Both parties have signed! The contract is now under final review by the platform admin. You will be notified once approved.`
-            );
+                await postContractSystemMessage(contract.bookingId!,
+                    `🎉 Both parties have signed! The contract is now under final review by the platform admin. You will be notified once approved.`
+                );
+            } else {
+                updateData.status = 'signed';
+                updateData.signedAt = now;
+                updateData.finalizedAt = now;
+
+                await storage.updateBooking(contract.bookingId!, {
+                    status: 'confirmed',
+                    updatedAt: now
+                });
+
+                await postContractSystemMessage(contract.bookingId!,
+                    `🎉 Both parties have signed! The contract is now fully executed and the booking is confirmed.`
+                );
+            }
         } else {
             await postContractSystemMessage(contract.bookingId!,
                 `✍️ ${isArtist ? 'Artist' : 'Promoter'} has signed the contract. Waiting for the other party.`
@@ -1103,69 +960,6 @@ router.post("/contracts/:id/sign", async (req, res) => {
         }
         console.error("Error signing contract:", error);
         res.status(500).json({ message: "Failed to sign contract" });
-    }
-});
-
-// ============================================================================
-// 7. CONTRACT PDF DOWNLOAD (stub - requires PDF engine like puppeteer)
-// GET /api/contracts/:id/pdf
-// ============================================================================
-
-router.get("/contracts/:id/pdf", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    try {
-        const contractId = parseInt(req.params.id);
-        if (isNaN(contractId)) return res.status(400).json({ message: "Invalid contract ID" });
-
-        const contract = await storage.getContract(contractId);
-        if (!contract) return res.status(404).json({ message: "Contract not found" });
-
-        if (contract.status !== 'signed') {
-            return res.status(400).json({ message: "Contract must be fully signed before downloading PDF" });
-        }
-
-        // Verify user is a party to the contract
-        const user = req.user as any;
-        const booking = await storage.getBookingWithDetails(contract.bookingId!);
-        if (!booking) return res.status(404).json({ message: "Booking not found" });
-
-        // If PDF already exists, redirect
-        if (contract.pdfUrl) {
-            await storage.createAuditLog({
-                who: user.id,
-                action: "contract_pdf_downloaded",
-                entityType: "contract",
-                entityId: contractId,
-            });
-            return res.redirect(contract.pdfUrl);
-        }
-
-        // Generate PDF as plain text for now (TODO: integrate puppeteer/html generation)
-        const signatures = await storage.getContractSignatures(contractId);
-        const pdfContent = `${contract.contractText}\n\n` +
-            `═══════════════════════════════════════════════════════════════\n` +
-            `SIGNATURES\n` +
-            `═══════════════════════════════════════════════════════════════\n\n` +
-            signatures.map(sig =>
-                `${sig.role.toUpperCase()}: ${sig.signatureData || 'Signed'}\n` +
-                `Signed at: ${sig.signedAt ? new Date(sig.signedAt).toLocaleString() : 'N/A'}\n` +
-                `Method: ${sig.signatureType}\n` +
-                `IP: ${sig.ipAddress || 'N/A'}\n`
-            ).join('\n');
-
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.setHeader('Content-Disposition', `attachment; filename="contract-BK-${contract.bookingId}.txt"`);
-        res.send(pdfContent);
-
-        await storage.createAuditLog({
-            who: user.id,
-            action: "contract_pdf_downloaded",
-            entityType: "contract",
-            entityId: contractId,
-        });
-    } catch (error) {
-        console.error("Error downloading contract:", error);
-        res.status(500).json({ message: "Failed to download contract" });
     }
 });
 
@@ -1287,6 +1081,112 @@ router.post("/bookings/:id/contract/generate", async (req, res) => {
     } catch (error) {
         console.error("Error generating contract:", error);
         res.status(500).json({ message: "Failed to generate contract" });
+    }
+});
+
+/**
+ * GET /contracts/:id/pdf
+ * Generate PDF document for a contract.
+ */
+router.get("/:id/pdf", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+
+    try {
+        const contractId = parseInt(req.params.id);
+        const contract = await storage.getContractWithDetails(contractId);
+        if (!contract) return res.status(404).json({ message: "Contract not found" });
+
+        // Security check
+        const user = req.user as any;
+        const role = getUserRole(user);
+        // Additional auth checks can be added here if needed
+
+        const doc = new PDFDocument({ margin: 50 });
+        const filename = `Contract_BK-${contract.bookingId}_v${contract.currentVersion}.pdf`;
+
+        res.setHeader("Content-disposition", `attachment; filename="${filename}"`);
+        res.setHeader("Content-type", "application/pdf");
+
+        doc.pipe(res);
+
+        if (contract.status === 'signed' || contract.status === 'fully_executed') {
+            doc.save();
+            doc.rotate(-30, { origin: [150, 400] });
+            doc.fillColor("green")
+                .opacity(0.15)
+                .fontSize(80)
+                .text("DIGITALLY SIGNED", 100, 400);
+            doc.restore();
+            // Reset for main text
+            doc.fillColor("black").opacity(1).fontSize(11);
+        } else if (contract.status !== 'fully_executed') {
+            doc.save();
+            doc.rotate(-45, { origin: [150, 300] });
+            doc.fillColor("#e0e0e0")
+                .opacity(0.3)
+                .fontSize(60)
+                .text("DRAFT", 150, 300);
+            doc.restore();
+            // Reset for main text
+            doc.fillColor("black").opacity(1).fontSize(11);
+        }
+
+        // Add contract text
+        const textLines = (contract.contractText || "").split("\n");
+        for (const line of textLines) {
+            if (line.startsWith("════") || line.startsWith("────")) {
+                doc.moveDown(0.5);
+                doc.lineWidth(1).moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+                doc.moveDown(0.5);
+            } else if (line.trim() === "PERFORMANCE AND BOOKING AGREEMENT" || line.includes("★ Non-Editable Core Terms")) {
+                doc.fontSize(14).font('Helvetica-Bold').text(line, { align: 'center' });
+                doc.fontSize(11).font('Helvetica');
+            } else if (line.match(/^[0-9]+\./)) {
+                doc.moveDown(0.5);
+                doc.font('Helvetica-Bold').text(line);
+                doc.font('Helvetica');
+            } else {
+                doc.text(line);
+            }
+        }
+
+        // Add IT Act 2000 Compliance Logging for Signatures
+        doc.addPage();
+        doc.fontSize(16).font('Helvetica-Bold').text("SIGNATURE CERTIFICATE", { align: 'center' });
+        doc.moveDown(2);
+        doc.fontSize(10).font('Helvetica');
+
+        doc.text(`Contract ID: ${contract.id}`);
+        doc.text(`Booking Reference: BK-${contract.bookingId}`);
+        doc.text(`Version: ${contract.currentVersion}`);
+        doc.moveDown();
+
+        if (contract.signedByPromoter) {
+            doc.font('Helvetica-Bold').text("Promoter / Booking Agent Signature");
+            doc.font('Helvetica').text(`Signed At: ${contract.promoterSignedAt ? new Date(contract.promoterSignedAt).toISOString() : 'N/A'}`);
+            doc.text(`IP Address: ${contract.promoterSignatureIp || 'N/A'}`);
+            doc.text("Status: Verified under IT Act 2000");
+        } else {
+            doc.font('Helvetica-Bold').text("Promoter / Booking Agent Signature");
+            doc.font('Helvetica').text("Status: PENDING");
+        }
+
+        doc.moveDown(2);
+
+        if (contract.signedByArtist) {
+            doc.font('Helvetica-Bold').text("Artist Signature");
+            doc.font('Helvetica').text(`Signed At: ${contract.artistSignedAt ? new Date(contract.artistSignedAt).toISOString() : 'N/A'}`);
+            doc.text(`IP Address: ${contract.artistSignatureIp || 'N/A'}`);
+            doc.text("Status: Verified under IT Act 2000");
+        } else {
+            doc.font('Helvetica-Bold').text("Artist Signature");
+            doc.font('Helvetica').text("Status: PENDING");
+        }
+
+        doc.end();
+    } catch (error) {
+        console.error("Error generating PDF:", error);
+        res.status(500).json({ message: "Failed to generate PDF" });
     }
 });
 

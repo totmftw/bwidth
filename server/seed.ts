@@ -2,6 +2,17 @@ import { db } from "./db";
 import { users, promoters, venues, events, currencies } from "../shared/schema";
 import { eq } from "drizzle-orm";
 
+import { scrypt, randomBytes } from "crypto";
+import { promisify } from "util";
+
+const scryptAsync = promisify(scrypt);
+
+async function hashPassword(password: string) {
+  const salt = randomBytes(16).toString("hex");
+  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${buf.toString("hex")}.${salt}`;
+}
+
 async function seed() {
     console.log("🌱 Seeding comprehensive data...");
 
@@ -27,6 +38,18 @@ async function seed() {
             metadata: { role: "admin" },
         }).returning();
     }
+
+    // App Admin (SuperUser)
+    const [superUser] = await db.insert(users).values({
+        username: "musicapp",
+        displayName: "App Admin",
+        email: "admin@musicapp.com",
+        password: await hashPassword("music app"),
+        role: "platform_admin",
+        status: "active",
+        createdAt: new Date(),
+    } as any).returning();
+    console.log(`✅ Created superuser 'musicapp'`);
 
     // 3. Create Promoters
     const promoterData = [

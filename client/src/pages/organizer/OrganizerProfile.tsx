@@ -35,6 +35,11 @@ import { motion } from "framer-motion";
 import { format } from "date-fns";
 import { z } from "zod";
 import { api } from "@shared/routes";
+import { Shield } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { useToast } from "@/hooks/use-toast";
+import { Separator } from "@/components/ui/separator";
+import { Loader2 } from "lucide-react";
 
 type UpdateOrganizerInput = z.infer<typeof api.organizer.profile.update.input>;
 
@@ -489,23 +494,26 @@ export default function OrganizerProfile() {
                       <span className="text-sm font-medium">Cancellation Rate</span>
                     </div>
                     <p className="text-2xl font-bold">
-                      {bookingSummary?.cancellationRate.toFixed(1) || "0.0"}%
+                      {bookingSummary?.cancellationRate ? `${bookingSummary.cancellationRate}%` : "0%"}
                     </p>
                   </div>
-
+                  
                   <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20">
                     <div className="flex items-center gap-2 text-purple-500 mb-2">
                       <IndianRupee className="w-4 h-4" />
-                      <span className="text-sm font-medium">Avg. Booking Value</span>
+                      <span className="text-sm font-medium">Total Spent</span>
                     </div>
                     <p className="text-2xl font-bold">
-                      ₹{(bookingSummary?.averageBookingValue || 0).toLocaleString("en-IN")}
+                      ₹{bookingSummary?.totalSpent?.toLocaleString() || 0}
                     </p>
                   </div>
                 </div>
               )}
             </CardContent>
           </Card>
+          
+          {/* Legal & Bank Tab */}
+          <LegalBankTab user={user} />
         </div>
 
         {/* Sidebar */}
@@ -588,4 +596,110 @@ export default function OrganizerProfile() {
       </div>
     </div>
   );
+}
+
+function LegalBankTab({ user }: { user: any }) {
+    const { toast } = useToast();
+    const [isSaving, setIsSaving] = useState(false);
+    const form = useForm({
+        defaultValues: {
+            legalName: user.legalName || "",
+            permanentAddress: user.permanentAddress || "",
+            panNumber: user.panNumber || "",
+            gstin: user.gstin || "",
+            bankAccountNumber: user.bankAccountNumber || "",
+            bankIfsc: user.bankIfsc || "",
+            bankBranch: user.bankBranch || "",
+            bankAccountHolderName: user.bankAccountHolderName || "",
+        }
+    });
+
+    const onSubmit = async (data: any) => {
+        setIsSaving(true);
+        try {
+            const res = await fetch("/api/users/me", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(data),
+            });
+            if (!res.ok) throw new Error("Failed to update");
+            toast({ title: "Legal profile updated successfully" });
+        } catch (error) {
+            toast({ title: "Failed to update profile", variant: "destructive" });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <Card className="glass-card border-white/5">
+            <CardHeader>
+                <CardTitle>Legal & Bank Details</CardTitle>
+                <CardDescription>Mandatory information for contract generation and payments</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                    <div className="space-y-4">
+                        <h3 className="font-medium flex items-center gap-2 text-primary">
+                            <Shield className="w-4 h-4" />
+                            Legal Identity
+                        </h3>
+                        <div className="grid sm:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Full Legal Name</Label>
+                                <Input {...form.register("legalName")} placeholder="As per PAN card" className="bg-background/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>PAN Number</Label>
+                                <Input {...form.register("panNumber")} placeholder="ABCDE1234F" className="bg-background/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>GSTIN (Optional)</Label>
+                                <Input {...form.register("gstin")} placeholder="GST Number if applicable" className="bg-background/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Permanent Address</Label>
+                                <Input {...form.register("permanentAddress")} placeholder="Full address for contracts" className="bg-background/60" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <Separator className="bg-white/5" />
+
+                    <div className="space-y-4">
+                        <h3 className="font-medium flex items-center gap-2 text-primary">
+                            <DollarSign className="w-4 h-4" />
+                            Bank Account Details
+                        </h3>
+                        <div className="grid sm:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Account Holder Name</Label>
+                                <Input {...form.register("bankAccountHolderName")} className="bg-background/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Account Number</Label>
+                                <Input {...form.register("bankAccountNumber")} type="password" placeholder="••••••••" className="bg-background/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>IFSC Code</Label>
+                                <Input {...form.register("bankIfsc")} placeholder="e.g. HDFC0001234" className="bg-background/60" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Branch Name</Label>
+                                <Input {...form.register("bankBranch")} placeholder="e.g. Bandra West" className="bg-background/60" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end pt-4">
+                        <Button type="submit" disabled={isSaving} className="bg-primary gap-2">
+                            {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                            <Save className="w-4 h-4" />
+                            Save Legal Details
+                        </Button>
+                    </div>
+                </form>
+            </CardContent>
+        </Card>
+    );
 }

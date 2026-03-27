@@ -1,0 +1,35 @@
+when the contract pdf is finalized, the admin should have the power to change the contract in any manner possible
+
+there will be 2 types of contract
+1) Type one - app to artist and app to organizer / venue
+
+this way the app has the control over the situation. this will be the default  method of contract.
+
+2) type 2 - direct contracts - this will be the the direct contract between artist and organizer; organizer and venue; venue and artist and any other combinations. this will be allowed only to premium users and can only be toggled from the admin control panel
+
+the admin should also have an option to globally set type 1 or type 2 contracts.
+
+when the negotiations are over between any 2 parties, the contract should be generated based on which contract type is applicable at that moment.
+
+
+the admin section should have a space to add/modify the app name, owner information, business information, bank information, logos, any other relevant information etc. regarding the business operations.
+
+all the pdf's generated should have the company logo at the necessary places.
+modify the database as required
+
+
+the admin should also be allowed to create new roles and users for the backend process management with granular controls on what the new role can do.
+
+
+consult the internet also for more ideas on how to implement this properly.
+
+ensure that the final choice is correctly gathered in the negotiation chat. verify the workflow and the db properly using .env file and psql
+
+based on the platform fees, the amount should be shown properly to both the parties after proper calculations
+
+
+
+
+modify the database as required
+
+come up with the most detailed plan to execute this properly

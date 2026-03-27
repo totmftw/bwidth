@@ -1,0 +1,363 @@
+1) What you are really building
+
+Think of the system as five connected parts:
+
+The artist is profiled and categorized.
+The organizer posts a booking opportunity.
+The artist applies or the organizer shortlists.
+Both sides agree on terms and the platform generates a contract.
+Payments, cancellation rules, and trust updates follow that contract.
+
+Your existing docs already support most of this chain: opportunities, applications, negotiation, booking, contracts, payments, trust score, and cancellation logic are all part of the intended platform design.
+
+2) What is missing right now
+
+You already have some implicit artist grouping in the app. In programming mode, artists are being categorized as headliner, support, and emerging based on fee vs weekly budget, and match scoring already uses genre, trust, location, and cancellation history. But that is not the same as the business-facing categories you described: budding, mid-scale, and international.
+
+So the missing piece is:
+
+a real stored category on the artist profile,
+a rule engine that assigns or overrides that category,
+a commission policy that reads that category,
+and a contract template that changes based on category and trust.
+3) The simplest business rule
+
+Use two separate ideas:
+
+Artist category = who the artist is in the market
+Example: budding / mid-scale / international.
+Trust score tier = how reliable the artist is on the platform
+Example: critical / high risk / standard / trusted / premium.
+
+Your docs already use trust score to drive platform commission and application limits, so keep that as a separate layer. The trust score tiers in the workflow already map to different commission rates and limits, while your artist category should control commercial positioning and contract language.
+
+4) Database changes you should make
+A. Add artist category fields
+
+In artists, add:
+
+artist_category
+Enum: budding, mid_scale, international, custom
+artist_category_source
+Enum: auto, manual, override
+artist_category_locked
+Boolean, for top-tier manual protection
+artist_category_assigned_at
+artist_category_assigned_by
+artist_category_notes
+commission_override_artist_pct
+commission_override_organizer_pct
+minimum_guaranteed_earnings
+category_valid_from
+category_valid_to
+
+Your current Artist model already has minimumFee, standardFee, premiumFee, experienceLevel, genre, location, and documents, so this is a natural extension rather than a redesign.
+
+B. Add a category history table
+
+Create artist_category_history so you can audit changes:
+
+artist_id
+old_category
+new_category
+reason
+changed_by
+changed_at
+
+This matters because categories will change over time, and you need to know why something changed.
+
+C. Add commission policy tables
+
+Create a simple table like commission_policies:
+
+artist_category
+artist_pct
+organizer_pct
+platform_pct_total
+min_artist_guarantee
+active
+effective_from
+effective_to
+
+This keeps pricing out of code and makes business changes easy.
+
+D. Extend bookings
+
+Your booking record should snapshot the final money math so later edits do not break history:
+
+gross_booking_value
+artist_fee
+organizer_fee
+artist_commission_pct
+organizer_commission_pct
+platform_revenue
+artist_category_snapshot
+trust_tier_snapshot
+contract_id
+
+Your booking flow already stores agreed fee, commission, and status; this is the safer version of that same idea.
+
+E. Extend contracts
+
+Your contract model already has contract number, PDF URL, signatures, signature deadline, status, and verification hash. Add these:
+
+artist_category_snapshot
+trust_score_snapshot
+commission_breakdown_json
+negotiated_terms_json
+clause_version
+template_version
+organizer_signature_required boolean
+artist_signature_required boolean
+cancellation_policy_version
+
+Your docs already define contract status flow like draft → pending signatures → fully executed, and the contract generation flow includes a 48-hour signing window in one place and a 72-hour deadline in another, so you should standardize that in config instead of hardcoding it.
+
+5) How artist categorization should work
+
+Do this in two phases.
+
+Phase 1: automatic suggestion
+
+When an artist completes onboarding, the system suggests a category using:
+
+fee range,
+experience level,
+trust score,
+portfolio completeness,
+and optionally manual review.
+
+A simple rule can be:
+
+budding: early-stage, low-fee, limited bookings
+mid-scale: established local/regional talent
+international: premium/high-value talent
+
+Your docs already collect enough data for this: fee bands, experience, portfolio, location, documents, and trust score.
+
+Phase 2: admin confirmation or override
+
+For the first version, let an admin confirm the category. That prevents bad automatic tagging when the profile is incomplete.
+
+Recommended rule:
+
+auto-suggest on onboarding
+admin can approve or override
+category gets locked for premium/international artists
+category can be reviewed every 90 days
+6) How commission should work
+
+Your meeting notes describe a double-sided monetization model: the platform charges both artist and organizer, and the platform keeps the spread. That is separate from the trust-score-based commission logic currently in the docs, which is a single platform commission percentage tied to reliability.
+
+For your app, use this structure:
+
+Recommended settlement model
+
+For every booking, store:
+
+organizer payable
+artist receivable
+platform fee from organizer
+platform fee from artist
+net payout to artist
+net cost to organizer
+
+That makes the pricing transparent internally, even if you choose to show only the final price on the UI.
+
+Example
+
+If the booking value is ₹100:
+
+organizer pays ₹125
+artist receives ₹75
+platform keeps ₹50
+
+That matches the model from your agenda.
+
+Category-based logic
+
+Use category to decide the base split:
+
+budding: higher platform share, but protected minimum earnings
+mid-scale: balanced split
+international: lower percentage on the artist side, higher absolute revenue through premium fee
+Trust-score modifier
+
+Then apply a small modifier from trust tier:
+
+critical/high risk: stricter payment terms
+standard/trusted/premium: more flexible deposit rules
+
+Your docs already use trust score to change commission rate and advance payment behavior.
+
+7) The contract flow you should implement
+
+Use this exact flow:
+
+Step 1: Booking is confirmed
+
+The organizer accepts, or negotiation ends successfully. Your docs already route acceptance to booking creation and then contract generation.
+
+Step 2: Contract is generated
+
+The contract service loads:
+
+artist profile
+organizer profile
+venue
+booking
+trust tier
+artist category
+payment split
+cancellation rules
+
+Your current contract generator already prepares party details, event details, financial terms, hospitality, promotion, confidentiality, and force majeure clauses.
+
+Step 3: Contract is sent to both sides
+
+Your workflow already says:
+
+email
+in-app notification
+sign button in dashboard
+signing window
+signature verification
+
+That is the right pattern.
+
+Step 4: Artist signs first
+
+The docs say the artist signs first, then the organizer signs. That sequence is good because it locks the artist’s consent before the organizer finalizes the show.
+
+Step 5: Organizer signs
+
+Once the organizer signs, contract status becomes fully executed.
+
+Step 6: Payment schedule is created
+
+Your payment service already sets up milestone payments after contract signing, including a 30% deposit and balance due before the event. You can keep that pattern, but make the percentages configurable by artist category and trust tier.
+
+8) Contract clauses you must not skip
+
+These are already in your docs and should remain in the platform:
+
+performance date/time and slot type
+fee and payment schedule
+travel and accommodation if included
+technical rider and sound check
+hospitality and guest list
+branding and promo rules
+content/recording rights
+cancellation policy
+slot time protection
+confidentiality
+dispute resolution
+jurisdiction
+
+Your workflow specifically includes slot time protection, cancellation penalties, and platform commission terms, so those should be first-class clauses, not hidden notes.
+
+9) What the UI should show
+Artist side
+
+Show:
+
+category badge
+trust tier badge
+minimum fee / standard fee / premium fee
+estimated commission
+contract status
+signature deadline
+payment timeline
+Organizer side
+
+Show:
+
+category explanation in plain English
+total booking cost
+what the artist gets
+what the platform gets
+deposit required
+cancellation penalties
+contract signing progress
+Admin side
+
+Show:
+
+category pending approval
+overridden category
+contract template version
+signature progress
+delayed signatures
+expired contracts
+10) Backend services you should create
+artistCategory.service
+
+This should:
+
+suggest category
+save category
+allow override
+recalculate category when profile changes
+commissionPolicy.service
+
+This should:
+
+fetch commission split by category
+merge trust-tier adjustments
+calculate booking math
+create settlement breakdown
+contract.service
+
+This should:
+
+load booking + profiles
+choose template
+populate clauses
+store contract version
+generate PDF
+start signature timer
+
+Your current contract service already does most of the generation work, so this is mostly an expansion, not a rewrite.
+
+booking.service
+
+This should:
+
+create the booking
+lock the category snapshot
+compute fee split
+move to contract_sent
+later move to confirmed when both signatures and deposit are done
+
+Your current booking service already creates the booking and calls contract generation, so this is the right place to insert category and commission logic.
+
+11) Rollout plan
+
+Do it in this order:
+
+Add database columns and history tables.
+Backfill every existing artist with custom or mid_scale using a one-time script.
+Add admin review for category.
+Add category badges in artist profile.
+Add fee split logic to bookings.
+Add contract snapshots.
+Add contract PDF clause variations by category.
+Add tests.
+Turn it on behind a feature flag.
+Migrate existing bookings slowly.
+12) Very important implementation choice
+
+Do not calculate commission live from the current artist profile after the contract is signed. Always save the exact numbers into the booking and contract at the moment of confirmation.
+
+That matters because your docs already include trust score changes, cancellations, and category-based scheduling logic. If you recalculate later, old contracts will drift when the artist’s profile changes.
+
+13) The cleanest version of the business rule
+
+This is the version I would ship first:
+
+artist category controls commercial tier
+trust score controls risk and flexibility
+booking snapshot freezes the numbers
+contract uses template + snapshots
+payments follow the contract
+category can be overridden by admin only

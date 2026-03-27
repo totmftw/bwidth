@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -19,6 +20,7 @@ import { useLocation } from "wouter";
 interface NegotiationFlowProps {
   booking: any;
   onClose: () => void;
+  onStartContract?: () => void;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -60,6 +62,7 @@ function MessageBubble({ msg, isMe, currency }: { msg: any; isMe: boolean; curre
   const actionLabels: Record<string, { label: string; icon: any; color: string }> = {
     PROPOSE_COST: { label: "💰 Counter Offer", icon: ArrowLeftRight, color: "text-purple-400" },
     PROPOSE_SLOT: { label: "🕐 Slot Change", icon: CalendarClock, color: "text-blue-400" },
+    PROPOSE_RIDER: { label: "🎸 Tech Rider Update", icon: FileText, color: "text-amber-400" },
     PROPOSE_CHANGE: { label: "💰 Counter Offer", icon: ArrowLeftRight, color: "text-purple-400" },
     ACCEPT: { label: "✅ Accepted", icon: ThumbsUp, color: "text-green-400" },
     WALK_AWAY: { label: "❌ Walked Away", icon: LogOut, color: "text-red-400" },
@@ -113,6 +116,31 @@ function MessageBubble({ msg, isMe, currency }: { msg: any; isMe: boolean; curre
           </div>
         )}
 
+        {/* Tech Rider chip */}
+        {(payload.providedEquipment?.length > 0 || payload.requestedEquipment?.length > 0) && (
+          <div className={`
+            flex flex-col gap-2 rounded-lg px-3 py-2 mb-2 text-sm
+            ${isMe ? "bg-white/10" : "bg-amber-500/10 text-amber-500"}
+          `}>
+            {payload.providedEquipment?.length > 0 && (
+              <div>
+                <span className="font-semibold text-xs opacity-80 uppercase tracking-wider block mb-1">Provided by Organizer</span>
+                <ul className="list-disc list-inside pl-2">
+                  {payload.providedEquipment.map((item: string, i: number) => <li key={i}>{item}</li>)}
+                </ul>
+              </div>
+            )}
+            {payload.requestedEquipment?.length > 0 && (
+              <div>
+                <span className="font-semibold text-xs opacity-80 uppercase tracking-wider block mb-1">Requested by Artist</span>
+                <ul className="list-disc list-inside pl-2">
+                  {payload.requestedEquipment.map((item: string, i: number) => <li key={i}>{item}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Note / body */}
         {(msg.body || payload.note) && (
           <p className={`text-sm leading-relaxed ${isMe ? "text-violet-100" : "text-foreground/80"}`}>
@@ -126,6 +154,63 @@ function MessageBubble({ msg, isMe, currency }: { msg: any; isMe: boolean; curre
           {isMe && (
             <CheckCheck className="w-3.5 h-3.5 text-violet-300 ml-0.5" />
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Rider Update Sheet ─────────────────────────────────────────────────────
+
+function RiderUpdateSheet({ current, onConfirm, onCancel, isPending }: any) {
+  const [provided, setProvided] = useState(current?.providedEquipment?.join("\n") || "");
+  const [requested, setRequested] = useState(current?.requestedEquipment?.join("\n") || "");
+  const [note, setNote] = useState("");
+
+  const handleSubmit = () => {
+    onConfirm({
+      providedEquipment: provided.split("\n").map((s: string) => s.trim()).filter(Boolean),
+      requestedEquipment: requested.split("\n").map((s: string) => s.trim()).filter(Boolean),
+      note: note.trim()
+    });
+  };
+
+  return (
+    <div className="border-t bg-card px-4 py-4 animate-in slide-in-from-bottom-2 shrink-0">
+      <h3 className="font-semibold text-sm mb-3">Update Tech Rider</h3>
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">Equipment Provided by Organizer</label>
+          <Textarea
+            placeholder="E.g., PA System, 2x Mics..."
+            value={provided}
+            onChange={(e) => setProvided(e.target.value)}
+            className="h-20 resize-none text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">Equipment Requested by Artist</label>
+          <Textarea
+            placeholder="E.g., Pioneer CDJ-3000, specific monitors..."
+            value={requested}
+            onChange={(e) => setRequested(e.target.value)}
+            className="h-20 resize-none text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground mb-1 block">Note (Optional)</label>
+          <Input
+            placeholder="Why the change?"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="h-9 text-sm"
+          />
+        </div>
+        <div className="flex gap-2 pt-2">
+          <Button variant="ghost" onClick={onCancel} className="flex-1 h-10" disabled={isPending}>Cancel</Button>
+          <Button onClick={handleSubmit} className="flex-1 h-10 bg-amber-600 hover:bg-amber-700" disabled={isPending}>
+            {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send Update"}
+          </Button>
         </div>
       </div>
     </div>
@@ -315,15 +400,108 @@ function WalkAwaySheet({
   );
 }
 
+// ─── Contract Terms Sheet ───────────────────────────────────────────────────
+
+function ContractTermsSheet({
+  onConfirm,
+  onCancel,
+  isPending,
+}: {
+  onConfirm: (terms: any) => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  const [terms, setTerms] = useState({
+    travel: { flightClass: "economy", flightPreference: "", routing: "" },
+    accommodation: { hotelStarRating: "3", roomType: "private room" },
+    hospitality: { perDiem: 0, guestListCount: 2 },
+  });
+
+  return (
+    <div className="border-t bg-card/95 backdrop-blur-sm p-4 space-y-4 animate-in slide-in-from-bottom-4 duration-200 h-96 overflow-y-auto">
+      <div className="flex items-center justify-between sticky top-0 bg-card/95 pb-2 z-10">
+        <span className="font-semibold text-sm text-emerald-500">Configure Contract Terms</span>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCancel}>
+          <X className="w-4 h-4" />
+        </Button>
+      </div>
+      
+      <div className="space-y-4 text-sm">
+        <div className="space-y-2">
+          <Label className="text-xs text-primary">Travel & Flights</Label>
+          <Input 
+            placeholder="e.g. Business Class" 
+            value={terms.travel.flightClass}
+            onChange={e => setTerms({...terms, travel: {...terms.travel, flightClass: e.target.value}})} 
+          />
+          <Input 
+            placeholder="Airline Preference (e.g. Star Alliance)" 
+            value={terms.travel.flightPreference}
+            onChange={e => setTerms({...terms, travel: {...terms.travel, flightPreference: e.target.value}})} 
+          />
+          <Input 
+            placeholder="Routing Requirements (e.g. Direct only via BOM)" 
+            value={terms.travel.routing}
+            onChange={e => setTerms({...terms, travel: {...terms.travel, routing: e.target.value}})} 
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs text-primary">Accommodation</Label>
+          <div className="flex gap-2">
+            <Input 
+              type="number" placeholder="Star Rating (e.g. 5)" min="1" max="5"
+              value={terms.accommodation.hotelStarRating}
+              onChange={e => setTerms({...terms, accommodation: {...terms.accommodation, hotelStarRating: e.target.value}})} 
+            />
+            <Input 
+              placeholder="Room Type" 
+              value={terms.accommodation.roomType}
+              onChange={e => setTerms({...terms, accommodation: {...terms.accommodation, roomType: e.target.value}})} 
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs text-primary">Hospitality</Label>
+          <div className="flex gap-2">
+            <Input 
+              type="number" placeholder="Per Diem (€/₹)" 
+              value={terms.hospitality.perDiem}
+              onChange={e => setTerms({...terms, hospitality: {...terms.hospitality, perDiem: Number(e.target.value)}})} 
+            />
+            <Input 
+              type="number" placeholder="Guest List Count" 
+              value={terms.hospitality.guestListCount}
+              onChange={e => setTerms({...terms, hospitality: {...terms.hospitality, guestListCount: Number(e.target.value)}})} 
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 pt-4 sticky bottom-0 bg-card/95">
+        <Button variant="outline" className="h-12" onClick={onCancel}>Cancel</Button>
+        <Button
+          className="h-12 font-semibold bg-emerald-600 hover:bg-emerald-700"
+          onClick={() => onConfirm(terms)}
+          disabled={isPending}
+        >
+          {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Finalize & Accept"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function NegotiationFlow({ booking, onClose }: NegotiationFlowProps) {
+export function NegotiationFlow({ booking, onClose, onStartContract }: NegotiationFlowProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [conversationId, setConversationId] = useState<number | null>(null);
-  const [sheet, setSheet] = useState<"cost" | "slot" | "walkaway" | null>(null);
+  const [sheet, setSheet] = useState<"cost" | "slot" | "rider" | "walkaway" | "terms" | null>(null);
   const [, navigate] = useLocation();
 
   // 1. Open / retrieve conversation
@@ -437,6 +615,11 @@ export function NegotiationFlow({ booking, onClose }: NegotiationFlowProps) {
                 <Lock className="w-2.5 h-2.5 mr-0.5" />Slot Locked
               </Badge>
             )}
+            {ctx.riderLocked && (
+              <Badge variant="outline" className="text-[9px] px-1 py-0 bg-amber-500/10 text-amber-500 border-amber-500/30">
+                <Lock className="w-2.5 h-2.5 mr-0.5" />Rider Locked
+              </Badge>
+            )}
           </div>
         </div>
         <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose}>
@@ -526,9 +709,26 @@ export function NegotiationFlow({ booking, onClose }: NegotiationFlowProps) {
             />
           )}
 
+          {sheet === "rider" && (
+            <RiderUpdateSheet
+              current={ctx.currentRider}
+              onConfirm={(payload: any) => handleAction("PROPOSE_RIDER", payload)}
+              onCancel={() => setSheet(null)}
+              isPending={isActing}
+            />
+          )}
+
           {sheet === "walkaway" && (
             <WalkAwaySheet
               onConfirm={(note) => handleAction("WALK_AWAY", { note })}
+              onCancel={() => setSheet(null)}
+              isPending={isActing}
+            />
+          )}
+
+          {sheet === "terms" && (
+            <ContractTermsSheet
+              onConfirm={(terms) => handleAction("ACCEPT", { terms })}
               onCancel={() => setSheet(null)}
               isPending={isActing}
             />
@@ -539,15 +739,15 @@ export function NegotiationFlow({ booking, onClose }: NegotiationFlowProps) {
               {isMyTurn ? (
                 <div className="space-y-2">
                   {/* Negotiation actions */}
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <Button
                       variant="outline"
                       className="h-12 font-medium rounded-xl border-violet-500/40 text-violet-400 hover:bg-violet-500/10 flex-col gap-0 py-1"
                       onClick={() => setSheet("cost")}
                       disabled={isActing || costLocked || costRemaining <= 0}
                     >
-                      <span className="text-sm">💰 Counter Cost</span>
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-xs">💰 Cost</span>
+                      <span className="text-[9px] text-muted-foreground">
                         {costLocked ? "Locked" : `${costRemaining}/2 left`}
                       </span>
                     </Button>
@@ -557,9 +757,20 @@ export function NegotiationFlow({ booking, onClose }: NegotiationFlowProps) {
                       onClick={() => setSheet("slot")}
                       disabled={isActing || slotLocked || slotRemaining <= 0}
                     >
-                      <span className="text-sm">🕐 Change Slot</span>
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-xs">🕐 Slot</span>
+                      <span className="text-[9px] text-muted-foreground">
                         {slotLocked ? "Locked" : `${slotRemaining}/1 left`}
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="h-12 font-medium rounded-xl border-amber-500/40 text-amber-400 hover:bg-amber-500/10 flex-col gap-0 py-1"
+                      onClick={() => setSheet("rider")}
+                      disabled={isActing || ctx.riderLocked}
+                    >
+                      <span className="text-xs">🎸 Rider</span>
+                      <span className="text-[9px] text-muted-foreground">
+                        {ctx.riderLocked ? "Locked" : `Update`}
                       </span>
                     </Button>
                   </div>
@@ -567,11 +778,11 @@ export function NegotiationFlow({ booking, onClose }: NegotiationFlowProps) {
                   {/* Primary: Accept */}
                   <Button
                     className="w-full h-14 text-base font-semibold bg-emerald-600 hover:bg-emerald-700 rounded-xl"
-                    onClick={() => handleAction("ACCEPT")}
+                    onClick={() => setSheet("terms")}
                     disabled={isActing}
                   >
                     {isActing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ThumbsUp className="w-5 h-5 mr-2" />}
-                    Accept Deal
+                    Configure Terms & Accept
                   </Button>
 
                   {/* Walk Away */}
@@ -627,7 +838,13 @@ export function NegotiationFlow({ booking, onClose }: NegotiationFlowProps) {
               </div>
               <Button
                 className="w-full h-14 text-base font-semibold bg-primary hover:bg-primary/90 rounded-xl"
-                onClick={() => navigate("/contract-setup")}
+                onClick={() => {
+                  if (onStartContract) {
+                    onStartContract();
+                  } else {
+                    navigate(`/contract/${booking.id}`);
+                  }
+                }}
               >
                 <FileText className="w-5 h-5 mr-2" />
                 Start Contract →

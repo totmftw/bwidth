@@ -6,6 +6,19 @@ import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 // ENUMS
 // ============================================================================
 
+export const artistCategoryEnum = pgEnum("artist_category", [
+  "budding",
+  "mid_scale",
+  "international",
+  "custom",
+]);
+
+export const artistCategorySourceEnum = pgEnum("artist_category_source", [
+  "auto",
+  "manual",
+  "override",
+]);
+
 export const userStatusEnum = pgEnum("user_status", [
   "active",
   "suspended",
@@ -205,6 +218,19 @@ export const users = pgTable("users", {
   displayName: text("display_name"),
   firstName: text("first_name"),
   lastName: text("last_name"),
+  
+  // Legal & Financial Fields
+  legalName: text("legal_name"),
+  permanentAddress: text("permanent_address"),
+  panNumber: text("pan_number"),
+  gstin: text("gstin"),
+  bankAccountNumber: text("bank_account_number"),
+  bankIfsc: text("bank_ifsc"),
+  bankBranch: text("bank_branch"),
+  bankAccountHolderName: text("bank_account_holder_name"),
+  emergencyContactName: text("emergency_contact_name"),
+  emergencyContactPhone: text("emergency_contact_phone"),
+
   gender: genderEnum("gender"),
   dateOfBirth: date("date_of_birth"),
   status: userStatusEnum("status").default("pending_verification"),
@@ -293,6 +319,17 @@ export const artists = pgTable("artists", {
   currency: char("currency", { length: 3 }).default("INR").references(() => currencies.currencyCode),
   ratingAvg: numeric("rating_avg", { precision: 3, scale: 2 }).default("0"),
   ratingCount: integer("rating_count").default(0),
+  artistCategory: artistCategoryEnum("artist_category"),
+  artistCategorySource: artistCategorySourceEnum("artist_category_source"),
+  artistCategoryLocked: boolean("artist_category_locked").default(false),
+  artistCategoryAssignedAt: timestamp("artist_category_assigned_at"),
+  artistCategoryAssignedBy: integer("artist_category_assigned_by").references(() => users.id, { onDelete: "set null" }),
+  artistCategoryNotes: text("artist_category_notes"),
+  commissionOverrideArtistPct: numeric("commission_override_artist_pct", { precision: 5, scale: 2 }),
+  commissionOverrideOrganizerPct: numeric("commission_override_organizer_pct", { precision: 5, scale: 2 }),
+  minimumGuaranteedEarnings: numeric("minimum_guaranteed_earnings", { precision: 12, scale: 2 }),
+  categoryValidFrom: timestamp("category_valid_from"),
+  categoryValidTo: timestamp("category_valid_to"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   metadata: jsonb("metadata").default({}),
@@ -304,6 +341,28 @@ export const artistGenres = pgTable("artist_genres", {
 }, (table) => ({
   pk: { columns: [table.artistId, table.genreId] }
 }));
+
+export const artistCategoryHistory = pgTable("artist_category_history", {
+  id: serial("id").primaryKey(),
+  artistId: integer("artist_id").references(() => artists.id, { onDelete: "cascade" }).notNull(),
+  oldCategory: text("old_category"),
+  newCategory: text("new_category"),
+  reason: text("reason"),
+  changedBy: integer("changed_by").references(() => users.id, { onDelete: "set null" }),
+  changedAt: timestamp("changed_at").defaultNow(),
+});
+
+export const commissionPolicies = pgTable("commission_policies", {
+  id: serial("id").primaryKey(),
+  artistCategory: artistCategoryEnum("artist_category").notNull().unique(),
+  artistPct: numeric("artist_pct", { precision: 5, scale: 2 }).notNull(),
+  organizerPct: numeric("organizer_pct", { precision: 5, scale: 2 }).notNull(),
+  platformPctTotal: numeric("platform_pct_total", { precision: 5, scale: 2 }).notNull(),
+  minArtistGuarantee: numeric("min_artist_guarantee", { precision: 12, scale: 2 }),
+  active: boolean("active").default(true),
+  effectiveFrom: timestamp("effective_from").defaultNow(),
+  effectiveTo: timestamp("effective_to"),
+});
 
 // ============================================================================
 // PROMOTERS
@@ -416,6 +475,15 @@ export const bookings = pgTable("bookings", {
   depositAmount: numeric("deposit_amount", { precision: 12, scale: 2 }),
   finalAmount: numeric("final_amount", { precision: 12, scale: 2 }),
   finalDueAt: timestamp("final_due_at"),
+  grossBookingValue: numeric("gross_booking_value", { precision: 12, scale: 2 }),
+  artistFee: numeric("artist_fee", { precision: 12, scale: 2 }),
+  organizerFee: numeric("organizer_fee", { precision: 12, scale: 2 }),
+  artistCommissionPct: numeric("artist_commission_pct", { precision: 5, scale: 2 }),
+  organizerCommissionPct: numeric("organizer_commission_pct", { precision: 5, scale: 2 }),
+  platformRevenue: numeric("platform_revenue", { precision: 12, scale: 2 }),
+  artistCategorySnapshot: text("artist_category_snapshot"),
+  trustTierSnapshot: text("trust_tier_snapshot"),
+  contractId: integer("contract_id"), // Added this relation manually below
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   meta: jsonb("meta").default({}),
@@ -452,6 +520,11 @@ export const contracts = pgTable("contracts", {
   promoterAcceptedAt: timestamp("promoter_accepted_at", { withTimezone: true }),
   artistSignedAt: timestamp("artist_signed_at", { withTimezone: true }),
   promoterSignedAt: timestamp("promoter_signed_at", { withTimezone: true }),
+  
+  // IT Act 2000 Compliance Logging
+  artistSignatureIp: text("artist_signature_ip"),
+  promoterSignatureIp: text("promoter_signature_ip"),
+
   // PDF generation
   pdfUrl: text("pdf_url"),
   pdfGeneratedAt: timestamp("pdf_generated_at", { withTimezone: true }),
@@ -460,6 +533,17 @@ export const contracts = pgTable("contracts", {
   adminReviewedAt: timestamp("admin_reviewed_at", { withTimezone: true }),
   adminReviewNote: text("admin_review_note"),
   adminReviewStatus: text("admin_review_status"), // 'approved' | 'rejected'
+  
+  // Snapshots and Categorization
+  artistCategorySnapshot: text("artist_category_snapshot"),
+  trustScoreSnapshot: text("trust_score_snapshot"),
+  commissionBreakdownJson: jsonb("commission_breakdown_json"),
+  negotiatedTermsJson: jsonb("negotiated_terms_json"),
+  clauseVersion: integer("clause_version"),
+  templateVersion: integer("template_version"),
+  organizerSignatureRequired: boolean("organizer_signature_required").default(true),
+  artistSignatureRequired: boolean("artist_signature_required").default(true),
+  cancellationPolicyVersion: integer("cancellation_policy_version"),
 });
 
 // Contract version history (each edit creates a new version)
@@ -668,6 +752,18 @@ export const systemSettings = pgTable("system_settings", {
 });
 
 // ============================================================================
+// APP SETTINGS
+// ============================================================================
+
+export const appSettings = pgTable("app_settings", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedBy: integer("updated_by").references(() => users.id),
+});
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 
@@ -797,6 +893,12 @@ export type BookingProposal = typeof bookingProposals.$inferSelect;
 export type InsertBookingProposal = typeof bookingProposals.$inferInsert;
 export type MessageRead = typeof messageReads.$inferSelect;
 export type InsertMessageRead = typeof messageReads.$inferInsert;
+export type ArtistCategoryHistory = typeof artistCategoryHistory.$inferSelect;
+export type InsertArtistCategoryHistory = typeof artistCategoryHistory.$inferInsert;
+export type CommissionPolicy = typeof commissionPolicies.$inferSelect;
+export type InsertCommissionPolicy = typeof commissionPolicies.$inferInsert;
+export type AppSetting = typeof appSettings.$inferSelect;
+export type InsertAppSetting = typeof appSettings.$inferInsert;
 
 // Aliases for compatibility with existing code
 export { promoters as organizers };
@@ -826,5 +928,9 @@ export const insertMessageSchema = createInsertSchema(messages);
 export const selectMessageSchema = createSelectSchema(messages);
 export const insertBookingProposalSchema = createInsertSchema(bookingProposals);
 export const selectBookingProposalSchema = createSelectSchema(bookingProposals);
+export const insertArtistCategoryHistorySchema = createInsertSchema(artistCategoryHistory);
+export const selectArtistCategoryHistorySchema = createSelectSchema(artistCategoryHistory);
+export const insertCommissionPolicySchema = createInsertSchema(commissionPolicies);
+export const selectCommissionPolicySchema = createSelectSchema(commissionPolicies);
 
 

@@ -21,6 +21,40 @@ export async function registerRoutes(
   // Setup Auth
   setupAuth(app);
 
+  // Update User Profile (Legal & Financial details)
+  app.patch("/api/users/me", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const user = req.user as any;
+      
+      // We only allow updating certain fields for security
+      const updateSchema = z.object({
+        legalName: z.string().optional(),
+        permanentAddress: z.string().optional(),
+        panNumber: z.string().optional(),
+        gstin: z.string().optional(),
+        bankAccountNumber: z.string().optional(),
+        bankIfsc: z.string().optional(),
+        bankBranch: z.string().optional(),
+        bankAccountHolderName: z.string().optional(),
+        emergencyContactName: z.string().optional(),
+        emergencyContactPhone: z.string().optional(),
+      });
+      
+      const validatedData = updateSchema.parse(req.body);
+      const updatedUser = await storage.updateUser(user.id, validatedData);
+      
+      res.json(updatedUser);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Validation error", errors: error.errors });
+      }
+      console.error(`Error updating user profile:`, error);
+      res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
   // === API ROUTES ===
   app.use("/api", opportunitiesRouter);
   app.use("/api", contractsRouter);
@@ -687,11 +721,16 @@ export async function registerRoutes(
           ...meta,
           history: [...history, { action: 'accepted', by: userRole, at: new Date().toISOString() }]
         };
-        const updated = await storage.updateBooking(id, {
-          status: 'contracting' as any, // Move to contract stage, not directly to confirmed
-          finalAmount: booking.offerAmount, // The last offer amount is final
+        
+        // Ensure the finalAmount is saved before snapshotting
+        await storage.updateBooking(id, {
+          finalAmount: booking.offerAmount,
           meta: newMeta
         });
+
+        // Use the new booking service to calculate math and snapshot
+        const { bookingService } = await import("./services/booking.service");
+        const updated = await bookingService.confirmBookingAndSnapshot(id);
 
         await storage.createAuditLog({
           who: user.id,

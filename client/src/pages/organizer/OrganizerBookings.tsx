@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { useOrganizerBookings } from "@/hooks/use-organizer-bookings";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocation } from "wouter";
 import { format, isAfter } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -185,6 +186,7 @@ export default function OrganizerBookings() {
                         <NegotiationFlow
                             booking={sheetBooking}
                             onClose={closeSheet}
+                            onStartContract={() => setSheetView("contract")}
                         />
                     )}
                     {sheetBooking && sheetView === "contract" && (
@@ -208,6 +210,7 @@ function BookingCard({
     index: number;
     onOpen: (view: "negotiate" | "contract") => void;
 }) {
+    const [, navigate] = useLocation();
     const status = booking.status || "inquiry";
     const isPending = ["inquiry", "offered", "negotiating"].includes(status);
     const isContracting = status === "contracting";
@@ -315,7 +318,7 @@ function BookingCard({
                                     <Button
                                         size="sm"
                                         className="bg-purple-600 hover:bg-purple-700 text-white"
-                                        onClick={() => onOpen("negotiate")}
+                                        onClick={() => navigate(`/contract/${booking.id}`)}
                                     >
                                         <FileText className="w-4 h-4 mr-2" />
                                         Start Contract
@@ -328,7 +331,7 @@ function BookingCard({
                                         size="sm"
                                         variant="outline"
                                         className="hover:bg-primary/10"
-                                        onClick={() => onOpen("contract")}
+                                        onClick={() => navigate(`/contract/${booking.id}`)}
                                     >
                                         <FileText className="w-4 h-4 mr-2" />
                                         Contract

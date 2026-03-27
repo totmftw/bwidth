@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { Loader2, LayoutDashboard, Users, FileText, Calendar, LogOut, Shield, MessageSquare } from "lucide-react";
+import { Loader2, LayoutDashboard, Users, FileText, Calendar, LogOut, Shield, MessageSquare, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +37,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         { href: "/admin/contracts", icon: FileText, label: "Contract Review" },
         { href: "/admin/bookings", icon: Calendar, label: "All Bookings" },
         { href: "/admin/chat", icon: MessageSquare, label: "Chat Oversight" },
+        { href: "/admin/settings", icon: Settings, label: "Workflow Toggles" },
     ];
 
     return (

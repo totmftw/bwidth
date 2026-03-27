@@ -27,19 +27,38 @@ export interface BookingForContract {
   meta?: Record<string, unknown>;
   artist?: {
     name?: string;
-    user?: { displayName?: string };
+    user?: { 
+      displayName?: string;
+      legalName?: string;
+      permanentAddress?: string;
+      panNumber?: string;
+      gstin?: string;
+      bankAccountHolderName?: string;
+      bankName?: string;
+      bankBranch?: string;
+      bankAccountNumber?: string;
+      bankIfsc?: string;
+    };
   } | null;
   organizer?: {
     name?: string;
-    user?: { displayName?: string };
+    user?: { 
+      displayName?: string;
+      legalName?: string;
+      permanentAddress?: string;
+      panNumber?: string;
+      gstin?: string;
+    };
   } | null;
   venue?: {
     name?: string;
     address?: string | object;
+    city?: string;
   } | null;
   event?: {
     title?: string;
     startTime?: string | Date | null;
+    endTime?: string | Date | null;
   } | null;
 }
 
@@ -87,6 +106,7 @@ export function calculateDeadline(initiatedAt: Date, hours: number = DEADLINE_HO
  */
 export function buildTermsFromBooking(booking: BookingForContract): Record<string, unknown> {
   const meta = (booking.meta || {}) as Record<string, any>;
+  const customTerms = meta.terms || {};
   return {
     // Core (non-editable - from negotiation)
     fee: Number(booking.finalAmount || booking.offerAmount || 0),
@@ -98,19 +118,21 @@ export function buildTermsFromBooking(booking: BookingForContract): Record<strin
     venueName: booking.venue?.name || '',
     artistName: booking.artist?.name || '',
     organizerName: booking.organizer?.name || '',
-    // Editable categories (defaults)
+    // Editable categories (defaults merged with negotiated terms)
     financial: {
       paymentMethod: meta.paymentMethod || 'bank_transfer',
       paymentMilestones: meta.paymentMilestones || [
         { milestone: 'deposit', percentage: Number(booking.depositPercent || 30), dueDate: 'upon_signing' },
         { milestone: 'pre_event', percentage: 100 - Number(booking.depositPercent || 30), dueDate: '24h_before' },
       ],
+      ...customTerms.financial
     },
     travel: {
       responsibility: meta.travelProvided ? 'organizer' : 'artist',
       flightClass: meta.flightClass || 'economy',
       airportPickup: meta.airportPickup || false,
       groundTransport: meta.groundTransport || 'not_provided',
+      ...customTerms.travel
     },
     accommodation: {
       included: meta.accommodationProvided || false,
@@ -119,24 +141,28 @@ export function buildTermsFromBooking(booking: BookingForContract): Record<strin
       checkInTime: '14:00',
       checkOutTime: '12:00',
       nights: meta.nights || 1,
+      ...customTerms.accommodation
     },
     technical: {
       equipmentList: meta.equipmentList || [],
       soundCheckDuration: meta.soundCheckDuration || 60,
       backlineProvided: meta.backlineProvided || [],
       stageSetupTime: meta.stageSetupTime || 30,
+      ...customTerms.technical
     },
     hospitality: {
       guestListCount: meta.guestListCount || 2,
       greenRoomAccess: meta.greenRoom || false,
       mealsProvided: meta.mealsProvided ? ['dinner', 'drinks'] : [],
       securityProvisions: 'standard',
+      ...customTerms.hospitality
     },
     branding: {
       logoUsageAllowed: true,
       promotionalApprovalRequired: true,
       socialMediaGuidelines: '',
       pressRequirements: '',
+      ...customTerms.branding
     },
     contentRights: {
       recordingAllowed: false,
@@ -144,6 +170,7 @@ export function buildTermsFromBooking(booking: BookingForContract): Record<strin
       videographyAllowed: false,
       liveStreamingAllowed: false,
       socialMediaPostingAllowed: true,
+      ...customTerms.contentRights
     },
     cancellation: {
       artistCancellationPenalties: {
@@ -158,6 +185,7 @@ export function buildTermsFromBooking(booking: BookingForContract): Record<strin
       },
       forceMajeureClause: 'standard',
       customForceMajeureText: '',
+      ...customTerms.cancellation
     },
   };
 }
@@ -170,60 +198,156 @@ export function generateContractText(booking: BookingForContract, terms?: Record
   const meta = (booking.meta || {}) as Record<string, any>;
   const t = terms || {};
   const now = new Date();
-  const eventDate = booking.event?.startTime || booking.eventDate;
-  const formattedDate = eventDate ? new Date(eventDate as string).toLocaleDateString('en-US', {
+  
+  const startEventDate = booking.event?.startTime || booking.eventDate;
+  const endEventDate = booking.event?.endTime || startEventDate;
+  
+  const formattedStartDate = startEventDate ? new Date(startEventDate as string).toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-  }) : 'To Be Determined';
-  const formattedTime = booking.slotTime || (eventDate ? new Date(eventDate as string).toLocaleTimeString('en-US', {
+  }) : '[Date TBD]';
+  
+  const formattedEndDate = endEventDate ? new Date(endEventDate as string).toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+  }) : '[Date TBD]';
+
+  const formattedTime = booking.slotTime || (startEventDate ? new Date(startEventDate as string).toLocaleTimeString('en-US', {
     hour: '2-digit', minute: '2-digit'
-  }) : 'TBD');
+  }) : '[Time TBD]');
+  
   const currency = booking.offerCurrency || 'INR';
   const fee = Number(booking.finalAmount || booking.offerAmount || 0);
   const deposit = Number(booking.depositPercent || 30);
+  const depositAmount = Math.round(fee * deposit / 100);
+  const balanceAmount = fee - depositAmount;
+
+  // Legal details extraction
+  const orgName = booking.organizer?.user?.legalName || booking.organizer?.name || '[Organizer Legal Name]';
+  const orgAddress = booking.organizer?.user?.permanentAddress || '[Organizer Permanent Address]';
+  const orgPAN = booking.organizer?.user?.panNumber || '[Organizer PAN]';
+  const orgGSTIN = booking.organizer?.user?.gstin || '[Organizer GSTIN, if applicable]';
+
+  const artLegalName = booking.artist?.user?.legalName || booking.artist?.name || '[Artist Legal Name]';
+  const artStageName = booking.artist?.name || '[Artist Stage Name]';
+  const artAddress = booking.artist?.user?.permanentAddress || '[Artist Permanent Address]';
+  const artPAN = booking.artist?.user?.panNumber || '[Artist PAN]';
+  const artGSTIN = booking.artist?.user?.gstin || '[Artist GSTIN, if applicable]';
+
+  const bankHolder = booking.artist?.user?.bankAccountHolderName || '[Name]';
+  const bankName = booking.artist?.user?.bankName || '[Bank Name]';
+  const bankBranch = booking.artist?.user?.bankBranch || '[Branch Name]';
+  const bankAcc = booking.artist?.user?.bankAccountNumber || '[Account Number]';
+  const bankIfsc = booking.artist?.user?.bankIfsc || '[IFSC/SWIFT]';
+
+  const city = booking.venue?.city || '[City]';
+  const duration = meta.performanceDuration || '60 to 90-minute';
 
   return `
-═══════════════════════════════════════════════════════════════
-                    PERFORMANCE CONTRACT
-═══════════════════════════════════════════════════════════════
+PERFORMANCE AND BOOKING AGREEMENT
 
-Generated: ${now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-Contract Reference: BK-${booking.id}-${now.getFullYear()}
+This Booking Agreement ("Agreement") is made and entered into on this ${now.getDate()} of ${now.toLocaleString('default', { month: 'long' })}, ${now.getFullYear()} ("Effective Date"), under the provisions of the Indian Contract Act, 1872, by and between:
 
-───────────────────────────────────────────────────────────────
-PARTIES
-───────────────────────────────────────────────────────────────
+PARTIES:
 
-ARTIST (Party A):
-  Name: ${booking.artist?.name || booking.artist?.user?.displayName || 'Artist'}
+1. ${orgName}, a company/entity incorporated under the laws of India, having its registered office at ${orgAddress}, holding PAN ${orgPAN} and GSTIN ${orgGSTIN} (hereinafter referred to as the "Booking Agent" or "Promoter", which expression shall, unless repugnant to the context or meaning thereof, be deemed to mean and include its successors and permitted assigns) of the FIRST PART;
 
-PROMOTER/ORGANIZER (Party B):
-  Name: ${booking.organizer?.name || booking.organizer?.user?.displayName || 'Organizer'}
+AND
 
-───────────────────────────────────────────────────────────────
-1. EVENT DETAILS  ★ Non-Editable Core Terms
-───────────────────────────────────────────────────────────────
+2. ${artLegalName} professionally known as ${artStageName}, residing at ${artAddress}, holding PAN ${artPAN} and GSTIN ${artGSTIN} (hereinafter referred to as the "Artist", which expression shall, unless repugnant to the context or meaning thereof, be deemed to mean and include their heirs, executors, and permitted assigns) of the SECOND PART.
 
-  Event:       ${booking.event?.title || 'Performance Event'}
-  Date:        ${formattedDate}
-  Time Slot:   ${formattedTime}
-  Venue:       ${booking.venue?.name || 'TBD'}
-  Location:    ${typeof booking.venue?.address === 'object' ? JSON.stringify(booking.venue.address) : booking.venue?.address || 'TBD'}
+(The Booking Agent and the Artist are hereinafter collectively referred to as the "Parties" and individually as a "Party".)
 
-───────────────────────────────────────────────────────────────
-2. FINANCIAL TERMS  ★ Non-Editable Core Terms
-───────────────────────────────────────────────────────────────
+WHEREAS:
+A. The Booking Agent is engaged in the business of organizing and promoting live entertainment events.
+B. The Artist is a recognized performing artist.
+C. The Booking Agent desires to engage the Artist to perform at the Event(s) detailed below, and the Artist has agreed to such engagement subject to the terms and conditions contained herein.
 
-  Performance Fee:   ${currency} ${fee.toLocaleString()}
-  Deposit:           ${deposit}% (${currency} ${Math.round(fee * deposit / 100).toLocaleString()})
-  Balance Due:       ${currency} ${Math.round(fee * (100 - deposit) / 100).toLocaleString()}
-  Payment Method:    ${t.financial?.paymentMethod || 'Bank Transfer'}
-  Payment Terms:     ${t.financial?.paymentMilestones
-      ? t.financial.paymentMilestones.map((m: any) => `${m.milestone}: ${m.percentage}%`).join(', ')
-      : 'Deposit upon signing; balance 24h before event'}
+NOW, THEREFORE, IN CONSIDERATION OF THE MUTUAL PROMISES CONTAINED HEREIN, THE PARTIES AGREE AS FOLLOWS:
 
-───────────────────────────────────────────────────────────────
-VENUE: ${booking.venue?.name || 'TBD'}
-───────────────────────────────────────────────────────────────
+1. EVENT DETAILS & ARTIST FEE
+1.1. Tour/Event Dates: ${formattedStartDate} to ${formattedEndDate}
+1.2. Cities/Venues: ${city}, India
+1.3. Performance Duration: ${duration} set per event
+1.4. Total Fee: ${currency} ${fee.toLocaleString()} for 1 event(s).
+1.5. The Fee includes the Artist's appearance and performance only. Any additional services will require a separate written agreement.
+
+2. TRAVEL & ACCOMMODATION
+2.1. Flights: All international and domestic flights (${t.travel?.flightClass || 'economy'}) must be ${t.travel?.flightPreference || 'approved airlines only'}.
+2.2. Routing: ${t.travel?.routing || 'Direct flights preferred'}.
+2.3. All flights and itineraries must be pre-approved in writing by the Artist before booking.
+2.4. Accommodation: Minimum ${t.accommodation?.hotelStarRating || 3}-star hotel accommodation (${t.accommodation?.roomType || 'one private room'} for the Artist) featuring:
+     - Early check-in and late checkout
+     - 24-hour room service
+     - High-speed Wi-Fi
+     The hotel must be approved in writing by the Artist before being booked.
+2.5. Per Diem/Food & Beverage: A ${currency} ${t.hospitality?.perDiem || 0} per day allowance for the Artist (via room voucher or cash).
+2.6. Ground Transportation: All ground transportation between the airport, hotel, and venue must be provided and pre-approved by the Booking Agent. The driver must carry a visible sign with the Artist’s name. If airport pickup is delayed by more than 30 minutes, the Promoter covers the cost of a hotel at the airport.
+
+3. PAYMENT TERMS & TAXES
+3.1. Deposit: ${deposit}% (${currency} ${depositAmount.toLocaleString()}) due before the public announcement of the Artist.
+3.2. Balance: Remaining ${currency} ${balanceAmount.toLocaleString()} due one week before the first event date.
+3.3. Net Payments: All payments must be net of all fees, including but not limited to bank fees, currency conversion charges, and local taxes/levies.
+3.4. GST and Withholding Tax (TDS): Any Goods and Services Tax (GST) applicable under the Central Goods and Services Tax Act, 2017, and Tax Deducted at Source (TDS) under the Income Tax Act, 1961, shall be borne and complied with by the Booking Agent. The Booking Agent shall provide the necessary TDS certificates to the Artist within the statutory timelines.
+3.5. Bank Details: All payments must be made via bank wire transfer to:
+     - Account Holder: ${bankHolder}
+     - Bank Name: ${bankName}
+     - Branch: ${bankBranch}
+     - Account Number: ${bankAcc}
+     - IFSC/SWIFT Code: ${bankIfsc}
+     - PAN: ${artPAN}
+
+4. BILLING & PROMOTION
+4.1. The Artist must be billed as the headliner and placed at the top of all promotional material.
+4.2. Artist logos and artwork must be used strictly as officially provided.
+4.3. All marketing materials (print and digital) must include the Booking Agent's logo on the top left corner.
+4.4. All artwork must be approved in writing by the Booking Agent/Artist before distribution.
+
+5. HOSPITALITY & SECURITY
+5.1. The Artist is entitled to ${t.hospitality?.guestListCount || 2} guest list passes per event.
+5.2. Drinks and refreshments must be provided in the green room and during the performance.
+5.3. Press passes may be requested and must be arranged in advance.
+5.4. A secure, restricted, and lockable backstage area (Green Room) must be provided for the Artist and their belongings.
+5.5. The Promoter must provide adequate professional security personnel during the performance and transit.
+
+6. EQUIPMENT & TECHNICAL REQUIREMENTS
+6.1. A detailed Technical Rider and equipment needs list will be provided separately and forms an integral part of this Agreement.
+6.2. The Promoter is required to meet all technical specifications fully and promptly. Failure to do so gives the Artist the right to refuse performance without penalty or refund of the fee.
+
+7. INTELLECTUAL PROPERTY, REPRODUCTION & BROADCAST RIGHTS
+7.1. No part of the Artist’s performance may be recorded, filmed, broadcasted, live-streamed, or reproduced in any format without prior written consent from the Artist.
+7.2. Any unauthorized recordings will be considered a material breach of contract and a violation of the Artist's copyright and performers' rights under the Copyright Act, 1957.
+
+8. CANCELLATION & FORCE MAJEURE
+8.1. Promoter Cancellation: If the Promoter/Booking Agent cancels the event, all payments made to the Artist are non-refundable, and any outstanding balance becomes immediately due.
+8.2. Artist Cancellation: If the Artist cancels (excluding Force Majeure), payments received shall be fully refunded to the Promoter. The Artist reserves the right to cancel up to 90 days prior without penalty.
+8.3. Force Majeure: Neither Party shall be liable for any failure to perform its obligations where such failure is as a result of Acts of Nature (including fire, flood, earthquake, storm, hurricane, or other natural disaster), war, invasion, act of foreign enemies, hostilities, civil war, rebellion, revolution, insurrection, military or usurped power or confiscation, terrorist activities, nationalization, government sanction, blockage, embargo, labor dispute, strike, lockout, pandemic, epidemic, or failure of electricity/venue licensing issues.
+
+9. DISPUTE RESOLUTION & GOVERNING LAW
+9.1. This Agreement shall be governed by and construed in accordance with the laws of India.
+9.2. Any dispute, controversy, or claim arising out of or relating to this Agreement, or the breach, termination, or invalidity thereof, shall be settled by arbitration in accordance with the Arbitration and Conciliation Act, 1996. The arbitral tribunal shall consist of a sole arbitrator mutually appointed by the Parties.
+9.3. The seat and venue of arbitration shall be ${city}, India. The language of the arbitration shall be English.
+9.4. Subject to the arbitration clause, the courts at ${city} shall have exclusive jurisdiction over any matters arising out of this Agreement.
+
+10. FINAL TERMS
+10.1. Confidentiality: The Artist fee and the terms of this Agreement are strictly confidential.
+10.2. Amendments: No amendments or modifications to this Agreement shall be valid unless made in writing and signed by both Parties.
+10.3. Liability: The Artist is not liable for any fines, damages, or legal issues resulting from the Promoter's misconduct, lack of necessary venue licenses, or illegal promotion.
+10.4. Relationship of Parties: This Agreement does not create a partnership, joint venture, or employer-employee relationship between the Parties. The Artist acts as an independent contractor.
+
+IN WITNESS WHEREOF, the Parties hereto have executed this Agreement digitally under the provisions of the Information Technology Act, 2000 as of the Effective Date.
+
+For ${orgName} (Booking Agent / Promoter)
+Name: ${orgName}
+Title: Promoter / Organizer
+Digital Signature: [[PROMOTER_SIGNATURE]]
+Date: [[PROMOTER_DATE]]
+IP Address / Timestamp: [[PROMOTER_IP]]
+
+For ${artLegalName} (Artist)
+Name: ${artLegalName}
+Title: Performing Artist
+Digital Signature: [[ARTIST_SIGNATURE]]
+Date: [[ARTIST_DATE]]
+IP Address / Timestamp: [[ARTIST_IP]]
 `.trim();
 }
 
@@ -323,7 +447,7 @@ export interface EditRequest {
 // ---------------------------------------------------------------------------
 
 export const LOCKED_FIELDS = [
-  'fee', 'totalFee', 'currency', 'eventDate', 'eventTime', 'slotType',
+  'fee', 'totalFee', 'currency', 'slotType',
   'venueName', 'artistName', 'organizerName', 'performanceDuration',
   'platformCommission',
 ];
@@ -373,14 +497,19 @@ export function applyContractChanges(
   const editableCategories = [
     'financial', 'travel', 'accommodation', 'technical',
     'hospitality', 'branding', 'contentRights', 'cancellation',
+    'eventDate', 'slotTime'
   ];
 
   for (const category of editableCategories) {
-    if (changes[category]) {
-      merged[category] = {
-        ...(merged[category] || {}),
-        ...changes[category],
-      };
+    if (changes[category] !== undefined) {
+      if (typeof changes[category] === 'object' && changes[category] !== null && !Array.isArray(changes[category])) {
+        merged[category] = {
+          ...(merged[category] || {}),
+          ...changes[category],
+        };
+      } else {
+        merged[category] = changes[category];
+      }
     }
   }
 

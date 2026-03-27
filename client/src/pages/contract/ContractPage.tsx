@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useRoute, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -16,11 +17,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import {
-    Accordion,
-    AccordionContent,
-    AccordionItem,
-    AccordionTrigger,
-} from "@/components/ui/accordion";
+    Sheet,
+    SheetContent,
+    SheetHeader,
+    SheetTitle,
+    SheetTrigger,
+} from "@/components/ui/sheet";
 
 interface ContractViewerProps {
     bookingId: number;
@@ -29,7 +31,11 @@ interface ContractViewerProps {
 
 type ContractStep = "review" | "edit" | "accept" | "sign" | "admin_review" | "complete" | "voided";
 
-export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
+export default function ContractPage() {
+    const [, params] = useRoute("/contract/:id");
+    const [, setLocation] = useLocation();
+    const bookingId = params?.id ? parseInt(params.id) : 0;
+    
     const { toast } = useToast();
     const { user } = useAuth();
     const queryClient = useQueryClient();
@@ -228,7 +234,7 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
             queryClient.invalidateQueries({ queryKey: [`contract-${bookingId}`] });
             queryClient.invalidateQueries({ queryKey: ["/admin/contracts/pending"] });
             toast({ title: "Contract reviewed successfully" });
-            onClose();
+            setLocation("/dashboard");
         },
         onError: (error: any) => {
             toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -253,6 +259,9 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
         const interval = setInterval(updateTimer, 1000);
         return () => clearInterval(interval);
     }, [contract?.deadlineAt]);
+
+    const contractSections = contract?.contractText?.split(/(?=\n\d+\.\s+[A-Z])/) || [];
+    const [activeEditCategory, setActiveEditCategory] = useState<string | null>(null);
 
     // ─── Loading / Error ────────────────────────────────────────────────
     if (isLoading || (!contract && !error)) {
@@ -332,7 +341,7 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
     };
 
     return (
-        <div className="flex flex-col h-[700px] w-full">
+        <div className="flex flex-col min-h-screen w-full bg-background">
             {/* ═══ Header ═══ */}
             <div className="px-5 py-4 border-b border-white/10 bg-gradient-to-r from-primary/10 via-transparent to-transparent">
                 <div className="flex justify-between items-start">
@@ -370,7 +379,7 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                 <AlertTriangle className="w-3 h-3 mr-1" /> Voided
                             </Badge>
                         )}
-                        <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
+                        <Button variant="ghost" size="icon" onClick={() => setLocation("/dashboard")} className="h-8 w-8">
                             <X className="w-4 h-4" />
                         </Button>
                     </div>
@@ -464,15 +473,28 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                                 {isResponding && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
                                                 Approve Changes
                                             </Button>
-                                            <Button
-                                                size="sm"
-                                                variant="destructive"
-                                                className="text-xs h-7"
-                                                onClick={() => respondToEdit({ reqId: pendingEditRequest.id, decision: "REJECT" })}
-                                                disabled={isResponding}
-                                            >
-                                                Reject
-                                            </Button>
+                                            {role === 'promoter' ? (
+                                                <Button
+                                                    size="sm"
+                                                    variant="destructive"
+                                                    className="text-xs h-7"
+                                                    onClick={() => respondToEdit({ reqId: pendingEditRequest.id, decision: "REJECT", responseNote: "WALKAWAY" })}
+                                                    disabled={isResponding}
+                                                    title="Rejecting as Organizer will walk away and cancel the booking"
+                                                >
+                                                    Walk Away
+                                                </Button>
+                                            ) : (
+                                                <Button
+                                                    size="sm"
+                                                    variant="destructive"
+                                                    className="text-xs h-7"
+                                                    onClick={() => respondToEdit({ reqId: pendingEditRequest.id, decision: "REJECT" })}
+                                                    disabled={isResponding}
+                                                >
+                                                    Reject
+                                                </Button>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -480,25 +502,38 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                         </div>
                     )}
 
-                    {/* ─── Party Status Cards ─── */}
+                    {/* ─── Single Line Status Tracker ─── */}
                     {!isVoided && (
-                        <div className="grid grid-cols-2 gap-3">
-                            <PartyStatusCard
-                                label="Artist"
-                                reviewed={!!contract.artistReviewDoneAt}
-                                editUsed={contract.artistEditUsed}
-                                accepted={!!contract.artistAcceptedAt}
-                                signed={contract.signedByArtist}
-                                isMe={role === "artist"}
-                            />
-                            <PartyStatusCard
-                                label="Promoter"
-                                reviewed={!!contract.promoterReviewDoneAt}
-                                editUsed={contract.promoterEditUsed}
-                                accepted={!!contract.promoterAcceptedAt}
-                                signed={contract.signedByPromoter}
-                                isMe={role === "promoter"}
-                            />
+                        <div className="w-full overflow-x-auto scrollbar-hide py-1">
+                            <div className="flex items-center gap-4 text-xs whitespace-nowrap min-w-max px-1">
+                                {/* Artist Status */}
+                                <div className="flex items-center gap-2">
+                                    <span className={`font-semibold ${role === 'artist' ? 'text-primary' : ''}`}>Artist {role === 'artist' && '(You)'}</span>
+                                    <span className="text-muted-foreground/50">•</span>
+                                    <TrackerItem label="Reviewed" done={!!contract.artistReviewDoneAt} />
+                                    <span className="text-muted-foreground/50">•</span>
+                                    <TrackerItem label="Edit Used" done={contract.artistEditUsed} optional />
+                                    <span className="text-muted-foreground/50">•</span>
+                                    <TrackerItem label="Accepted" done={!!contract.artistAcceptedAt} />
+                                    <span className="text-muted-foreground/50">•</span>
+                                    <TrackerItem label="Signed" done={contract.signedByArtist} />
+                                </div>
+                                
+                                <div className="w-px h-4 bg-white/20 mx-2"></div>
+
+                                {/* Promoter Status */}
+                                <div className="flex items-center gap-2">
+                                    <span className={`font-semibold ${role === 'promoter' ? 'text-primary' : ''}`}>Promoter {role === 'promoter' && '(You)'}</span>
+                                    <span className="text-muted-foreground/50">•</span>
+                                    <TrackerItem label="Reviewed" done={!!contract.promoterReviewDoneAt} />
+                                    <span className="text-muted-foreground/50">•</span>
+                                    <TrackerItem label="Edit Used" done={contract.promoterEditUsed} optional />
+                                    <span className="text-muted-foreground/50">•</span>
+                                    <TrackerItem label="Accepted" done={!!contract.promoterAcceptedAt} />
+                                    <span className="text-muted-foreground/50">•</span>
+                                    <TrackerItem label="Signed" done={contract.signedByPromoter} />
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -511,48 +546,48 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                             </h4>
                             <div className="grid grid-cols-2 gap-4 text-sm">
                                 {role === 'promoter' && (
-                                    <>
-                                        <div>
-                                            <p className="text-muted-foreground text-xs">Total Booking Cost</p>
-                                            <p className="font-medium">₹{Number(commissionBreakdown.grossBookingValue || 0).toLocaleString()}</p>
+                                    <div className="col-span-2 space-y-2">
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground text-xs">Gross Booking Value</span>
+                                            <span className="font-medium">₹{Number(commissionBreakdown.grossBookingValue || 0).toLocaleString()}</span>
                                         </div>
-                                        <div>
-                                            <p className="text-muted-foreground text-xs">Platform Fee ({commissionBreakdown.organizerCommissionPct}%)</p>
-                                            <p className="font-medium">₹{Number(commissionBreakdown.organizerFee || 0).toLocaleString()}</p>
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground text-xs">Platform Fee ({commissionBreakdown.organizerCommissionPct}%)</span>
+                                            <span className="font-medium text-red-400">-₹{Number(commissionBreakdown.organizerFee || 0).toLocaleString()}</span>
                                         </div>
-                                        <div className="col-span-2 pt-2 border-t border-primary/10">
-                                            <p className="text-muted-foreground text-xs">Total Payable</p>
-                                            <p className="font-bold text-primary text-base">₹{(Number(commissionBreakdown.grossBookingValue || 0) + Number(commissionBreakdown.organizerFee || 0)).toLocaleString()}</p>
+                                        <div className="flex justify-between pt-2 border-t border-primary/10">
+                                            <span className="text-muted-foreground text-xs font-semibold">Total Payable</span>
+                                            <span className="font-bold text-primary text-base">₹{(Number(commissionBreakdown.grossBookingValue || 0) + Number(commissionBreakdown.organizerFee || 0)).toLocaleString()}</span>
                                         </div>
-                                    </>
+                                    </div>
                                 )}
                                 {role === 'artist' && (
-                                    <>
-                                        <div>
-                                            <p className="text-muted-foreground text-xs">Gross Booking Value</p>
-                                            <p className="font-medium">₹{Number(commissionBreakdown.grossBookingValue || 0).toLocaleString()}</p>
+                                    <div className="col-span-2 space-y-2">
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground text-xs">Gross Booking Value</span>
+                                            <span className="font-medium">₹{Number(commissionBreakdown.grossBookingValue || 0).toLocaleString()}</span>
                                         </div>
-                                        <div>
-                                            <p className="text-muted-foreground text-xs">Platform Fee ({commissionBreakdown.artistCommissionPct}%)</p>
-                                            <p className="font-medium text-red-400">-₹{Number(commissionBreakdown.artistFee || 0).toLocaleString()}</p>
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground text-xs">Platform Fee ({commissionBreakdown.artistCommissionPct}%)</span>
+                                            <span className="font-medium text-red-400">-₹{Number(commissionBreakdown.artistFee || 0).toLocaleString()}</span>
                                         </div>
-                                        <div className="col-span-2 pt-2 border-t border-primary/10">
-                                            <p className="text-muted-foreground text-xs">Net Payout</p>
-                                            <p className="font-bold text-primary text-base">₹{(Number(commissionBreakdown.grossBookingValue || 0) - Number(commissionBreakdown.artistFee || 0)).toLocaleString()}</p>
+                                        <div className="flex justify-between pt-2 border-t border-primary/10">
+                                            <span className="text-muted-foreground text-xs font-semibold">Net Payout</span>
+                                            <span className="font-bold text-primary text-base">₹{(Number(commissionBreakdown.grossBookingValue || 0) - Number(commissionBreakdown.artistFee || 0)).toLocaleString()}</span>
                                         </div>
-                                    </>
+                                    </div>
                                 )}
                                 {role === 'admin' && (
-                                    <>
-                                        <div>
-                                            <p className="text-muted-foreground text-xs">Gross Value</p>
-                                            <p className="font-medium">₹{Number(commissionBreakdown.grossBookingValue || 0).toLocaleString()}</p>
+                                    <div className="col-span-2 space-y-2">
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground text-xs">Gross Booking Value</span>
+                                            <span className="font-medium">₹{Number(commissionBreakdown.grossBookingValue || 0).toLocaleString()}</span>
                                         </div>
-                                        <div>
-                                            <p className="text-muted-foreground text-xs">Platform Revenue</p>
-                                            <p className="font-medium text-green-500">₹{Number(commissionBreakdown.platformRevenue || 0).toLocaleString()}</p>
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground text-xs">Platform Revenue</span>
+                                            <span className="font-medium text-green-500">₹{Number(commissionBreakdown.platformRevenue || 0).toLocaleString()}</span>
                                         </div>
-                                    </>
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -564,49 +599,89 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                             <span className="text-xs font-medium text-muted-foreground">Contract Document</span>
                             <Badge variant="outline" className="text-[10px]">v{contract.currentVersion || 1}</Badge>
                         </div>
-                        <div className="p-5 bg-white/[0.02] font-mono text-xs leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto">
-                            {contract.contractText}
+                        <div className="p-5 bg-white/[0.02] font-mono text-sm leading-relaxed whitespace-pre-wrap">
+                            {contractSections.map((section: string, idx: number) => {
+                                let editKey = null;
+                                if (section.includes("1. EVENT DETAILS")) editKey = "core";
+                                else if (section.includes("2. TRAVEL")) editKey = "travel";
+                                else if (section.includes("3. PAYMENT TERMS")) editKey = "financial";
+                                else if (section.includes("4. BILLING")) editKey = "branding";
+                                else if (section.includes("5. HOSPITALITY")) editKey = "hospitality";
+                                else if (section.includes("6. EQUIPMENT")) editKey = "technical";
+                                else if (section.includes("7. INTELLECTUAL PROPERTY")) editKey = "contentRights";
+                                else if (section.includes("8. CANCELLATION")) editKey = "cancellation";
+
+                                const canEdit = !isVoided && activeStep === "review" && !myEditUsed && !isMyPendingEdit;
+
+                                return (
+                                    <div key={idx} className="relative group mb-6">
+                                        {editKey && canEdit && (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="absolute -top-2 right-0 h-7 text-xs bg-card/80 backdrop-blur"
+                                                onClick={() => {
+                                                    setActiveEditCategory(editKey);
+                                                    setShowEditForm(true);
+                                                }}
+                                            >
+                                                <Edit3 className="w-3 h-3 mr-1" /> Edit
+                                            </Button>
+                                        )}
+                                        <div>{section}</div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
 
-                    {/* ═══ Comprehensive Edit Form ═══ */}
-                    {showEditForm && !isVoided && (
-                        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
-                            <h4 className="font-semibold text-sm flex items-center gap-2">
-                                <Edit3 className="w-4 h-4 text-primary" />
-                                Propose Contract Edits
-                            </h4>
-                            <p className="text-xs text-muted-foreground">
-                                Select categories below to modify. Core terms (fee, date, venue) are locked.
-                                You can only propose edits <strong>once</strong>.
-                            </p>
+                    {/* ═══ Inline Edit Form Sheet ═══ */}
+                    <Sheet open={showEditForm} onOpenChange={setShowEditForm}>
+                        <SheetContent side="bottom" className="h-[85vh] overflow-y-auto rounded-t-2xl px-4 py-6">
+                            <SheetHeader className="mb-4">
+                                <SheetTitle className="flex items-center gap-2 text-lg">
+                                    <Edit3 className="w-5 h-5 text-primary" />
+                                    Edit {activeEditCategory ? activeEditCategory.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()) : 'Terms'}
+                                </SheetTitle>
+                            </SheetHeader>
 
-                            <Accordion type="multiple" className="w-full">
-                                {/* ── Financial ── */}
-                                <AccordionItem value="financial">
-                                    <AccordionTrigger className="text-sm py-2"><span className="flex items-center gap-2"><span className="text-base">💰</span> Financial</span></AccordionTrigger>
-                                    <AccordionContent className="space-y-3 pt-2">
+                            <div className="space-y-4">
+                                {activeEditCategory === "core" && (
+                                    <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <Label className="text-xs">Payment Method</Label>
-                                            <select className="w-full mt-1 px-3 py-1.5 rounded-md bg-background border border-white/10 text-sm"
-                                                value={editChanges.financial?.paymentMethod || ""}
-                                                onChange={(e) => setNestedChange('financial', 'paymentMethod', e.target.value || undefined)}>
-                                                <option value="">No change</option>
-                                                <option value="bank_transfer">Bank Transfer</option>
-                                                <option value="upi">UPI</option>
-                                                <option value="card">Card</option>
-                                            </select>
+                                            <Label className="text-sm">Event Date</Label>
+                                            <Input type="date" className="mt-1 h-12"
+                                                value={editChanges.eventDate || ""}
+                                                onChange={(e) => setEditChanges(prev => ({ ...prev, eventDate: e.target.value || undefined }))} />
                                         </div>
-                                    </AccordionContent>
-                                </AccordionItem>
-
-                                {/* ── Travel ── */}
-                                <AccordionItem value="travel">
-                                    <AccordionTrigger className="text-sm py-2"><span className="flex items-center gap-2"><Plane className="w-4 h-4" /> Travel</span></AccordionTrigger>
-                                    <AccordionContent className="space-y-3 pt-2">
                                         <div>
-                                            <Label className="text-xs">Responsibility</Label>
-                                            <select className="w-full mt-1 px-3 py-1.5 rounded-md bg-background border border-white/10 text-sm"
+                                            <Label className="text-sm">Slot Time</Label>
+                                            <Input type="time" className="mt-1 h-12"
+                                                value={editChanges.slotTime || ""}
+                                                onChange={(e) => setEditChanges(prev => ({ ...prev, slotTime: e.target.value || undefined }))} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeEditCategory === "financial" && (
+                                    <div>
+                                        <Label className="text-sm">Payment Method</Label>
+                                        <select className="w-full mt-1 px-3 h-12 rounded-md bg-background border border-white/10 text-sm"
+                                            value={editChanges.financial?.paymentMethod || ""}
+                                            onChange={(e) => setNestedChange('financial', 'paymentMethod', e.target.value || undefined)}>
+                                            <option value="">No change</option>
+                                            <option value="bank_transfer">Bank Transfer</option>
+                                            <option value="upi">UPI</option>
+                                            <option value="card">Card</option>
+                                        </select>
+                                    </div>
+                                )}
+
+                                {activeEditCategory === "travel" && (
+                                    <div className="space-y-4">
+                                        <div>
+                                            <Label className="text-sm">Responsibility</Label>
+                                            <select className="w-full mt-1 px-3 h-12 rounded-md bg-background border border-white/10 text-sm"
                                                 value={editChanges.travel?.responsibility || ""}
                                                 onChange={(e) => setNestedChange('travel', 'responsibility', e.target.value || undefined)}>
                                                 <option value="">No change</option>
@@ -616,8 +691,8 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                             </select>
                                         </div>
                                         <div>
-                                            <Label className="text-xs">Flight Class</Label>
-                                            <select className="w-full mt-1 px-3 py-1.5 rounded-md bg-background border border-white/10 text-sm"
+                                            <Label className="text-sm">Flight Class</Label>
+                                            <select className="w-full mt-1 px-3 h-12 rounded-md bg-background border border-white/10 text-sm"
                                                 value={editChanges.travel?.flightClass || ""}
                                                 onChange={(e) => setNestedChange('travel', 'flightClass', e.target.value || undefined)}>
                                                 <option value="">No change</option>
@@ -626,15 +701,15 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                                 <option value="business">Business</option>
                                             </select>
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            <Checkbox id="airportPickup"
+                                        <div className="flex items-center gap-3 py-2">
+                                            <Checkbox id="airportPickup" className="w-5 h-5"
                                                 checked={editChanges.travel?.airportPickup || false}
                                                 onCheckedChange={(v) => setNestedChange('travel', 'airportPickup', v === true ? true : undefined)} />
-                                            <Label htmlFor="airportPickup" className="text-xs">Airport Pickup</Label>
+                                            <Label htmlFor="airportPickup" className="text-sm">Airport Pickup</Label>
                                         </div>
                                         <div>
-                                            <Label className="text-xs">Ground Transport</Label>
-                                            <select className="w-full mt-1 px-3 py-1.5 rounded-md bg-background border border-white/10 text-sm"
+                                            <Label className="text-sm">Ground Transport</Label>
+                                            <select className="w-full mt-1 px-3 h-12 rounded-md bg-background border border-white/10 text-sm"
                                                 value={editChanges.travel?.groundTransport || ""}
                                                 onChange={(e) => setNestedChange('travel', 'groundTransport', e.target.value || undefined)}>
                                                 <option value="">No change</option>
@@ -643,22 +718,16 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                                 <option value="reimbursed">Reimbursed</option>
                                             </select>
                                         </div>
-                                    </AccordionContent>
-                                </AccordionItem>
-
-                                {/* ── Accommodation ── */}
-                                <AccordionItem value="accommodation">
-                                    <AccordionTrigger className="text-sm py-2"><span className="flex items-center gap-2"><Hotel className="w-4 h-4" /> Accommodation</span></AccordionTrigger>
-                                    <AccordionContent className="space-y-3 pt-2">
-                                        <div className="flex items-center gap-2">
-                                            <Checkbox id="accomIncluded"
+                                        <hr className="border-white/10 my-4" />
+                                        <div className="flex items-center gap-3 py-2">
+                                            <Checkbox id="accomIncluded" className="w-5 h-5"
                                                 checked={editChanges.accommodation?.included || false}
                                                 onCheckedChange={(v) => setNestedChange('accommodation', 'included', v === true ? true : undefined)} />
-                                            <Label htmlFor="accomIncluded" className="text-xs">Accommodation Included</Label>
+                                            <Label htmlFor="accomIncluded" className="text-sm">Accommodation Included</Label>
                                         </div>
                                         <div>
-                                            <Label className="text-xs">Hotel Star Rating</Label>
-                                            <select className="w-full mt-1 px-3 py-1.5 rounded-md bg-background border border-white/10 text-sm"
+                                            <Label className="text-sm">Hotel Star Rating</Label>
+                                            <select className="w-full mt-1 px-3 h-12 rounded-md bg-background border border-white/10 text-sm"
                                                 value={editChanges.accommodation?.hotelStarRating || ""}
                                                 onChange={(e) => setNestedChange('accommodation', 'hotelStarRating', e.target.value ? parseInt(e.target.value) : undefined)}>
                                                 <option value="">No change</option>
@@ -668,8 +737,8 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                             </select>
                                         </div>
                                         <div>
-                                            <Label className="text-xs">Room Type</Label>
-                                            <select className="w-full mt-1 px-3 py-1.5 rounded-md bg-background border border-white/10 text-sm"
+                                            <Label className="text-sm">Room Type</Label>
+                                            <select className="w-full mt-1 px-3 h-12 rounded-md bg-background border border-white/10 text-sm"
                                                 value={editChanges.accommodation?.roomType || ""}
                                                 onChange={(e) => setNestedChange('accommodation', 'roomType', e.target.value || undefined)}>
                                                 <option value="">No change</option>
@@ -678,74 +747,46 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                                 <option value="suite">Suite</option>
                                             </select>
                                         </div>
-                                        <div className="grid grid-cols-2 gap-2">
+                                        <div className="grid grid-cols-2 gap-4">
                                             <div>
-                                                <Label className="text-xs">Check-in</Label>
-                                                <Input type="time" className="mt-1"
+                                                <Label className="text-sm">Check-in</Label>
+                                                <Input type="time" className="mt-1 h-12"
                                                     value={editChanges.accommodation?.checkInTime || ""}
                                                     onChange={(e) => setNestedChange('accommodation', 'checkInTime', e.target.value || undefined)} />
                                             </div>
                                             <div>
-                                                <Label className="text-xs">Check-out</Label>
-                                                <Input type="time" className="mt-1"
+                                                <Label className="text-sm">Check-out</Label>
+                                                <Input type="time" className="mt-1 h-12"
                                                     value={editChanges.accommodation?.checkOutTime || ""}
                                                     onChange={(e) => setNestedChange('accommodation', 'checkOutTime', e.target.value || undefined)} />
                                             </div>
                                         </div>
                                         <div>
-                                            <Label className="text-xs">Nights</Label>
-                                            <Input type="number" min={0} max={14} className="mt-1"
+                                            <Label className="text-sm">Nights</Label>
+                                            <Input type="number" min={0} max={14} className="mt-1 h-12"
                                                 value={editChanges.accommodation?.nights || ""}
                                                 onChange={(e) => setNestedChange('accommodation', 'nights', e.target.value ? parseInt(e.target.value) : undefined)} />
                                         </div>
-                                    </AccordionContent>
-                                </AccordionItem>
+                                    </div>
+                                )}
 
-                                {/* ── Technical ── */}
-                                <AccordionItem value="technical">
-                                    <AccordionTrigger className="text-sm py-2"><span className="flex items-center gap-2"><Mic2 className="w-4 h-4" /> Technical</span></AccordionTrigger>
-                                    <AccordionContent className="space-y-3 pt-2">
+                                {activeEditCategory === "hospitality" && (
+                                    <div className="space-y-4">
                                         <div>
-                                            <Label className="text-xs">Sound Check Duration (mins)</Label>
-                                            <Input type="number" min={15} max={180} className="mt-1" placeholder="60"
-                                                value={editChanges.technical?.soundCheckDuration || ""}
-                                                onChange={(e) => setNestedChange('technical', 'soundCheckDuration', e.target.value ? parseInt(e.target.value) : undefined)} />
-                                        </div>
-                                        <div>
-                                            <Label className="text-xs">Stage Setup Time (mins)</Label>
-                                            <Input type="number" min={0} max={180} className="mt-1" placeholder="30"
-                                                value={editChanges.technical?.stageSetupTime || ""}
-                                                onChange={(e) => setNestedChange('technical', 'stageSetupTime', e.target.value ? parseInt(e.target.value) : undefined)} />
-                                        </div>
-                                        <div>
-                                            <Label className="text-xs">Equipment List (comma separated)</Label>
-                                            <Input className="mt-1" placeholder="CDJ-3000, DJM-900NXS2, ..."
-                                                value={editChanges.technical?.equipmentList?.join(', ') || ""}
-                                                onChange={(e) => setNestedChange('technical', 'equipmentList',
-                                                    e.target.value ? e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined)} />
-                                        </div>
-                                    </AccordionContent>
-                                </AccordionItem>
-
-                                {/* ── Hospitality ── */}
-                                <AccordionItem value="hospitality">
-                                    <AccordionTrigger className="text-sm py-2"><span className="flex items-center gap-2"><Users className="w-4 h-4" /> Hospitality</span></AccordionTrigger>
-                                    <AccordionContent className="space-y-3 pt-2">
-                                        <div>
-                                            <Label className="text-xs">Guest List Count (0-20)</Label>
-                                            <Input type="number" min={0} max={20} className="mt-1"
+                                            <Label className="text-sm">Guest List Count (0-20)</Label>
+                                            <Input type="number" min={0} max={20} className="mt-1 h-12"
                                                 value={editChanges.hospitality?.guestListCount || ""}
                                                 onChange={(e) => setNestedChange('hospitality', 'guestListCount', e.target.value ? parseInt(e.target.value) : undefined)} />
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            <Checkbox id="greenRoom"
+                                        <div className="flex items-center gap-3 py-2">
+                                            <Checkbox id="greenRoom" className="w-5 h-5"
                                                 checked={editChanges.hospitality?.greenRoomAccess || false}
                                                 onCheckedChange={(v) => setNestedChange('hospitality', 'greenRoomAccess', v === true ? true : undefined)} />
-                                            <Label htmlFor="greenRoom" className="text-xs">Green Room Access</Label>
+                                            <Label htmlFor="greenRoom" className="text-sm">Green Room Access</Label>
                                         </div>
                                         <div>
-                                            <Label className="text-xs">Security Provisions</Label>
-                                            <select className="w-full mt-1 px-3 py-1.5 rounded-md bg-background border border-white/10 text-sm"
+                                            <Label className="text-sm">Security Provisions</Label>
+                                            <select className="w-full mt-1 px-3 h-12 rounded-md bg-background border border-white/10 text-sm"
                                                 value={editChanges.hospitality?.securityProvisions || ""}
                                                 onChange={(e) => setNestedChange('hospitality', 'securityProvisions', e.target.value || undefined)}>
                                                 <option value="">No change</option>
@@ -753,172 +794,192 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                                 <option value="enhanced">Enhanced</option>
                                             </select>
                                         </div>
-                                    </AccordionContent>
-                                </AccordionItem>
+                                    </div>
+                                )}
 
-                                {/* ── Content Rights ── */}
-                                <AccordionItem value="contentRights">
-                                    <AccordionTrigger className="text-sm py-2"><span className="flex items-center gap-2"><Camera className="w-4 h-4" /> Content Rights</span></AccordionTrigger>
-                                    <AccordionContent className="space-y-3 pt-2">
+                                {activeEditCategory === "technical" && (
+                                    <div className="space-y-4">
+                                        <div>
+                                            <Label className="text-sm">Sound Check Duration (mins)</Label>
+                                            <Input type="number" min={15} max={180} className="mt-1 h-12" placeholder="60"
+                                                value={editChanges.technical?.soundCheckDuration || ""}
+                                                onChange={(e) => setNestedChange('technical', 'soundCheckDuration', e.target.value ? parseInt(e.target.value) : undefined)} />
+                                        </div>
+                                        <div>
+                                            <Label className="text-sm">Stage Setup Time (mins)</Label>
+                                            <Input type="number" min={0} max={180} className="mt-1 h-12" placeholder="30"
+                                                value={editChanges.technical?.stageSetupTime || ""}
+                                                onChange={(e) => setNestedChange('technical', 'stageSetupTime', e.target.value ? parseInt(e.target.value) : undefined)} />
+                                        </div>
+                                        <div>
+                                            <Label className="text-sm">Equipment List (comma separated)</Label>
+                                            <Input className="mt-1 h-12" placeholder="CDJ-3000, DJM-900NXS2, ..."
+                                                value={editChanges.technical?.equipmentList?.join(', ') || ""}
+                                                onChange={(e) => setNestedChange('technical', 'equipmentList',
+                                                    e.target.value ? e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined)} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeEditCategory === "contentRights" && (
+                                    <div className="space-y-4">
                                         {(['recordingAllowed', 'photographyAllowed', 'videographyAllowed', 'liveStreamingAllowed', 'socialMediaPostingAllowed'] as const).map(field => (
-                                            <div key={field} className="flex items-center gap-2">
-                                                <Checkbox id={field}
+                                            <div key={field} className="flex items-center gap-3 py-2">
+                                                <Checkbox id={field} className="w-5 h-5"
                                                     checked={editChanges.contentRights?.[field] || false}
                                                     onCheckedChange={(v) => setNestedChange('contentRights', field, v === true ? true : v === false ? false : undefined)} />
-                                                <Label htmlFor={field} className="text-xs capitalize">
+                                                <Label htmlFor={field} className="text-sm capitalize">
                                                     {field.replace(/([A-Z])/g, ' $1').replace(/^./, (s: string) => s.toUpperCase())}
                                                 </Label>
                                             </div>
                                         ))}
-                                    </AccordionContent>
-                                </AccordionItem>
+                                    </div>
+                                )}
 
-                                {/* ── Branding ── */}
-                                <AccordionItem value="branding">
-                                    <AccordionTrigger className="text-sm py-2"><span className="flex items-center gap-2"><Megaphone className="w-4 h-4" /> Branding & Promo</span></AccordionTrigger>
-                                    <AccordionContent className="space-y-3 pt-2">
-                                        <div className="flex items-center gap-2">
-                                            <Checkbox id="logoUsage"
+                                {activeEditCategory === "branding" && (
+                                    <div className="space-y-4">
+                                        <div className="flex items-center gap-3 py-2">
+                                            <Checkbox id="logoUsage" className="w-5 h-5"
                                                 checked={editChanges.branding?.logoUsageAllowed || false}
                                                 onCheckedChange={(v) => setNestedChange('branding', 'logoUsageAllowed', v === true ? true : undefined)} />
-                                            <Label htmlFor="logoUsage" className="text-xs">Logo Usage Allowed</Label>
+                                            <Label htmlFor="logoUsage" className="text-sm">Logo Usage Allowed</Label>
                                         </div>
                                         <div>
-                                            <Label className="text-xs">Social Media Guidelines</Label>
-                                            <Textarea className="mt-1" placeholder="Posting guidelines..."
+                                            <Label className="text-sm">Social Media Guidelines</Label>
+                                            <Textarea className="mt-1 min-h-[100px]" placeholder="Posting guidelines..."
                                                 value={editChanges.branding?.socialMediaGuidelines || ""}
                                                 onChange={(e) => setNestedChange('branding', 'socialMediaGuidelines', e.target.value || undefined)} />
                                         </div>
-                                    </AccordionContent>
-                                </AccordionItem>
+                                    </div>
+                                )}
 
-                                {/* ── Cancellation ── */}
-                                <AccordionItem value="cancellation">
-                                    <AccordionTrigger className="text-sm py-2"><span className="flex items-center gap-2"><XCircle className="w-4 h-4" /> Cancellation Policy</span></AccordionTrigger>
-                                    <AccordionContent className="space-y-3 pt-2">
-                                        <p className="text-xs text-muted-foreground italic">Artist cancellation penalties</p>
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <div>
-                                                <Label className="text-[10px]">&gt;90 days (%)</Label>
-                                                <Input type="number" min={0} max={100} className="mt-1"
-                                                    value={editChanges.cancellation?.artistCancellationPenalties?.moreThan90Days ?? ""}
-                                                    onChange={(e) => setEditChanges(prev => ({
-                                                        ...prev, cancellation: {
-                                                            ...(prev.cancellation || {}),
-                                                            artistCancellationPenalties: {
-                                                                ...(prev.cancellation?.artistCancellationPenalties || {}),
-                                                                moreThan90Days: e.target.value ? parseInt(e.target.value) : undefined,
+                                {activeEditCategory === "cancellation" && (
+                                    <div className="space-y-6">
+                                        <div>
+                                            <p className="text-sm font-semibold mb-3">Artist Cancellation Penalties</p>
+                                            <div className="grid grid-cols-3 gap-3">
+                                                <div>
+                                                    <Label className="text-xs">&gt;90 days (%)</Label>
+                                                    <Input type="number" min={0} max={100} className="mt-1 h-12"
+                                                        value={editChanges.cancellation?.artistCancellationPenalties?.moreThan90Days ?? ""}
+                                                        onChange={(e) => setEditChanges(prev => ({
+                                                            ...prev, cancellation: {
+                                                                ...(prev.cancellation || {}),
+                                                                artistCancellationPenalties: {
+                                                                    ...(prev.cancellation?.artistCancellationPenalties || {}),
+                                                                    moreThan90Days: e.target.value ? parseInt(e.target.value) : undefined,
+                                                                }
                                                             }
-                                                        }
-                                                    }))} />
-                                            </div>
-                                            <div>
-                                                <Label className="text-[10px]">30-90 days (%)</Label>
-                                                <Input type="number" min={0} max={100} className="mt-1"
-                                                    value={editChanges.cancellation?.artistCancellationPenalties?.between30And90Days ?? ""}
-                                                    onChange={(e) => setEditChanges(prev => ({
-                                                        ...prev, cancellation: {
-                                                            ...(prev.cancellation || {}),
-                                                            artistCancellationPenalties: {
-                                                                ...(prev.cancellation?.artistCancellationPenalties || {}),
-                                                                between30And90Days: e.target.value ? parseInt(e.target.value) : undefined,
+                                                        }))} />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-xs">30-90 days (%)</Label>
+                                                    <Input type="number" min={0} max={100} className="mt-1 h-12"
+                                                        value={editChanges.cancellation?.artistCancellationPenalties?.between30And90Days ?? ""}
+                                                        onChange={(e) => setEditChanges(prev => ({
+                                                            ...prev, cancellation: {
+                                                                ...(prev.cancellation || {}),
+                                                                artistCancellationPenalties: {
+                                                                    ...(prev.cancellation?.artistCancellationPenalties || {}),
+                                                                    between30And90Days: e.target.value ? parseInt(e.target.value) : undefined,
+                                                                }
                                                             }
-                                                        }
-                                                    }))} />
-                                            </div>
-                                            <div>
-                                                <Label className="text-[10px]">&lt;30 days (%)</Label>
-                                                <Input type="number" min={0} max={100} className="mt-1"
-                                                    value={editChanges.cancellation?.artistCancellationPenalties?.lessThan30Days ?? ""}
-                                                    onChange={(e) => setEditChanges(prev => ({
-                                                        ...prev, cancellation: {
-                                                            ...(prev.cancellation || {}),
-                                                            artistCancellationPenalties: {
-                                                                ...(prev.cancellation?.artistCancellationPenalties || {}),
-                                                                lessThan30Days: e.target.value ? parseInt(e.target.value) : undefined,
+                                                        }))} />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-xs">&lt;30 days (%)</Label>
+                                                    <Input type="number" min={0} max={100} className="mt-1 h-12"
+                                                        value={editChanges.cancellation?.artistCancellationPenalties?.lessThan30Days ?? ""}
+                                                        onChange={(e) => setEditChanges(prev => ({
+                                                            ...prev, cancellation: {
+                                                                ...(prev.cancellation || {}),
+                                                                artistCancellationPenalties: {
+                                                                    ...(prev.cancellation?.artistCancellationPenalties || {}),
+                                                                    lessThan30Days: e.target.value ? parseInt(e.target.value) : undefined,
+                                                                }
                                                             }
-                                                        }
-                                                    }))} />
+                                                        }))} />
+                                                </div>
                                             </div>
                                         </div>
-                                        <p className="text-xs text-muted-foreground italic mt-2">Organizer cancellation penalties</p>
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <div>
-                                                <Label className="text-[10px]">&gt;30 days (%)</Label>
-                                                <Input type="number" min={0} max={100} className="mt-1"
-                                                    value={editChanges.cancellation?.organizerCancellationPenalties?.moreThan30Days ?? ""}
-                                                    onChange={(e) => setEditChanges(prev => ({
-                                                        ...prev, cancellation: {
-                                                            ...(prev.cancellation || {}),
-                                                            organizerCancellationPenalties: {
-                                                                ...(prev.cancellation?.organizerCancellationPenalties || {}),
-                                                                moreThan30Days: e.target.value ? parseInt(e.target.value) : undefined,
+                                        <div>
+                                            <p className="text-sm font-semibold mb-3">Organizer Cancellation Penalties</p>
+                                            <div className="grid grid-cols-3 gap-3">
+                                                <div>
+                                                    <Label className="text-xs">&gt;30 days (%)</Label>
+                                                    <Input type="number" min={0} max={100} className="mt-1 h-12"
+                                                        value={editChanges.cancellation?.organizerCancellationPenalties?.moreThan30Days ?? ""}
+                                                        onChange={(e) => setEditChanges(prev => ({
+                                                            ...prev, cancellation: {
+                                                                ...(prev.cancellation || {}),
+                                                                organizerCancellationPenalties: {
+                                                                    ...(prev.cancellation?.organizerCancellationPenalties || {}),
+                                                                    moreThan30Days: e.target.value ? parseInt(e.target.value) : undefined,
+                                                                }
                                                             }
-                                                        }
-                                                    }))} />
-                                            </div>
-                                            <div>
-                                                <Label className="text-[10px]">15-30 days (%)</Label>
-                                                <Input type="number" min={0} max={100} className="mt-1"
-                                                    value={editChanges.cancellation?.organizerCancellationPenalties?.between15And30Days ?? ""}
-                                                    onChange={(e) => setEditChanges(prev => ({
-                                                        ...prev, cancellation: {
-                                                            ...(prev.cancellation || {}),
-                                                            organizerCancellationPenalties: {
-                                                                ...(prev.cancellation?.organizerCancellationPenalties || {}),
-                                                                between15And30Days: e.target.value ? parseInt(e.target.value) : undefined,
+                                                        }))} />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-xs">15-30 days (%)</Label>
+                                                    <Input type="number" min={0} max={100} className="mt-1 h-12"
+                                                        value={editChanges.cancellation?.organizerCancellationPenalties?.between15And30Days ?? ""}
+                                                        onChange={(e) => setEditChanges(prev => ({
+                                                            ...prev, cancellation: {
+                                                                ...(prev.cancellation || {}),
+                                                                organizerCancellationPenalties: {
+                                                                    ...(prev.cancellation?.organizerCancellationPenalties || {}),
+                                                                    between15And30Days: e.target.value ? parseInt(e.target.value) : undefined,
+                                                                }
                                                             }
-                                                        }
-                                                    }))} />
-                                            </div>
-                                            <div>
-                                                <Label className="text-[10px]">&lt;15 days (%)</Label>
-                                                <Input type="number" min={0} max={100} className="mt-1"
-                                                    value={editChanges.cancellation?.organizerCancellationPenalties?.lessThan15Days ?? ""}
-                                                    onChange={(e) => setEditChanges(prev => ({
-                                                        ...prev, cancellation: {
-                                                            ...(prev.cancellation || {}),
-                                                            organizerCancellationPenalties: {
-                                                                ...(prev.cancellation?.organizerCancellationPenalties || {}),
-                                                                lessThan15Days: e.target.value ? parseInt(e.target.value) : undefined,
+                                                        }))} />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-xs">&lt;15 days (%)</Label>
+                                                    <Input type="number" min={0} max={100} className="mt-1 h-12"
+                                                        value={editChanges.cancellation?.organizerCancellationPenalties?.lessThan15Days ?? ""}
+                                                        onChange={(e) => setEditChanges(prev => ({
+                                                            ...prev, cancellation: {
+                                                                ...(prev.cancellation || {}),
+                                                                organizerCancellationPenalties: {
+                                                                    ...(prev.cancellation?.organizerCancellationPenalties || {}),
+                                                                    lessThan15Days: e.target.value ? parseInt(e.target.value) : undefined,
+                                                                }
                                                             }
-                                                        }
-                                                    }))} />
+                                                        }))} />
+                                                </div>
                                             </div>
                                         </div>
-                                    </AccordionContent>
-                                </AccordionItem>
-                            </Accordion>
+                                    </div>
+                                )}
 
-                            {/* Edit note */}
-                            <div>
-                                <Label className="text-xs">Explanation / Notes</Label>
-                                <Textarea className="mt-1" placeholder="Explain your proposed changes..."
-                                    value={editNote}
-                                    onChange={(e) => setEditNote(e.target.value)} />
-                            </div>
+                                <div>
+                                    <Label className="text-sm">Explanation / Notes</Label>
+                                    <Textarea className="mt-1 min-h-[80px]" placeholder="Explain your proposed changes..."
+                                        value={editNote}
+                                        onChange={(e) => setEditNote(e.target.value)} />
+                                </div>
 
-                            <div className="flex gap-2 pt-2">
-                                <Button
-                                    size="sm"
-                                    className="bg-primary"
-                                    onClick={() => {
-                                        const cleaned = cleanChanges();
-                                        if (Object.keys(cleaned).length === 0) {
-                                            toast({ title: "No changes", description: "Please modify at least one field.", variant: "destructive" });
-                                            return;
-                                        }
-                                        reviewAction({ action: "PROPOSE_EDITS", changes: cleaned, note: editNote });
-                                    }}
-                                    disabled={isReviewing}
-                                >
-                                    {isReviewing && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
-                                    <Send className="w-3 h-3 mr-1" /> Submit Edit Request
-                                </Button>
-                                <Button size="sm" variant="ghost" onClick={() => { setShowEditForm(false); setEditChanges({}); }}>Cancel</Button>
+                                <div className="pt-4">
+                                    <Button
+                                        className="w-full h-12 bg-primary"
+                                        onClick={() => {
+                                            const cleaned = cleanChanges();
+                                            if (Object.keys(cleaned).length === 0) {
+                                                toast({ title: "No changes", description: "Please modify at least one field.", variant: "destructive" });
+                                                return;
+                                            }
+                                            reviewAction({ action: "PROPOSE_EDITS", changes: cleaned, note: editNote });
+                                            setShowEditForm(false);
+                                        }}
+                                        disabled={isReviewing}
+                                    >
+                                        {isReviewing && <Loader2 className="w-5 h-5 animate-spin mr-2" />}
+                                        Submit Proposed Edits
+                                    </Button>
+                                </div>
                             </div>
-                        </div>
-                    )}
+                        </SheetContent>
+                    </Sheet>
 
                     {/* ─── Version History ─── */}
                     {contract.versions && contract.versions.length > 1 && (
@@ -945,10 +1006,10 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
             </ScrollArea>
 
             {/* ═══ Action Footer ═══ */}
-            <div className="border-t border-white/10 px-5 py-4 bg-card/80 backdrop-blur">
+            <div className="border-t border-white/10 px-5 py-4 bg-card/80 backdrop-blur sticky bottom-0">
                 {isVoided ? (
                     <div className="flex justify-end">
-                        <Button variant="outline" onClick={onClose}>Close</Button>
+                        <Button variant="outline" onClick={() => setLocation("/dashboard")}>Close</Button>
                     </div>
                 ) : isFullySigned ? (
                     <div className="flex justify-between items-center">
@@ -964,7 +1025,7 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                             >
                                 <Download className="w-3 h-3 mr-1" /> Download
                             </Button>
-                            <Button variant="outline" onClick={onClose}>Close</Button>
+                            <Button variant="outline" onClick={() => setLocation("/dashboard")}>Close</Button>
                         </div>
                     </div>
                 ) : isAdminReview ? (
@@ -1001,7 +1062,7 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                 Waiting for Admin Approval
                             </div>
                         )}
-                        {!isAdmin && <Button variant="outline" onClick={onClose}>Close</Button>}
+                        {!isAdmin && <Button variant="outline" onClick={() => setLocation("/dashboard")}>Close</Button>}
                     </div>
                 ) : mySigned ? (
                     <div className="flex justify-between items-center">
@@ -1009,44 +1070,50 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                             <CheckCircle className="w-4 h-4" />
                             You have signed. Waiting for others.
                         </div>
-                        <Button variant="outline" onClick={onClose}>Close</Button>
+                        <Button variant="outline" onClick={() => setLocation("/dashboard")}>Close</Button>
                     </div>
                 ) : (
                     <div className="space-y-3">
                         {/* STEP: REVIEW */}
                         {activeStep === "review" && !pendingEditRequest && (
-                            <div className="flex items-center gap-3">
-                                <Button
-                                    className="flex-1 bg-green-600 hover:bg-green-700"
-                                    onClick={() => reviewAction({ action: "ACCEPT_AS_IS" })}
-                                    disabled={isReviewing || deadlineExpired}
-                                >
-                                    {isReviewing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                                    <CheckCircle className="w-4 h-4 mr-2" />
-                                    Accept As-Is
-                                </Button>
-                                {!myEditUsed && (
+                            <div className="flex flex-col gap-3">
+                                <div className="flex items-center gap-3">
                                     <Button
-                                        variant="outline"
-                                        className="flex-1"
-                                        onClick={() => setShowEditForm(true)}
-                                        disabled={deadlineExpired || showEditForm}
+                                        className="flex-1 h-12 bg-green-600 hover:bg-green-700"
+                                        onClick={() => reviewAction({ action: "ACCEPT_AS_IS" })}
+                                        disabled={isReviewing || deadlineExpired}
                                     >
-                                        <Edit3 className="w-4 h-4 mr-2" />
-                                        Propose Edits
+                                        {isReviewing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                                        <CheckCircle className="w-4 h-4 mr-2" />
+                                        Accept As-Is
                                     </Button>
-                                )}
-                                <Button variant="ghost" onClick={onClose}>Close</Button>
+                                    {!myEditUsed && (
+                                        <Button
+                                            variant="outline"
+                                            className="flex-1 h-12"
+                                            onClick={() => {
+                                                setActiveEditCategory("core");
+                                                setShowEditForm(true);
+                                            }}
+                                            disabled={deadlineExpired || showEditForm}
+                                        >
+                                            <Edit3 className="w-4 h-4 mr-2" />
+                                            Propose Edits
+                                        </Button>
+                                    )}
+                                </div>
+                                <Button variant="ghost" className="h-12 w-full" onClick={() => setLocation("/dashboard")}>Close</Button>
                             </div>
                         )}
 
                         {/* STEP: ACCEPT (EULA) */}
                         {activeStep === "accept" && !pendingEditRequest && (
-                            <div className="space-y-3">
-                                <div className="flex items-start gap-3 p-3 rounded-lg bg-white/5 border border-white/10">
+                            <div className="space-y-4">
+                                <div className="flex items-start gap-3 p-4 rounded-lg bg-white/5 border border-white/10">
                                     <Checkbox
                                         id="eula-checkbox"
                                         checked={eulaChecked}
+                                        className="mt-1"
                                         onCheckedChange={(checked) => setEulaChecked(!!checked)}
                                     />
                                     <Label htmlFor="eula-checkbox" className="text-sm leading-relaxed cursor-pointer">
@@ -1054,46 +1121,44 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                         I understand that this is a legally binding agreement once both parties have signed.
                                     </Label>
                                 </div>
-                                <div className="flex gap-3">
+                                <div className="flex flex-col gap-3">
                                     <Button
-                                        className="flex-1 bg-primary"
+                                        className="w-full h-12 bg-primary"
                                         disabled={!eulaChecked || isAccepting || deadlineExpired}
                                         onClick={() => acceptContract()}
                                     >
-                                        {isAccepting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                                        <Shield className="w-4 h-4 mr-2" />
+                                        {isAccepting && <Loader2 className="w-5 h-5 animate-spin mr-2" />}
+                                        <Shield className="w-5 h-5 mr-2" />
                                         Accept and Continue to Signing
                                     </Button>
-                                    <Button variant="ghost" onClick={onClose}>Close</Button>
+                                    <Button variant="ghost" className="h-12 w-full" onClick={() => setLocation("/dashboard")}>Close</Button>
                                 </div>
                             </div>
                         )}
 
                         {/* STEP: SIGN */}
                         {activeStep === "sign" && (
-                            <div className="space-y-3">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex-1">
-                                        <Label className="text-xs text-muted-foreground">Type your full name as signature</Label>
-                                        <Input
-                                            placeholder={user?.displayName || user?.username || "Your full legal name"}
-                                            value={signatureText}
-                                            onChange={(e) => setSignatureText(e.target.value)}
-                                            className="mt-1 font-serif italic text-lg tracking-wide"
-                                        />
-                                    </div>
+                            <div className="space-y-4">
+                                <div>
+                                    <Label className="text-sm text-muted-foreground mb-2 block">Type your full name as signature</Label>
+                                    <Input
+                                        placeholder={user?.displayName || user?.username || "Your full legal name"}
+                                        value={signatureText}
+                                        onChange={(e) => setSignatureText(e.target.value)}
+                                        className="font-serif italic text-lg tracking-wide h-14"
+                                    />
                                 </div>
-                                <div className="flex gap-3">
+                                <div className="flex flex-col gap-3">
                                     <Button
-                                        className="flex-1 bg-green-600 hover:bg-green-700"
+                                        className="w-full h-12 bg-green-600 hover:bg-green-700"
                                         disabled={isSigning || deadlineExpired || !signatureText.trim()}
                                         onClick={() => signContract()}
                                     >
-                                        {isSigning && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                                        <PenTool className="w-4 h-4 mr-2" />
+                                        {isSigning && <Loader2 className="w-5 h-5 animate-spin mr-2" />}
+                                        <PenTool className="w-5 h-5 mr-2" />
                                         Sign Contract
                                     </Button>
-                                    <Button variant="ghost" onClick={onClose}>Close</Button>
+                                    <Button variant="ghost" className="h-12 w-full" onClick={() => setLocation("/dashboard")}>Close</Button>
                                 </div>
                             </div>
                         )}
@@ -1102,7 +1167,7 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                         {pendingEditRequest && activeStep === "review" && (
                             <div className="flex justify-between items-center">
                                 <span className="text-sm text-amber-400">Edit request pending resolution...</span>
-                                <Button variant="ghost" onClick={onClose}>Close</Button>
+                                <Button variant="ghost" onClick={() => setLocation("/dashboard")}>Close</Button>
                             </div>
                         )}
                     </div>
@@ -1114,39 +1179,17 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
 
 // ═══ Sub-components ═══
 
-function PartyStatusCard({
-    label, reviewed, editUsed, accepted, signed, isMe,
-}: {
-    label: string; reviewed: boolean; editUsed: boolean;
-    accepted: boolean; signed: boolean; isMe: boolean;
-}) {
+function TrackerItem({ label, done, optional }: { label: string; done: boolean; optional?: boolean }) {
     return (
-        <div className={`rounded-lg border p-3 ${isMe ? "border-primary/30 bg-primary/5" : "border-white/10 bg-white/[0.02]"}`}>
-            <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-semibold">{label}</span>
-                {isMe && <Badge variant="outline" className="text-[9px] px-1 py-0">You</Badge>}
-            </div>
-            <div className="space-y-1">
-                <StatusLine label="Reviewed" done={reviewed} />
-                <StatusLine label="Edit Used" done={editUsed} optional />
-                <StatusLine label="Accepted" done={accepted} />
-                <StatusLine label="Signed" done={signed} />
-            </div>
-        </div>
-    );
-}
-
-function StatusLine({ label, done, optional }: { label: string; done: boolean; optional?: boolean }) {
-    return (
-        <div className="flex items-center gap-1.5 text-[10px]">
+        <div className="flex items-center gap-1">
+            <span className={done ? "text-foreground" : optional ? "text-muted-foreground/50" : "text-muted-foreground/70"}>
+                {label}
+            </span>
             {done ? (
                 <CheckCircle className="w-3 h-3 text-green-400" />
             ) : (
-                <div className={`w-3 h-3 rounded-full border ${optional ? "border-white/20" : "border-white/30"}`} />
+                <Clock className="w-3 h-3 text-muted-foreground/50" />
             )}
-            <span className={done ? "text-green-400" : optional ? "text-muted-foreground/50" : "text-muted-foreground"}>
-                {label}
-            </span>
         </div>
     );
 }

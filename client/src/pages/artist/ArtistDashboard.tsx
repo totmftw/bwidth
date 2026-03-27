@@ -57,8 +57,9 @@ export default function ArtistDashboard() {
         return isAfter(eventDate, new Date()) && isAfter(addDays(new Date(), 30), eventDate);
     }).sort((a, b) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime()) || [];
 
-    // Trust score (from artist profile or default)
+    // Trust score and Category
     const trustScore = (artist as any)?.trustScore || 50;
+    const artistCategory = (artist as any)?.artistCategory || 'mid_scale';
 
     // Profile completion calculation
     const metadata = artist?.metadata as any || {};
@@ -85,9 +86,15 @@ export default function ArtistDashboard() {
                         Welcome back, {user.name?.split(' ')[0]}
                         <span className="inline-block ml-2">👋</span>
                     </h1>
-                    <p className="text-muted-foreground">
-                        Here's what's happening with your bookings
-                    </p>
+                    <div className="flex items-center gap-2 mt-2">
+                        <Badge variant="outline" className="bg-blue-500/10 text-blue-500 border-blue-500/20 capitalize">
+                            <Star className="w-3 h-3 mr-1" />
+                            {artistCategory.replace('_', ' ')} Category
+                        </Badge>
+                        <p className="text-muted-foreground">
+                            Here's what's happening with your bookings
+                        </p>
+                    </div>
                 </div>
                 <div className="flex gap-3">
                     <Link href="/find-gigs">

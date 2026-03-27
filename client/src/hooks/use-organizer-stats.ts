@@ -37,6 +37,7 @@ export interface BookingSummary {
   completedBookings: number;
   cancellationRate: number;
   averageBookingValue: number;
+  totalSpent?: number;
 }
 
 export function useOrganizerBookingSummary() {

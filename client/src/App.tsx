@@ -49,6 +49,7 @@ import AdminDashboard from "@/pages/admin/AdminDashboard";
 import AdminUsers from "@/pages/admin/AdminUsers";
 import AdminContracts from "@/pages/admin/AdminContracts";
 import AdminBookings from "@/pages/admin/AdminBookings";
+import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminConversations from "@/pages/admin/AdminConversations";
 
 // Hook to check profile completion status
@@ -268,6 +269,8 @@ function RoleBasedProfile() {
   }
 }
 
+import ContractPage from "@/pages/contract/ContractPage";
+
 function Router() {
   return (
     <Switch>
@@ -333,6 +336,9 @@ function Router() {
       <Route path="/contract-setup">
         <PrivateRoute component={ContractSetup} />
       </Route>
+      <Route path="/contract/:id">
+        <ContractPage />
+      </Route>
 
       {/* Admin Routes */}
       <Route path="/admin">
@@ -358,6 +364,11 @@ function Router() {
       <Route path="/admin/chat">
         <AdminLayout>
           <AdminConversations />
+        </AdminLayout>
+      </Route>
+      <Route path="/admin/settings">
+        <AdminLayout>
+          <AdminSettings />
         </AdminLayout>
       </Route>
 

@@ -179,7 +179,7 @@ class WorkflowEngine {
      * Handle a workflow action (PROPOSE_COST, PROPOSE_SLOT, ACCEPT, WALK_AWAY).
      */
     async handleAction(conversationId: number, userId: number, actionKey: string, payload: any, clientMsgId: string) {
-        return await db.transaction(async (tx) => {
+        const result = await db.transaction(async (tx) => {
             // 1. Fetch workflow instance
             const wfInstance = await tx.query.conversationWorkflowInstances.findFirst({
                 where: eq(conversationWorkflowInstances.conversationId, conversationId)
@@ -198,7 +198,7 @@ class WorkflowEngine {
             }
 
             // 3. Validate action
-            const validActions = ['PROPOSE_COST', 'PROPOSE_SLOT', 'ACCEPT', 'WALK_AWAY', 'DECLINE',
+            const validActions = ['PROPOSE_COST', 'PROPOSE_SLOT', 'PROPOSE_RIDER', 'ACCEPT', 'WALK_AWAY', 'DECLINE',
                 // Keep legacy support
                 'PROPOSE_CHANGE'];
             if (!validActions.includes(actionKey)) throw new Error("Invalid action: " + actionKey);
@@ -321,6 +321,37 @@ class WorkflowEngine {
                 nextNodeKey = 'NEGOTIATING';
             }
 
+            // ── PROPOSE_RIDER ──
+            else if (actionKey === 'PROPOSE_RIDER') {
+                if (ctx.riderLocked) {
+                    throw new Error("Tech rider is already locked.");
+                }
+
+                // Create proposal
+                if (bookingId) {
+                    await tx.insert(bookingProposals).values({
+                        bookingId,
+                        createdBy: userId,
+                        round: wfInstance.round + 1,
+                        proposedTerms: { 
+                            type: 'rider',
+                            providedEquipment: payload.providedEquipment || [],
+                            requestedEquipment: payload.requestedEquipment || []
+                        },
+                        note: payload.note || null,
+                        status: 'active'
+                    });
+                }
+
+                // Update context
+                updatedContext.currentRider = {
+                    providedEquipment: payload.providedEquipment || ctx.currentRider?.providedEquipment || [],
+                    requestedEquipment: payload.requestedEquipment || ctx.currentRider?.requestedEquipment || []
+                };
+
+                nextNodeKey = 'NEGOTIATING';
+            }
+
             // ── ACCEPT ──
             else if (actionKey === 'ACCEPT') {
                 nextNodeKey = 'ACCEPTED';
@@ -333,6 +364,7 @@ class WorkflowEngine {
                     });
                     const lastAgreedAmount = currentBooking?.offerAmount || null;
                     const lastAgreedSlot = updatedContext.currentSlot || null;
+                    const lastAgreedRider = updatedContext.currentRider || null;
 
                     // Store final agreed amount + slot into the booking
                     const existingMeta = (currentBooking?.meta as any) || {};
@@ -343,7 +375,9 @@ class WorkflowEngine {
                             meta: {
                                 ...existingMeta,
                                 finalSlot: lastAgreedSlot,
+                                techRider: lastAgreedRider,
                                 agreedAt: new Date().toISOString(),
+                                terms: payload?.terms || {},
                             }
                         })
                         .where(eq(bookings.id, bookingId));
@@ -425,8 +459,16 @@ class WorkflowEngine {
                 .set({ lastMessageAt: new Date() })
                 .where(eq(conversations.id, conversationId));
 
-            return msg;
+            return { msg, bookingId, nextNodeKey }; // return bookingId and nextNodeKey
         });
+
+        // Outside transaction: snapshot booking math if accepted
+        if (result.nextNodeKey === 'ACCEPTED' && result.bookingId) {
+            const { bookingService } = await import("./booking.service");
+            await bookingService.confirmBookingAndSnapshot(result.bookingId);
+        }
+
+        return result.msg;
     }
 }
 

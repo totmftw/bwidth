@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useBookings } from "@/hooks/use-bookings";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocation } from "wouter";
 import { format, isAfter } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -181,6 +182,7 @@ export default function ArtistBookings() {
                         <NegotiationFlow
                             booking={sheetBooking}
                             onClose={closeSheet}
+                            onStartContract={() => setSheetView("contract")}
                         />
                     )}
                     {sheetBooking && sheetView === "contract" && (
@@ -204,8 +206,10 @@ function BookingCard({
     index: number;
     onOpen: (view: "negotiate" | "contract") => void;
 }) {
+    const [, navigate] = useLocation();
     const status = booking.status || "inquiry";
     const isPending = ["inquiry", "offered", "negotiating"].includes(status);
+    const isContracting = status === "contracting";
     const isConfirmed = ["confirmed", "scheduled", "paid_deposit"].includes(status);
     const eventDate = new Date(booking.eventDate);
     const isUpcoming = isAfter(eventDate, new Date());
@@ -286,13 +290,25 @@ function BookingCard({
                                     </Button>
                                 )}
 
+                                {/* Contracting CTA */}
+                                {isContracting && (
+                                    <Button
+                                        size="sm"
+                                        className="bg-purple-600 hover:bg-purple-700 text-white"
+                                        onClick={() => navigate(`/contract/${booking.id}`)}
+                                    >
+                                        <FileText className="w-4 h-4 mr-2" />
+                                        Start Contract
+                                    </Button>
+                                )}
+
                                 {/* Contract for confirmed bookings */}
                                 {isConfirmed && (
                                     <Button
                                         size="sm"
                                         variant="outline"
                                         className="hover:bg-primary/10"
-                                        onClick={() => onOpen("contract")}
+                                        onClick={() => navigate(`/contract/${booking.id}`)}
                                     >
                                         <FileText className="w-4 h-4 mr-2" />
                                         Contract
@@ -300,7 +316,7 @@ function BookingCard({
                                 )}
 
                                 {/* View negotiation for any booking that isn't just completed/cancelled */}
-                                {!isPending && !isConfirmed && (
+                                {!isPending && !isContracting && !isConfirmed && (
                                     <Button
                                         size="sm"
                                         variant="ghost"
