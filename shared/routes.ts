@@ -12,6 +12,83 @@ import { insertUserSchema, insertArtistSchema, insertOrganizerSchema, insertVenu
 // `contact_person` columns — no new database tables are needed.
 // ============================================================================
 
+// ============================================================================
+// Negotiation Data Contracts (Zod Schemas)
+// ============================================================================
+// These define the canonical shapes for the proposal-based structured
+// negotiation system between artists and organizers.
+
+export const riderItemStatusEnum = z.enum(["pending", "confirmed", "alternate_offered", "cannot_provide"]);
+
+export const techRiderRequirementSchema = z.object({
+  item: z.string().min(1),
+  category: z.string().optional(),
+  quantity: z.number().int().positive().default(1),
+  notes: z.string().optional(),
+  status: riderItemStatusEnum.default("pending"),
+  organizerNotes: z.string().optional(),
+});
+
+export const techRiderBringsSchema = z.object({
+  item: z.string().min(1),
+  quantity: z.number().int().positive().default(1),
+  notes: z.string().optional(),
+});
+
+export const negotiationSnapshotSchema = z.object({
+  financial: z.object({
+    offerAmount: z.number().nonnegative(),
+    currency: z.string().length(3).default("INR"),
+  }),
+  schedule: z.object({
+    stageId: z.number().int().optional().nullable(),
+    slotLabel: z.string().optional().nullable(),
+    soundCheckLabel: z.string().optional().nullable(),
+  }).optional().nullable(),
+  techRider: z.object({
+    artistRequirements: z.array(techRiderRequirementSchema).default([]),
+    artistBrings: z.array(techRiderBringsSchema).default([]),
+    organizerProvides: z.array(z.string()).default([]),
+  }).optional().nullable(),
+  logistics: z.object({
+    travel: z.record(z.any()).optional().nullable(),
+    accommodation: z.record(z.any()).optional().nullable(),
+    hospitality: z.record(z.any()).optional().nullable(),
+  }).optional().nullable(),
+  notes: z.object({
+    artist: z.string().optional().nullable(),
+    organizer: z.string().optional().nullable(),
+  }).optional().nullable(),
+});
+
+export const negotiationStateSchema = z.object({
+  version: z.number().int().positive(),
+  agreedAt: z.string().datetime().optional().nullable(),
+  agreedBy: z.object({
+    artistUserId: z.number().int().optional().nullable(),
+    organizerUserId: z.number().int().optional().nullable(),
+  }).optional().nullable(),
+  snapshot: negotiationSnapshotSchema,
+});
+
+export const applicationSubmitSchema = z.object({
+  eventId: z.number().int().positive(),
+  stageId: z.number().int().optional().nullable(),
+  offerAmount: z.number().nonnegative(),
+  currency: z.string().length(3).default("INR"),
+  message: z.string().optional().nullable(),
+  techRiderRequirements: z.array(techRiderRequirementSchema).default([]),
+  techRiderBrings: z.array(techRiderBringsSchema).default([]),
+});
+
+export const proposalSubmitSchema = z.object({
+  snapshot: negotiationSnapshotSchema,
+});
+
+export const riderConfirmationSchema = z.object({
+  resolvedItems: z.array(techRiderRequirementSchema),
+});
+
 /**
  * Reusable contact person schema for organizer profiles.
  * 
@@ -429,6 +506,7 @@ export const api = {
         200: z.custom<typeof bookings.$inferSelect>(),
         400: errorSchemas.validation,
       },
+      deprecated: true,
     },
     accept: {
       method: 'POST' as const,
@@ -437,6 +515,7 @@ export const api = {
         200: z.custom<typeof bookings.$inferSelect>(),
         400: errorSchemas.validation,
       },
+      deprecated: true,
     },
     decline: {
       method: 'POST' as const,
@@ -444,6 +523,71 @@ export const api = {
       responses: {
         200: z.custom<typeof bookings.$inferSelect>(),
         400: errorSchemas.validation,
+      },
+      deprecated: true,
+    },
+    // --- New Negotiation API Routes ---
+    apply: {
+      method: 'POST' as const,
+      path: '/api/bookings/apply',
+      input: applicationSubmitSchema,
+      responses: {
+        201: z.custom<typeof bookings.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    negotiationSummary: {
+      method: 'GET' as const,
+      path: '/api/bookings/:id/negotiation',
+      responses: {
+        200: z.object({
+          currentProposal: negotiationSnapshotSchema,
+          round: z.number(),
+          status: z.string(),
+          history: z.array(z.object({
+            id: z.number(),
+            round: z.number(),
+            proposedTerms: negotiationSnapshotSchema,
+            status: z.string(),
+            createdAt: z.string().or(z.date()),
+            createdBy: z.number().nullable(),
+          })),
+        }),
+        404: errorSchemas.notFound,
+      },
+    },
+    submitProposal: {
+      method: 'POST' as const,
+      path: '/api/bookings/:id/negotiation/propose',
+      input: proposalSubmitSchema,
+      responses: {
+        200: z.object({ success: z.boolean() }),
+        400: errorSchemas.validation,
+      },
+    },
+    confirmRider: {
+      method: 'POST' as const,
+      path: '/api/bookings/:id/negotiation/rider-confirm',
+      input: riderConfirmationSchema,
+      responses: {
+        200: z.object({ success: z.boolean() }),
+        400: errorSchemas.validation,
+      },
+    },
+    finalAccept: {
+      method: 'POST' as const,
+      path: '/api/bookings/:id/negotiation/accept',
+      responses: {
+        200: z.object({ success: z.boolean() }),
+        400: errorSchemas.validation,
+      },
+    },
+    walkAway: {
+      method: 'POST' as const,
+      path: '/api/bookings/:id/negotiation/walk-away',
+      input: z.object({ reason: z.string().optional() }),
+      responses: {
+        200: z.object({ success: z.boolean() }),
       },
     },
   },
