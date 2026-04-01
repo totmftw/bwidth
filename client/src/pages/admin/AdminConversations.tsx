@@ -26,9 +26,9 @@ export default function AdminConversations() {
     const [selectedConversation, setSelectedConversation] = useState<any>(null);
 
     const { data: conversations, isLoading } = useQuery({
-        queryKey: ["/admin/conversations"],
+        queryKey: ["/api/admin/conversations"],
         queryFn: async () => {
-            const res = await apiRequest("GET", "/admin/conversations");
+            const res = await apiRequest("GET", "/api/admin/conversations");
             if (!res.ok) throw new Error("Failed to fetch conversations");
             return await res.json();
         }
@@ -107,10 +107,10 @@ export default function AdminConversations() {
 
 function ConversationDialog({ conversation, open, onOpenChange }: { conversation: any, open: boolean, onOpenChange: (open: boolean) => void }) {
     const { data: messages, isLoading } = useQuery({
-        queryKey: ["/admin/conversations", conversation?.id, "messages"],
+        queryKey: ["/api/admin/conversations", conversation?.id, "messages"],
         queryFn: async () => {
             if (!conversation?.id) return [];
-            const res = await apiRequest("GET", `/admin/conversations/${conversation.id}/messages`);
+            const res = await apiRequest("GET", `/api/admin/conversations/${conversation.id}/messages`);
             if (!res.ok) throw new Error("Failed to fetch messages");
             return await res.json();
         },

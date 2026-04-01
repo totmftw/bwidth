@@ -22,6 +22,8 @@ export function useOrganizerEvents(status?: string) {
   });
 }
 
+export const useEvents = useOrganizerEvents;
+
 export function useOrganizerEvent(id: number) {
   return useQuery({
     queryKey: [api.organizer.events.list.path, id],

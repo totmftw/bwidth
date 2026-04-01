@@ -1,14 +1,14 @@
-- [ ] Shared negotiation schemas define application, proposal, rider confirmation, acceptance, and summary payloads
-- [ ] Artist event application captures event-specific rider requirements and artist-brought equipment
-- [ ] Application submission creates proposal version 1 for the booking
-- [ ] Negotiation conversation opening initializes a workflow state that matches the active backend workflow model
-- [ ] Negotiation UI shows a visual current terms board without requiring users to infer state from raw messages
-- [ ] Negotiation UI shows what changed between proposal versions
-- [ ] Organizer must resolve or confirm rider items before final agreement becomes available
-- [ ] Both artist and organizer must accept the same final proposal snapshot before the booking moves to `contracting`
-- [ ] Booking metadata stores an agreed negotiation snapshot that becomes the contract source of truth
-- [ ] Contract generation pulls technical and negotiated terms from the agreed booking snapshot
-- [ ] Legacy negotiation endpoints or bypass behaviors no longer act as the active source of truth
-- [ ] Artist and organizer booking surfaces reflect the new negotiation statuses clearly
-- [ ] Documentation matches the implemented negotiation flow and API model
-- [ ] Backend and regression tests cover proposal flow, rider confirmation, acceptance rules, and contract guardrails
+- [x] Shared negotiation schemas define application, proposal, rider confirmation, acceptance, and summary payloads
+- [x] Artist event application captures event-specific rider requirements and artist-brought equipment
+- [x] Application submission creates proposal version 1 for the booking
+- [x] Negotiation conversation opening initializes a workflow state that matches the active backend workflow model
+- [x] Negotiation UI shows a visual current terms board without requiring users to infer state from raw messages
+- [x] Negotiation UI shows what changed between proposal versions
+- [x] Organizer must resolve or confirm rider items before final agreement becomes available
+- [x] Both artist and organizer must accept the same final proposal snapshot before the booking moves to `contracting`
+- [x] Booking metadata stores an agreed negotiation snapshot that becomes the contract source of truth
+- [x] Contract generation pulls technical and negotiated terms from the agreed booking snapshot
+- [x] Legacy negotiation endpoints or bypass behaviors no longer act as the active source of truth
+- [x] Artist and organizer booking surfaces reflect the new negotiation statuses clearly
+- [x] Documentation matches the implemented negotiation flow and API model
+- [x] Backend and regression tests cover proposal flow, rider confirmation, acceptance rules, and contract guardrails

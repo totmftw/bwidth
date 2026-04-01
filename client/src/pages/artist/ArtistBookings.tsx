@@ -189,7 +189,7 @@ export default function ArtistBookings() {
             <Sheet open={!!sheetBooking} onOpenChange={(open) => !open && closeSheet()}>
                 <SheetContent
                     side="right"
-                    className="w-full sm:max-w-md h-full p-0 flex flex-col overflow-hidden border-l border-white/10"
+                    className="w-full sm:max-w-4xl h-full p-0 flex flex-col overflow-hidden border-l border-white/10"
                 >
                     <VisuallyHidden><SheetTitle>Booking Details</SheetTitle></VisuallyHidden>
                     {sheetBooking && sheetView === "negotiate" && (
@@ -300,7 +300,7 @@ function BookingCard({
                                         onClick={() => onOpen("negotiate")}
                                     >
                                         <MessageSquare className="w-4 h-4 mr-2" />
-                                        {status === "negotiating" ? "Open Chat" : status === "offered" ? "Respond" : "Negotiate"}
+                                        Open Workspace
                                     </Button>
                                 )}
 
@@ -337,7 +337,7 @@ function BookingCard({
                                         className="hover:bg-primary/10 text-primary"
                                         onClick={() => onOpen("negotiate")}
                                     >
-                                        View Chat
+                                        View Workspace
                                         <ArrowUpRight className="w-4 h-4 ml-2" />
                                     </Button>
                                 )}

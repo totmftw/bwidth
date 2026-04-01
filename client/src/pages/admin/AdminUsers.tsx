@@ -30,9 +30,9 @@ export default function AdminUsers() {
     const [statusFilter, setStatusFilter] = useState("all");
 
     const { data: users, isLoading } = useQuery({
-        queryKey: ["/admin/users"],
+        queryKey: ["/api/admin/users"],
         queryFn: async () => {
-            const res = await apiRequest("GET", "/admin/users");
+            const res = await apiRequest("GET", "/api/admin/users");
             if (!res.ok) throw new Error("Failed to fetch users");
             return await res.json();
         }
@@ -40,7 +40,7 @@ export default function AdminUsers() {
 
     const { mutate: updateStatus, isPending: isUpdating } = useMutation({
         mutationFn: async ({ id, status }: { id: number; status: string }) => {
-            const res = await apiRequest("PATCH", `/admin/users/${id}/status`, { status });
+            const res = await apiRequest("PATCH", `/api/admin/users/${id}/status`, { status });
             if (!res.ok) {
                 const err = await res.json();
                 throw new Error(err.message || "Update failed");
@@ -48,7 +48,7 @@ export default function AdminUsers() {
             return await res.json();
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["/admin/users"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
             toast({ title: "User status updated" });
         },
         onError: (err: any) => {
@@ -61,7 +61,7 @@ export default function AdminUsers() {
 
     const { mutate: updateRole, isPending: isUpdatingRole } = useMutation({
         mutationFn: async ({ id, role }: { id: number; role: string }) => {
-            const res = await apiRequest("PATCH", `/admin/users/${id}/role`, { role });
+            const res = await apiRequest("PATCH", `/api/admin/users/${id}/role`, { role });
             if (!res.ok) {
                 const err = await res.json();
                 throw new Error(err.message || "Update role failed");
@@ -69,7 +69,7 @@ export default function AdminUsers() {
             return await res.json();
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["/admin/users"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
             toast({ title: "User role updated" });
             setRoleEditUser(null);
         },
@@ -103,7 +103,7 @@ export default function AdminUsers() {
                             <SelectItem value="rejected">Rejected</SelectItem>
                         </SelectContent>
                     </Select>
-                    <Button variant="outline" size="icon" onClick={() => queryClient.invalidateQueries({ queryKey: ["/admin/users"] })}>
+                    <Button variant="outline" size="icon" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] })}>
                         <RefreshCcw className="h-4 w-4" />
                     </Button>
                 </div>

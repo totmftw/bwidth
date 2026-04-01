@@ -212,7 +212,7 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
     // ─── Admin Review Mutation ──────────────────────────────────────────
     const { mutate: adminReviewContract, isPending: isAdminReviewing } = useMutation({
         mutationFn: async ({ status, note }: { status: 'approved' | 'rejected', note?: string }) => {
-            const res = await fetch(`/admin/contracts/${contract.id}/review`, {
+            const res = await fetch(`/api/admin/contracts/${contract.id}/review`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ status, note }),
@@ -226,7 +226,7 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: [`contract-${bookingId}`] });
-            queryClient.invalidateQueries({ queryKey: ["/admin/contracts/pending"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/contracts/pending"] });
             toast({ title: "Contract reviewed successfully" });
             onClose();
         },
@@ -499,62 +499,6 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                 signed={contract.signedByPromoter}
                                 isMe={role === "promoter"}
                             />
-                        </div>
-                    )}
-
-                    {/* ─── Financial Breakdown ─── */}
-                    {commissionBreakdown && (
-                        <div className="p-4 rounded-xl border border-primary/20 bg-primary/5">
-                            <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                                <DollarSign className="w-4 h-4 text-primary" />
-                                Financial Breakdown
-                            </h4>
-                            <div className="grid grid-cols-2 gap-4 text-sm">
-                                {role === 'promoter' && (
-                                    <>
-                                        <div>
-                                            <p className="text-muted-foreground text-xs">Total Booking Cost</p>
-                                            <p className="font-medium">₹{Number(commissionBreakdown.grossBookingValue || 0).toLocaleString()}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-muted-foreground text-xs">Platform Fee ({commissionBreakdown.organizerCommissionPct}%)</p>
-                                            <p className="font-medium">₹{Number(commissionBreakdown.organizerFee || 0).toLocaleString()}</p>
-                                        </div>
-                                        <div className="col-span-2 pt-2 border-t border-primary/10">
-                                            <p className="text-muted-foreground text-xs">Total Payable</p>
-                                            <p className="font-bold text-primary text-base">₹{(Number(commissionBreakdown.grossBookingValue || 0) + Number(commissionBreakdown.organizerFee || 0)).toLocaleString()}</p>
-                                        </div>
-                                    </>
-                                )}
-                                {role === 'artist' && (
-                                    <>
-                                        <div>
-                                            <p className="text-muted-foreground text-xs">Gross Booking Value</p>
-                                            <p className="font-medium">₹{Number(commissionBreakdown.grossBookingValue || 0).toLocaleString()}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-muted-foreground text-xs">Platform Fee ({commissionBreakdown.artistCommissionPct}%)</p>
-                                            <p className="font-medium text-red-400">-₹{Number(commissionBreakdown.artistFee || 0).toLocaleString()}</p>
-                                        </div>
-                                        <div className="col-span-2 pt-2 border-t border-primary/10">
-                                            <p className="text-muted-foreground text-xs">Net Payout</p>
-                                            <p className="font-bold text-primary text-base">₹{(Number(commissionBreakdown.grossBookingValue || 0) - Number(commissionBreakdown.artistFee || 0)).toLocaleString()}</p>
-                                        </div>
-                                    </>
-                                )}
-                                {role === 'admin' && (
-                                    <>
-                                        <div>
-                                            <p className="text-muted-foreground text-xs">Gross Value</p>
-                                            <p className="font-medium">₹{Number(commissionBreakdown.grossBookingValue || 0).toLocaleString()}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-muted-foreground text-xs">Platform Revenue</p>
-                                            <p className="font-medium text-green-500">₹{Number(commissionBreakdown.platformRevenue || 0).toLocaleString()}</p>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
                         </div>
                     )}
 

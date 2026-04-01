@@ -6,8 +6,13 @@ import { apiRequest } from "@/lib/queryClient";
 import {
     Loader2, FileText, CheckCircle, PenTool, Clock, AlertTriangle,
     Shield, Edit3, Send, X, ChevronRight, Eye, Check, Download,
-    Plane, Hotel, Mic2, Users, Camera, Megaphone, XCircle, DollarSign
+    Plane, Hotel, Mic2, Users, Camera, Megaphone, XCircle, DollarSign, Calendar as CalendarIcon
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
+import { ScrollableTimePicker } from "@/components/ScrollableTimePicker";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -218,7 +223,7 @@ export default function ContractPage() {
     // ─── Admin Review Mutation ──────────────────────────────────────────
     const { mutate: adminReviewContract, isPending: isAdminReviewing } = useMutation({
         mutationFn: async ({ status, note }: { status: 'approved' | 'rejected', note?: string }) => {
-            const res = await fetch(`/admin/contracts/${contract.id}/review`, {
+            const res = await fetch(`/api/admin/contracts/${contract.id}/review`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ status, note }),
@@ -232,7 +237,7 @@ export default function ContractPage() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: [`contract-${bookingId}`] });
-            queryClient.invalidateQueries({ queryKey: ["/admin/contracts/pending"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/contracts/pending"] });
             toast({ title: "Contract reviewed successfully" });
             setLocation("/dashboard");
         },
@@ -537,62 +542,6 @@ export default function ContractPage() {
                         </div>
                     )}
 
-                    {/* ─── Financial Breakdown ─── */}
-                    {commissionBreakdown && (
-                        <div className="p-4 rounded-xl border border-primary/20 bg-primary/5">
-                            <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                                <DollarSign className="w-4 h-4 text-primary" />
-                                Financial Breakdown
-                            </h4>
-                            <div className="grid grid-cols-2 gap-4 text-sm">
-                                {role === 'promoter' && (
-                                    <div className="col-span-2 space-y-2">
-                                        <div className="flex justify-between">
-                                            <span className="text-muted-foreground text-xs">Gross Booking Value</span>
-                                            <span className="font-medium">₹{Number(commissionBreakdown.grossBookingValue || 0).toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-muted-foreground text-xs">Platform Fee ({commissionBreakdown.organizerCommissionPct}%)</span>
-                                            <span className="font-medium text-red-400">-₹{Number(commissionBreakdown.organizerFee || 0).toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex justify-between pt-2 border-t border-primary/10">
-                                            <span className="text-muted-foreground text-xs font-semibold">Total Payable</span>
-                                            <span className="font-bold text-primary text-base">₹{(Number(commissionBreakdown.grossBookingValue || 0) + Number(commissionBreakdown.organizerFee || 0)).toLocaleString()}</span>
-                                        </div>
-                                    </div>
-                                )}
-                                {role === 'artist' && (
-                                    <div className="col-span-2 space-y-2">
-                                        <div className="flex justify-between">
-                                            <span className="text-muted-foreground text-xs">Gross Booking Value</span>
-                                            <span className="font-medium">₹{Number(commissionBreakdown.grossBookingValue || 0).toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-muted-foreground text-xs">Platform Fee ({commissionBreakdown.artistCommissionPct}%)</span>
-                                            <span className="font-medium text-red-400">-₹{Number(commissionBreakdown.artistFee || 0).toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex justify-between pt-2 border-t border-primary/10">
-                                            <span className="text-muted-foreground text-xs font-semibold">Net Payout</span>
-                                            <span className="font-bold text-primary text-base">₹{(Number(commissionBreakdown.grossBookingValue || 0) - Number(commissionBreakdown.artistFee || 0)).toLocaleString()}</span>
-                                        </div>
-                                    </div>
-                                )}
-                                {role === 'admin' && (
-                                    <div className="col-span-2 space-y-2">
-                                        <div className="flex justify-between">
-                                            <span className="text-muted-foreground text-xs">Gross Booking Value</span>
-                                            <span className="font-medium">₹{Number(commissionBreakdown.grossBookingValue || 0).toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-muted-foreground text-xs">Platform Revenue</span>
-                                            <span className="font-medium text-green-500">₹{Number(commissionBreakdown.platformRevenue || 0).toLocaleString()}</span>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
                     {/* ─── Contract Text ─── */}
                     <div className="rounded-xl border border-white/10 overflow-hidden">
                         <div className="px-4 py-2 bg-white/5 border-b border-white/10 flex items-center justify-between">
@@ -648,17 +597,45 @@ export default function ContractPage() {
                             <div className="space-y-4">
                                 {activeEditCategory === "core" && (
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <Label className="text-sm">Event Date</Label>
-                                            <Input type="date" className="mt-1 h-12"
-                                                value={editChanges.eventDate || ""}
-                                                onChange={(e) => setEditChanges(prev => ({ ...prev, eventDate: e.target.value || undefined }))} />
+                                        <div className="space-y-3">
+                                            <Label className="text-sm font-semibold">Event Date</Label>
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <Button
+                                                        variant={"outline"}
+                                                        className={cn(
+                                                            "w-full justify-start text-left font-normal bg-background/80 h-12",
+                                                            !editChanges.core?.eventDate && "text-muted-foreground"
+                                                        )}
+                                                    >
+                                                        <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
+                                                        {editChanges.core?.eventDate ? format(new Date(editChanges.core.eventDate), "dd MMM yyyy") : <span>Pick a date</span>}
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0 z-[100]" align="start">
+                                                    <Calendar
+                                                        mode="single"
+                                                        selected={editChanges.core?.eventDate ? new Date(editChanges.core.eventDate) : undefined}
+                                                        onSelect={(date) => {
+                                                            if (date) {
+                                                                const dateStr = format(date, "yyyy-MM-dd");
+                                                                setNestedChange('core', 'eventDate', dateStr);
+                                                            } else {
+                                                                setNestedChange('core', 'eventDate', undefined);
+                                                            }
+                                                        }}
+                                                        initialFocus
+                                                    />
+                                                </PopoverContent>
+                                            </Popover>
                                         </div>
-                                        <div>
-                                            <Label className="text-sm">Slot Time</Label>
-                                            <Input type="time" className="mt-1 h-12"
-                                                value={editChanges.slotTime || ""}
-                                                onChange={(e) => setEditChanges(prev => ({ ...prev, slotTime: e.target.value || undefined }))} />
+                                        <div className="space-y-3">
+                                            <Label className="text-sm font-semibold">Slot Time</Label>
+                                            <ScrollableTimePicker 
+                                                value={editChanges.core?.slotTime || ""}
+                                                onChange={(val) => setNestedChange('core', 'slotTime', val || undefined)}
+                                                className="h-12 bg-background/80"
+                                            />
                                         </div>
                                     </div>
                                 )}

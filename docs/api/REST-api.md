@@ -15,10 +15,10 @@
   - Response: Active user data
 
 ### Users
-- `GET /admin/users`
+- `GET /api/admin/users`
   - Role: Admin
-- `PATCH /admin/users/:id/status`
-- `PATCH /admin/users/:id/role`
+- `PATCH /api/admin/users/:id/status`
+- `PATCH /api/admin/users/:id/role`
 
 ### Profiles
 - `GET /api/artists`
@@ -58,12 +58,12 @@
 
 ### Contracts
 - `POST /bookings/:bookingId/contract/initiate`
-- `GET /admin/contracts/pending`
-- `POST /admin/contracts/:id/review`
+- `GET /api/admin/contracts/pending`
+- `POST /api/admin/contracts/:id/review`
 
 ### Messaging
-- `GET /admin/conversations`
-- `GET /admin/conversations/:id/messages`
+- `GET /api/admin/conversations`
+- `GET /api/admin/conversations/:id/messages`
 
 ## Examples
 ### Authentication
@@ -76,6 +76,20 @@ curl -X POST http://localhost:5000/api/login \\
 ```bash
 curl -X GET http://localhost:5000/api/artists/profile/status \\
      -H "Cookie: connect.sid=YOUR_SESSION_ID"
+```
+
+### Fetch Admin Pending Contracts
+```bash
+curl -X GET http://localhost:5000/api/admin/contracts/pending \\
+     -H "Cookie: connect.sid=YOUR_SESSION_ID"
+```
+
+### Review Contract (Admin)
+```bash
+curl -X POST http://localhost:5000/api/admin/contracts/123/review \\
+     -H "Content-Type: application/json" \\
+     -H "Cookie: connect.sid=YOUR_SESSION_ID" \\
+     -d '{"status":"approved","note":"Looks good"}'
 ```
 
 ## Changelog Tracking

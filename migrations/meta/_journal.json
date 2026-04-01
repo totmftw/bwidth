@@ -29,6 +29,13 @@
       "when": 1774532516270,
       "tag": "0003_magenta_lady_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775032100126,
+      "tag": "0004_first_dexter_bennett",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,6 @@
+- [x] Database schema includes `flowStartedAt` and `flowDeadlineAt` columns.
+- [x] New bookings successfully populate the 72-hour deadline.
+- [x] `expireBookingFlow` correctly transitions a booking to a cancelled state with appropriate audit logs.
+- [x] Negotiation actions (propose, accept) fail cleanly if attempted after the 72-hour deadline, and auto-expire the booking.
+- [x] Contract actions (initiate, sign) fail cleanly if attempted after the 72-hour deadline, and auto-expire the booking.
+- [x] Frontend displays the deadline to users so they are aware of the 72-hour constraint.

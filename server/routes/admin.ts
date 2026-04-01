@@ -17,13 +17,13 @@ function isAdmin(req: any, res: any, next: any) {
     next();
 }
 
-// Apply admin middleware only to admin routes
-router.use("/admin", isAdmin);
+// Apply admin middleware to all routes in this router
+router.use(isAdmin);
 
 // === USERS ===
 
 // List all users
-router.get("/admin/users", async (req, res) => {
+router.get("/users", async (req, res) => {
     try {
         const users = await storage.getAllUsers();
         res.json(users);
@@ -34,7 +34,7 @@ router.get("/admin/users", async (req, res) => {
 });
 
 // Update user status (Approve/Reject)
-router.patch("/admin/users/:id/status", async (req, res) => {
+router.patch("/users/:id/status", async (req, res) => {
     try {
         const userId = parseInt(req.params.id);
         const { status } = req.body; // 'active', 'suspended', 'rejected'
@@ -61,7 +61,7 @@ router.patch("/admin/users/:id/status", async (req, res) => {
 });
 
 // Update user role
-router.patch("/admin/users/:id/role", async (req, res) => {
+router.patch("/users/:id/role", async (req, res) => {
     try {
         const userId = parseInt(req.params.id);
         const { role } = req.body;
@@ -90,8 +90,8 @@ router.patch("/admin/users/:id/role", async (req, res) => {
 
 // === CONTRACTS ===
 
-// Get contracts pending review
-router.get("/admin/contracts/pending", async (req, res) => {
+// Get pending contracts for review
+router.get("/contracts/pending", async (req, res) => {
     try {
         const contracts = await storage.getContractsForAdminReview();
         res.json(contracts);
@@ -102,7 +102,7 @@ router.get("/admin/contracts/pending", async (req, res) => {
 });
 
 // Review contract
-router.post("/admin/contracts/:id/review", async (req, res) => {
+router.post("/contracts/:id/review", async (req, res) => {
     try {
         const contractId = parseInt(req.params.id);
         const { status, note } = req.body;
@@ -139,7 +139,7 @@ router.post("/admin/contracts/:id/review", async (req, res) => {
 // === CONVERSATIONS ===
 
 // List all conversations (for admin oversight)
-router.get("/admin/conversations", async (req, res) => {
+router.get("/conversations", async (req, res) => {
     try {
         const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
         const convos = await storage.getAllConversations(limit);
@@ -151,7 +151,7 @@ router.get("/admin/conversations", async (req, res) => {
 });
 
 // Get messages for a specific conversation
-router.get("/admin/conversations/:id/messages", async (req, res) => {
+router.get("/conversations/:id/messages", async (req, res) => {
     try {
         const conversationId = parseInt(req.params.id);
         const messages = await storage.getConversationMessages(conversationId);
@@ -164,7 +164,7 @@ router.get("/admin/conversations/:id/messages", async (req, res) => {
 
 // === SETTINGS ===
 
-router.get("/admin/settings", async (req, res) => {
+router.get("/settings", async (req, res) => {
     try {
         const settings = await db.select().from(appSettings);
         res.json(settings);
@@ -174,7 +174,7 @@ router.get("/admin/settings", async (req, res) => {
     }
 });
 
-router.post("/admin/settings", async (req, res) => {
+router.post("/settings", async (req, res) => {
     try {
         const { key, value } = req.body;
         if (!key) return res.status(400).json({ message: "Key is required" });

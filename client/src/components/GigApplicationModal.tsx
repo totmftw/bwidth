@@ -1,8 +1,14 @@
-import { useState } from "react";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api, type ApplicationSubmitInput } from "@shared/routes";
+import {
+    mergeTechnicalDefaultText,
+    textToTechRiderBrings,
+    textToTechRiderRequirements,
+} from "@shared/negotiation-application";
 import {
     Dialog,
     DialogContent,
@@ -17,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 const formSchema = z.object({
     eventId: z.number(),
@@ -24,6 +31,8 @@ const formSchema = z.object({
     offerAmount: z.coerce.number().min(1, "Amount must be positive"),
     currency: z.string().default("INR"),
     message: z.string().optional(),
+    artistRequirementsText: z.string().optional(),
+    artistBringsText: z.string().optional(),
 });
 
 type ApplicationFormValues = z.infer<typeof formSchema>;
@@ -36,8 +45,15 @@ interface GigApplicationModalProps {
 }
 
 export function GigApplicationModal({ event, stage, open, onOpenChange }: GigApplicationModalProps) {
+    const { user } = useAuth();
     const { toast } = useToast();
     const queryClient = useQueryClient();
+    const artistMetadata = (user?.artist?.metadata as Record<string, unknown> | undefined) || {};
+    const artistRequirementsDefault = mergeTechnicalDefaultText(
+        artistMetadata.equipmentRequirements,
+        artistMetadata.technicalRider,
+    );
+    const artistBringsDefault = mergeTechnicalDefaultText(artistMetadata.equipmentBrings);
 
     const form = useForm<ApplicationFormValues>({
         resolver: zodResolver(formSchema),
@@ -47,20 +63,27 @@ export function GigApplicationModal({ event, stage, open, onOpenChange }: GigApp
             offerAmount: 5000, // Default suggestion
             currency: "INR",
             message: "",
+            artistRequirementsText: artistRequirementsDefault,
+            artistBringsText: artistBringsDefault,
         },
-        values: { // Update values when event changes
+    });
+
+    useEffect(() => {
+        form.reset({
             eventId: event?.id,
             stageId: stage?.id,
             offerAmount: 5000,
             currency: "INR",
             message: "",
-        }
-    });
+            artistRequirementsText: artistRequirementsDefault,
+            artistBringsText: artistBringsDefault,
+        });
+    }, [artistBringsDefault, artistRequirementsDefault, event?.id, form, stage?.id]);
 
     const { mutate, isPending } = useMutation({
-        mutationFn: async (data: ApplicationFormValues) => {
-            const res = await fetch("/api/bookings/apply", {
-                method: "POST",
+        mutationFn: async (data: ApplicationSubmitInput) => {
+            const res = await fetch(api.bookings.apply.path, {
+                method: api.bookings.apply.method,
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(data),
                 credentials: "include",
@@ -102,23 +125,58 @@ export function GigApplicationModal({ event, stage, open, onOpenChange }: GigApp
     });
 
     const onSubmit = (data: ApplicationFormValues) => {
-        mutate(data);
+        const payload: ApplicationSubmitInput = {
+            eventId: data.eventId,
+            message: data.message?.trim() || undefined,
+            proposal: {
+                financial: {
+                    offerAmount: data.offerAmount,
+                    currency: data.currency,
+                    depositPercent: 30,
+                },
+                schedule: stage ? {
+                    stageId: stage.id,
+                    stageName: stage.name || null,
+                    slotLabel: stage.name || null,
+                    startsAt: stage.startTime || null,
+                    endsAt: stage.endTime || null,
+                    soundCheckLabel: null,
+                    soundCheckAt: null,
+                } : null,
+                techRider: {
+                    artistRequirements: textToTechRiderRequirements(data.artistRequirementsText),
+                    artistBrings: textToTechRiderBrings(data.artistBringsText),
+                    organizerCommitments: [],
+                    organizerConfirmedAt: null,
+                    organizerConfirmedBy: null,
+                },
+                logistics: null,
+                notes: data.message?.trim()
+                    ? {
+                        artist: data.message.trim(),
+                        organizer: null,
+                    }
+                    : null,
+            },
+        };
+
+        mutate(payload);
     };
 
     if (!event) return null;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-[640px] max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Apply for {event.title} {stage ? `- ${stage.name}` : ''}</DialogTitle>
                     <DialogDescription>
-                        Submit your application with your proposed fee.
+                        Submit your proposed fee and event-specific technical details for this booking.
                     </DialogDescription>
                 </DialogHeader>
 
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
-                    <input type="hidden" {...form.register("eventId")} value={event.id} />
+                    <input type="hidden" {...form.register("eventId", { valueAsNumber: true })} value={event.id} />
 
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -148,6 +206,30 @@ export function GigApplicationModal({ event, stage, open, onOpenChange }: GigApp
                             placeholder="Why are you the best fit for this gig?"
                             className="min-h-[100px]"
                         />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Event-Specific Rider Requirements</Label>
+                        <Textarea
+                            {...form.register("artistRequirementsText")}
+                            placeholder="List each item the organizer should provide, one per line."
+                            className="min-h-[120px]"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Prefilled from your profile when available. Edit these for this event only.
+                        </p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Equipment You Will Bring</Label>
+                        <Textarea
+                            {...form.register("artistBringsText")}
+                            placeholder="List the gear you will bring yourself, one item per line."
+                            className="min-h-[100px]"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Add only what you plan to bring for this event.
+                        </p>
                     </div>
 
                     <DialogFooter>

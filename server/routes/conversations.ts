@@ -35,6 +35,7 @@ import {
     conversationWorkflowInstances,
 } from "@shared/schema";
 import { workflow } from "../services/workflow";
+import { negotiationService } from "../services/negotiation.service";
 
 const router = Router();
 
@@ -241,6 +242,11 @@ router.post("/entities/:entityType/:entityId/conversation/:conversationType/open
         // Step 1: Idempotency check — return existing conversation if one
         // already exists for this (entityType, entityId, conversationType).
         // ---------------------------------------------------------------
+        if (entityType === "booking" && conversationType === "negotiation") {
+            const convo = await negotiationService.openNegotiation(entityId, user.id);
+            return res.json(convo);
+        }
+
         let convo = await db.query.conversations.findFirst({
             where: and(
                 eq(conversations.entityType, entityType),
@@ -256,61 +262,8 @@ router.post("/entities/:entityType/:entityId/conversation/:conversationType/open
             let participantIds: number[] = [];
             let subject = "Conversation";
 
-            // Track the artist's userId separately — needed later to set
-            // `awaitingUserId` on the workflow instance (artist moves first).
-            let artistUserId: number | null = null;
-
-            if (entityType === "booking" && conversationType === "negotiation") {
-                // Fetch the full booking chain in one call:
-                //   booking → event → organizer (promoter) + venue + artist
-                // This avoids multiple sequential storage calls (N+1).
-                const booking = await storage.getBookingWithDetails(entityId);
-                if (!booking) return res.status(404).json({ message: "Booking not found" });
-
-                // A negotiation requires an artist on the booking
-                if (!booking.artistId) return res.status(400).json({ message: "Booking has no artist" });
-
-                // --- Resolve artist participant ---
-                // The artist profile's userId links to the users table.
-                if (booking.artist?.userId) {
-                    participantIds.push(booking.artist.userId);
-                    artistUserId = booking.artist.userId;
-                }
-
-                // --- Resolve promoter-side participant ---
-                // Priority: organizer (via event) → venue manager (fallback).
-                // This covers two booking flows:
-                //   a) Organizer creates event + booking → organizer is the counterparty
-                //   b) Venue manager books directly → no organizer, venue is counterparty
-                if (booking.organizer?.userId) {
-                    participantIds.push(booking.organizer.userId);
-                } else if (booking.venue?.userId) {
-                    participantIds.push(booking.venue.userId);
-                }
-
-                // Deduplicate: a single user could theoretically be both
-                // the artist and the organizer (e.g. self-booking in dev/test).
-                participantIds = Array.from(new Set(participantIds));
-
-                subject = `Negotiation: ${booking.artist?.name || 'Artist'}`;
-            }
-
-            // -----------------------------------------------------------
-            // Step 3: Prepare workflow state (negotiation only)
-            // -----------------------------------------------------------
-            // Non-negotiation conversations get no workflow instance (null).
-            const initialWorkflowState = (conversationType === 'negotiation') ? {
-                workflowKey: 'booking_negotiation_v1',
-                currentNodeKey: 'WAITING_FIRST_MOVE',  // Initial state node
-                round: 0,                               // No rounds completed
-                maxRounds: 3,                            // Platform-enforced limit
-                locked: false,                           // Workflow is active
-                context: {}                              // Extensible context bag
-            } : null;
-
             // -----------------------------------------------------------
             // Step 4: Transactional insert — conversation + participants
-            //         + workflow instance in a single atomic operation.
             // -----------------------------------------------------------
             convo = await db.transaction(async (tx) => {
                 // 4a. Create the conversation row
@@ -323,22 +276,11 @@ router.post("/entities/:entityType/:entityId/conversation/:conversationType/open
                     lastMessageAt: new Date()
                 }).returning();
 
-                // 4b. Insert participant rows (already deduplicated above)
+                // 4b. Insert participant rows
                 for (const uid of participantIds) {
                     await tx.insert(conversationParticipants).values({
                         conversationId: newConvo.id,
                         userId: uid
-                    });
-                }
-
-                // 4c. Insert workflow instance for negotiation conversations.
-                //     `awaitingUserId` is set to the artist — the artist is
-                //     expected to make the first move (accept / counter / decline).
-                if (initialWorkflowState) {
-                    await tx.insert(conversationWorkflowInstances).values({
-                        conversationId: newConvo.id,
-                        ...initialWorkflowState,
-                        awaitingUserId: artistUserId,
                     });
                 }
 

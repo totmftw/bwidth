@@ -27,6 +27,7 @@ export interface BookingForContract {
   meta?: Record<string, unknown>;
   artist?: {
     name?: string;
+    metadata?: Record<string, any>;
     user?: { 
       displayName?: string;
       legalName?: string;
@@ -60,6 +61,11 @@ export interface BookingForContract {
     startTime?: string | Date | null;
     endTime?: string | Date | null;
   } | null;
+  appSettings?: {
+    name: string;
+    bankDetails: any;
+  };
+  commissionBreakdown?: any;
 }
 
 export interface ContractRecord {
@@ -107,14 +113,49 @@ export function calculateDeadline(initiatedAt: Date, hours: number = DEADLINE_HO
 export function buildTermsFromBooking(booking: BookingForContract): Record<string, unknown> {
   const meta = (booking.meta || {}) as Record<string, any>;
   const customTerms = meta.terms || {};
+  
+  const negotiationSnapshot = meta.negotiation?.agreement?.snapshot || meta.negotiation?.currentProposalSnapshot;
+  
+  const finalAmount = negotiationSnapshot?.financial?.offerAmount ?? Number(booking.finalAmount || booking.offerAmount || 0);
+  const currency = negotiationSnapshot?.financial?.currency ?? booking.offerCurrency ?? 'INR';
+  const depositPercent = negotiationSnapshot?.financial?.depositPercent ?? Number(booking.depositPercent || 30);
+  
+  let slotTime = booking.slotTime || meta.finalSlot || null;
+  let performanceDuration = meta.performanceDuration || '60 to 90-minute';
+
+  if (negotiationSnapshot?.schedule?.startsAt) {
+    try {
+      const startD = new Date(negotiationSnapshot.schedule.startsAt);
+      slotTime = startD.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      
+      if (negotiationSnapshot.schedule.endsAt) {
+        const endD = new Date(negotiationSnapshot.schedule.endsAt);
+        slotTime = `${slotTime} to ${endD.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+        
+        const diffMins = Math.round((endD.getTime() - startD.getTime()) / 60000);
+        if (diffMins > 0) {
+          performanceDuration = `${diffMins} Minutes`;
+        }
+      }
+    } catch (e) {
+      // ignore invalid date
+    }
+  }
+
+  const artistBrings = negotiationSnapshot?.techRider?.artistBrings?.map((r: any) => `${r.quantity}x ${r.item}`) || meta.equipmentList || [];
+  const organizerProvides = negotiationSnapshot?.techRider?.artistRequirements
+    ?.filter((r: any) => r.status === 'confirmed')
+    ?.map((r: any) => `${r.quantity}x ${r.item}`) || meta.backlineProvided || [];
+
   return {
     // Core (non-editable - from negotiation)
-    fee: Number(booking.finalAmount || booking.offerAmount || 0),
-    currency: booking.offerCurrency || 'INR',
-    depositPercent: Number(booking.depositPercent || 30),
+    fee: finalAmount,
+    currency: currency,
+    depositPercent: depositPercent,
     eventTitle: booking.event?.title || '',
     eventDate: booking.event?.startTime || booking.eventDate || null,
-    slotTime: booking.slotTime || null,
+    slotTime: slotTime,
+    performanceDuration: performanceDuration,
     venueName: booking.venue?.name || '',
     artistName: booking.artist?.name || '',
     organizerName: booking.organizer?.name || '',
@@ -122,17 +163,19 @@ export function buildTermsFromBooking(booking: BookingForContract): Record<strin
     financial: {
       paymentMethod: meta.paymentMethod || 'bank_transfer',
       paymentMilestones: meta.paymentMilestones || [
-        { milestone: 'deposit', percentage: Number(booking.depositPercent || 30), dueDate: 'upon_signing' },
-        { milestone: 'pre_event', percentage: 100 - Number(booking.depositPercent || 30), dueDate: '24h_before' },
+        { milestone: 'deposit', percentage: depositPercent, dueDate: 'upon_signing' },
+        { milestone: 'pre_event', percentage: 100 - depositPercent, dueDate: '24h_before' },
       ],
-      ...customTerms.financial
+      ...customTerms.financial,
+      ...(negotiationSnapshot?.logistics?.financial || {})
     },
     travel: {
       responsibility: meta.travelProvided ? 'organizer' : 'artist',
       flightClass: meta.flightClass || 'economy',
       airportPickup: meta.airportPickup || false,
       groundTransport: meta.groundTransport || 'not_provided',
-      ...customTerms.travel
+      ...customTerms.travel,
+      ...(negotiationSnapshot?.logistics?.travel || {})
     },
     accommodation: {
       included: meta.accommodationProvided || false,
@@ -141,14 +184,16 @@ export function buildTermsFromBooking(booking: BookingForContract): Record<strin
       checkInTime: '14:00',
       checkOutTime: '12:00',
       nights: meta.nights || 1,
-      ...customTerms.accommodation
+      ...customTerms.accommodation,
+      ...(negotiationSnapshot?.logistics?.accommodation || {})
     },
     technical: {
-      equipmentList: meta.equipmentList || [],
+      equipmentList: artistBrings,
+      backlineProvided: organizerProvides,
       soundCheckDuration: meta.soundCheckDuration || 60,
-      backlineProvided: meta.backlineProvided || [],
       stageSetupTime: meta.stageSetupTime || 30,
-      ...customTerms.technical
+      ...customTerms.technical,
+      ...(negotiationSnapshot?.logistics?.technical || {})
     },
     hospitality: {
       guestListCount: meta.guestListCount || 2,
@@ -217,8 +262,6 @@ export function generateContractText(booking: BookingForContract, terms?: Record
   const currency = booking.offerCurrency || 'INR';
   const fee = Number(booking.finalAmount || booking.offerAmount || 0);
   const deposit = Number(booking.depositPercent || 30);
-  const depositAmount = Math.round(fee * deposit / 100);
-  const balanceAmount = fee - depositAmount;
 
   // Legal details extraction
   const orgName = booking.organizer?.user?.legalName || booking.organizer?.name || '[Organizer Legal Name]';
@@ -239,7 +282,36 @@ export function generateContractText(booking: BookingForContract, terms?: Record
   const bankIfsc = booking.artist?.user?.bankIfsc || '[IFSC/SWIFT]';
 
   const city = booking.venue?.city || '[City]';
-  const duration = meta.performanceDuration || '60 to 90-minute';
+  const duration = t.performanceDuration || meta.performanceDuration || '60 to 90-minute';
+
+  const appName = booking.appSettings?.name || 'The Platform';
+  const appBank = booking.appSettings?.bankDetails || {};
+  const appBankHolder = appBank.accountHolderName || '[Platform Escrow Account Name]';
+  const appBankName = appBank.bankName || '[Platform Bank Name]';
+  const appBankBranch = appBank.bankBranch || '[Platform Branch]';
+  const appBankAcc = appBank.accountNumber || '[Platform Account Number]';
+  const appBankIfsc = appBank.ifsc || '[Platform IFSC/SWIFT]';
+
+  const cb = booking.commissionBreakdown || {};
+  const organizerFee = Number(cb.organizerFee || 0);
+  const artistCommission = Number(cb.artistFee || 0) - Number(cb.netPayoutToArtist || fee);
+  const totalPayable = fee + organizerFee;
+  const netPayout = fee - artistCommission;
+  
+  // Calculate deposit based on the total payable amount
+  const depositAmount = Math.round(totalPayable * deposit / 100);
+  const balanceAmount = totalPayable - depositAmount;
+
+  let techRiderText = '';
+  if (t.technical?.equipmentList?.length || t.technical?.backlineProvided?.length) {
+    const list1 = t.technical.equipmentList?.join(', ') || 'None';
+    const list2 = t.technical.backlineProvided?.join(', ') || 'None';
+    techRiderText = `Artist Brings: ${list1}\nOrganizer Provides: ${list2}`;
+  } else if (booking.artist?.metadata?.technicalRider || booking.artist?.metadata?.equipmentRequirements) {
+    techRiderText = booking.artist.metadata.technicalRider || booking.artist.metadata.equipmentRequirements;
+  } else {
+    techRiderText = 'A detailed Technical Rider will be provided separately.';
+  }
 
   return `
 PERFORMANCE AND BOOKING AGREEMENT
@@ -252,9 +324,13 @@ PARTIES:
 
 AND
 
-2. ${artLegalName} professionally known as ${artStageName}, residing at ${artAddress}, holding PAN ${artPAN} and GSTIN ${artGSTIN} (hereinafter referred to as the "Artist", which expression shall, unless repugnant to the context or meaning thereof, be deemed to mean and include their heirs, executors, and permitted assigns) of the SECOND PART.
+2. ${artLegalName} professionally known as ${artStageName}, residing at ${artAddress}, holding PAN ${artPAN} and GSTIN ${artGSTIN} (hereinafter referred to as the "Artist", which expression shall, unless repugnant to the context or meaning thereof, be deemed to mean and include their heirs, executors, and permitted assigns) of the SECOND PART;
 
-(The Booking Agent and the Artist are hereinafter collectively referred to as the "Parties" and individually as a "Party".)
+AND
+
+3. ${appName}, acting as the "Broker/Middleman" (hereinafter referred to as the "Platform") of the THIRD PART.
+
+(The Booking Agent, the Artist, and the Platform are hereinafter collectively referred to as the "Parties" and individually as a "Party".)
 
 WHEREAS:
 A. The Booking Agent is engaged in the business of organizing and promoting live entertainment events.
@@ -266,9 +342,13 @@ NOW, THEREFORE, IN CONSIDERATION OF THE MUTUAL PROMISES CONTAINED HEREIN, THE PA
 1. EVENT DETAILS & ARTIST FEE
 1.1. Tour/Event Dates: ${formattedStartDate} to ${formattedEndDate}
 1.2. Cities/Venues: ${city}, India
-1.3. Performance Duration: ${duration} set per event
-1.4. Total Fee: ${currency} ${fee.toLocaleString()} for 1 event(s).
-1.5. The Fee includes the Artist's appearance and performance only. Any additional services will require a separate written agreement.
+1.3. Time Slot: ${formattedTime}
+1.4. Performance Duration: ${duration}
+1.5. Agreed Fee: ${currency} ${fee.toLocaleString()} for 1 event(s).
+1.6. Broker Commissions:
+     - Organizer Platform Fee: ${currency} ${organizerFee.toLocaleString()}
+     - Artist Commission Deducted: ${currency} ${artistCommission.toLocaleString()}
+1.7. The Fee includes the Artist's appearance and performance only. Any additional services will require a separate written agreement.
 
 2. TRAVEL & ACCOMMODATION
 2.1. Flights: All international and domestic flights (${t.travel?.flightClass || 'economy'}) must be ${t.travel?.flightPreference || 'approved airlines only'}.
@@ -283,17 +363,19 @@ NOW, THEREFORE, IN CONSIDERATION OF THE MUTUAL PROMISES CONTAINED HEREIN, THE PA
 2.6. Ground Transportation: All ground transportation between the airport, hotel, and venue must be provided and pre-approved by the Booking Agent. The driver must carry a visible sign with the Artist’s name. If airport pickup is delayed by more than 30 minutes, the Promoter covers the cost of a hotel at the airport.
 
 3. PAYMENT TERMS & TAXES
-3.1. Deposit: ${deposit}% (${currency} ${depositAmount.toLocaleString()}) due before the public announcement of the Artist.
-3.2. Balance: Remaining ${currency} ${balanceAmount.toLocaleString()} due one week before the first event date.
-3.3. Net Payments: All payments must be net of all fees, including but not limited to bank fees, currency conversion charges, and local taxes/levies.
-3.4. GST and Withholding Tax (TDS): Any Goods and Services Tax (GST) applicable under the Central Goods and Services Tax Act, 2017, and Tax Deducted at Source (TDS) under the Income Tax Act, 1961, shall be borne and complied with by the Booking Agent. The Booking Agent shall provide the necessary TDS certificates to the Artist within the statutory timelines.
-3.5. Bank Details: All payments must be made via bank wire transfer to:
-     - Account Holder: ${bankHolder}
-     - Bank Name: ${bankName}
-     - Branch: ${bankBranch}
-     - Account Number: ${bankAcc}
-     - IFSC/SWIFT Code: ${bankIfsc}
-     - PAN: ${artPAN}
+3.1. Total Amount Payable by Organizer: ${currency} ${totalPayable.toLocaleString()} (Includes Agreed Fee + Organizer Platform Fee).
+3.2. Net Payout to Artist: ${currency} ${netPayout.toLocaleString()} (Agreed Fee minus Artist Commission).
+3.3. Deposit: ${deposit}% (${currency} ${depositAmount.toLocaleString()}) of Total Amount due before the public announcement of the Artist.
+3.4. Balance: Remaining ${currency} ${balanceAmount.toLocaleString()} due one week before the first event date.
+3.5. Net Payments: All payments must be net of all fees, including but not limited to bank fees, currency conversion charges, and local taxes/levies.
+3.6. GST and Withholding Tax (TDS): Any Goods and Services Tax (GST) applicable under the Central Goods and Services Tax Act, 2017, and Tax Deducted at Source (TDS) under the Income Tax Act, 1961, shall be borne and complied with by the Booking Agent. The Booking Agent shall provide the necessary TDS certificates to the Artist within the statutory timelines.
+3.7. Bank Details: All payments must be made via bank wire transfer to the Platform's Escrow Account:
+     - Account Holder: ${appBankHolder}
+     - Bank Name: ${appBankName}
+     - Branch: ${appBankBranch}
+     - Account Number: ${appBankAcc}
+     - IFSC/SWIFT Code: ${appBankIfsc}
+     (The Platform will disburse the Net Payout to the Artist's registered bank account post-event as per the terms).
 
 4. BILLING & PROMOTION
 4.1. The Artist must be billed as the headliner and placed at the top of all promotional material.
@@ -309,7 +391,8 @@ NOW, THEREFORE, IN CONSIDERATION OF THE MUTUAL PROMISES CONTAINED HEREIN, THE PA
 5.5. The Promoter must provide adequate professional security personnel during the performance and transit.
 
 6. EQUIPMENT & TECHNICAL REQUIREMENTS
-6.1. A detailed Technical Rider and equipment needs list will be provided separately and forms an integral part of this Agreement.
+6.1. The Artist's Technical Requirements are as follows:
+${techRiderText.split('\n').map(line => '     ' + line).join('\n')}
 6.2. The Promoter is required to meet all technical specifications fully and promptly. Failure to do so gives the Artist the right to refuse performance without penalty or refund of the fee.
 
 7. INTELLECTUAL PROPERTY, REPRODUCTION & BROADCAST RIGHTS

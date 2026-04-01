@@ -1,21 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { format } from "date-fns";
-import {
-  Check, CheckCheck, X, ChevronUp, ChevronDown,
-  IndianRupee, ThumbsUp, ThumbsDown, ArrowLeftRight,
-  Loader2, Clock, Info, Lock, FileText, LogOut,
-  CalendarClock
-} from "lucide-react";
+import { format, differenceInHours, differenceInMinutes } from "date-fns";
+import { api, type NegotiationSummaryResponse, type ProposalSubmitInput, type RiderConfirmationInput } from "@shared/routes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { useLocation } from "wouter";
+import { CheckCheck, X, ThumbsUp, ArrowLeftRight, Loader2, Info, Check, LogOut, Clock } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 
 interface NegotiationFlowProps {
   booking: any;
@@ -23,842 +20,408 @@ interface NegotiationFlowProps {
   onStartContract?: () => void;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function formatCurrency(amount: any, currency = "INR") {
-  const num = Number(amount);
-  if (isNaN(num)) return `${currency} —`;
-  return `₹${num.toLocaleString("en-IN")}`;
-}
-
-function TimeStamp({ ts }: { ts: string }) {
-  try {
-    return (
-      <span className="text-[10px] opacity-50 select-none">
-        {format(new Date(ts), "MMM d, h:mm a")}
-      </span>
-    );
-  } catch {
-    return null;
-  }
-}
-
-// ─── Message Bubble ──────────────────────────────────────────────────────────
-
-function MessageBubble({ msg, isMe, currency }: { msg: any; isMe: boolean; currency: string }) {
-  const payload = msg.payload || {};
-
-  if (msg.messageType === "system") {
-    return (
-      <div className="flex justify-center my-3">
-        <div className="flex items-center gap-1.5 bg-muted/40 text-muted-foreground text-xs px-4 py-1.5 rounded-full max-w-[90%] text-center">
-          <Info className="w-3 h-3 shrink-0" />
-          <span>{msg.body}</span>
-        </div>
-      </div>
-    );
-  }
-
-  const actionLabels: Record<string, { label: string; icon: any; color: string }> = {
-    PROPOSE_COST: { label: "💰 Counter Offer", icon: ArrowLeftRight, color: "text-purple-400" },
-    PROPOSE_SLOT: { label: "🕐 Slot Change", icon: CalendarClock, color: "text-blue-400" },
-    PROPOSE_RIDER: { label: "🎸 Tech Rider Update", icon: FileText, color: "text-amber-400" },
-    PROPOSE_CHANGE: { label: "💰 Counter Offer", icon: ArrowLeftRight, color: "text-purple-400" },
-    ACCEPT: { label: "✅ Accepted", icon: ThumbsUp, color: "text-green-400" },
-    WALK_AWAY: { label: "❌ Walked Away", icon: LogOut, color: "text-red-400" },
-    DECLINE: { label: "❌ Declined", icon: ThumbsDown, color: "text-red-400" },
-  };
-
-  const meta = actionLabels[msg.actionKey] || null;
-  const senderName = payload.senderName || (isMe ? "You" : "Other");
-
-  return (
-    <div className={`flex ${isMe ? "justify-end" : "justify-start"} mb-3 px-3`}>
-      <div
-        className={`
-          max-w-[80%] rounded-2xl px-4 py-3 shadow-sm
-          ${isMe
-            ? "bg-violet-600 text-white rounded-br-md"
-            : "bg-muted/60 text-foreground rounded-bl-md border border-border/40"}
-        `}
-      >
-        {/* Sender name */}
-        <p className={`text-[11px] font-bold mb-1 ${isMe ? "text-violet-200" : "text-primary"}`}>
-          {isMe ? "You" : senderName}
-        </p>
-
-        {/* Action label */}
-        {meta && (
-          <div className={`flex items-center gap-1.5 text-[11px] font-semibold mb-2 ${isMe ? "text-violet-200" : meta.color}`}>
-            {meta.label}
-          </div>
-        )}
-
-        {/* Offer amount chip */}
-        {payload.offerAmount && (
-          <div className={`
-            inline-flex items-center gap-1 rounded-lg px-3 py-1.5 mb-2 font-mono font-bold text-base
-            ${isMe ? "bg-white/15" : "bg-primary/10 text-primary"}
-          `}>
-            <IndianRupee className="w-4 h-4" />
-            {Number(payload.offerAmount).toLocaleString("en-IN")}
-          </div>
-        )}
-
-        {/* Slot time chip */}
-        {payload.slotTime && (
-          <div className={`
-            inline-flex items-center gap-1 rounded-lg px-3 py-1.5 mb-2 font-semibold text-sm
-            ${isMe ? "bg-white/15" : "bg-blue-500/10 text-blue-400"}
-          `}>
-            <CalendarClock className="w-4 h-4" />
-            {payload.slotTime}
-          </div>
-        )}
-
-        {/* Tech Rider chip */}
-        {(payload.providedEquipment?.length > 0 || payload.requestedEquipment?.length > 0) && (
-          <div className={`
-            flex flex-col gap-2 rounded-lg px-3 py-2 mb-2 text-sm
-            ${isMe ? "bg-white/10" : "bg-amber-500/10 text-amber-500"}
-          `}>
-            {payload.providedEquipment?.length > 0 && (
-              <div>
-                <span className="font-semibold text-xs opacity-80 uppercase tracking-wider block mb-1">Provided by Organizer</span>
-                <ul className="list-disc list-inside pl-2">
-                  {payload.providedEquipment.map((item: string, i: number) => <li key={i}>{item}</li>)}
-                </ul>
-              </div>
-            )}
-            {payload.requestedEquipment?.length > 0 && (
-              <div>
-                <span className="font-semibold text-xs opacity-80 uppercase tracking-wider block mb-1">Requested by Artist</span>
-                <ul className="list-disc list-inside pl-2">
-                  {payload.requestedEquipment.map((item: string, i: number) => <li key={i}>{item}</li>)}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Note / body */}
-        {(msg.body || payload.note) && (
-          <p className={`text-sm leading-relaxed ${isMe ? "text-violet-100" : "text-foreground/80"}`}>
-            {msg.body || payload.note}
-          </p>
-        )}
-
-        {/* Timestamp row */}
-        <div className="flex items-center justify-end gap-2 mt-2">
-          <TimeStamp ts={msg.createdAt} />
-          {isMe && (
-            <CheckCheck className="w-3.5 h-3.5 text-violet-300 ml-0.5" />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Rider Update Sheet ─────────────────────────────────────────────────────
-
-function RiderUpdateSheet({ current, onConfirm, onCancel, isPending, isArtist }: any) {
-  const [provided, setProvided] = useState(current?.providedEquipment?.join("\n") || "");
-  const [requested, setRequested] = useState(current?.requestedEquipment?.join("\n") || "");
-  const [note, setNote] = useState("");
-
-  const handleSubmit = () => {
-    onConfirm({
-      providedEquipment: isArtist 
-        ? current?.providedEquipment 
-        : provided.split("\n").map((s: string) => s.trim()).filter(Boolean),
-      requestedEquipment: isArtist 
-        ? requested.split("\n").map((s: string) => s.trim()).filter(Boolean) 
-        : current?.requestedEquipment,
-      note: note.trim()
-    });
-  };
-
-  return (
-    <div className="border-t bg-card px-4 py-4 animate-in slide-in-from-bottom-2 shrink-0">
-      <h3 className="font-semibold text-sm mb-3">Update Tech Rider</h3>
-      <div className="space-y-3">
-        {isArtist ? (
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Equipment Provided by Organizer</label>
-            <div className="text-sm bg-muted/40 p-3 rounded-md border border-white/5 text-muted-foreground min-h-[50px] whitespace-pre-wrap">
-              {provided || "None specified"}
-            </div>
-          </div>
-        ) : (
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Equipment Provided by Organizer</label>
-            <Textarea
-              placeholder="E.g., PA System, 2x Mics..."
-              value={provided}
-              onChange={(e) => setProvided(e.target.value)}
-              className="h-20 resize-none text-sm"
-            />
-          </div>
-        )}
-
-        {isArtist ? (
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Equipment Requested by Artist</label>
-            <Textarea
-              placeholder="E.g., Pioneer CDJ-3000, specific monitors..."
-              value={requested}
-              onChange={(e) => setRequested(e.target.value)}
-              className="h-20 resize-none text-sm"
-            />
-          </div>
-        ) : (
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Equipment Requested by Artist</label>
-            <div className="text-sm bg-muted/40 p-3 rounded-md border border-white/5 text-muted-foreground min-h-[50px] whitespace-pre-wrap">
-              {requested || "None specified"}
-            </div>
-          </div>
-        )}
-        <div>
-          <label className="text-xs text-muted-foreground mb-1 block">Note (Optional)</label>
-          <Input
-            placeholder="Why the change?"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            className="h-9 text-sm"
-          />
-        </div>
-        <div className="flex gap-2 pt-2">
-          <Button variant="ghost" onClick={onCancel} className="flex-1 h-10" disabled={isPending}>Cancel</Button>
-          <Button onClick={handleSubmit} className="flex-1 h-10 bg-amber-600 hover:bg-amber-700" disabled={isPending}>
-            {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send Update"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Counter Cost Sheet ─────────────────────────────────────────────────────
-
-function CounterCostSheet({
-  booking,
-  remainingRounds,
-  onSubmit,
-  onCancel,
-  isPending,
-}: {
-  booking: any;
-  remainingRounds: number;
-  onSubmit: (data: { offerAmount: number; note: string }) => void;
-  onCancel: () => void;
-  isPending: boolean;
-}) {
-  const [amount, setAmount] = useState(String(Number(booking.offerAmount)));
-  const [note, setNote] = useState("");
-  const [error, setError] = useState("");
-
-  const handleSend = () => {
-    const num = Number(amount);
-    if (!num || num <= 0) { setError("Enter a valid amount"); return; }
-    onSubmit({ offerAmount: num, note });
-  };
-
-  return (
-    <div className="border-t bg-card/95 backdrop-blur-sm p-4 space-y-3 animate-in slide-in-from-bottom-4 duration-200">
-      <div className="flex items-center justify-between">
-        <div>
-          <span className="font-semibold text-sm">💰 Counter Offer</span>
-          <span className="text-xs text-muted-foreground ml-2">({remainingRounds} remaining)</span>
-        </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCancel}>
-          <X className="w-4 h-4" />
-        </Button>
-      </div>
-
-      <div className="relative">
-        <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          type="number"
-          className="pl-8 text-base font-mono h-12"
-          value={amount}
-          onChange={e => { setAmount(e.target.value); setError(""); }}
-          placeholder="Amount"
-          inputMode="numeric"
-          autoFocus
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground ml-1">Add a note (Optional)</Label>
-        <Textarea
-          className="resize-none text-sm min-h-[70px]"
-          placeholder="Explain your offer…"
-          value={note}
-          onChange={e => { setNote(e.target.value); setError(""); }}
-        />
-      </div>
-
-      {error && <p className="text-xs text-destructive">{error}</p>}
-
-      <Button
-        className="w-full h-12 text-base font-semibold bg-violet-600 hover:bg-violet-700"
-        onClick={handleSend}
-        disabled={isPending}
-      >
-        {isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ArrowLeftRight className="w-4 h-4 mr-2" />}
-        Send Counter Offer
-      </Button>
-    </div>
-  );
-}
-
-// ─── Slot Change Sheet ──────────────────────────────────────────────────────
-
-function SlotChangeSheet({
-  currentSlot,
-  remainingRounds,
-  onSubmit,
-  onCancel,
-  isPending,
-}: {
-  currentSlot: string;
-  remainingRounds: number;
-  onSubmit: (data: { slotTime: string; note: string }) => void;
-  onCancel: () => void;
-  isPending: boolean;
-}) {
-  const [slotTime, setSlotTime] = useState("");
-  const [note, setNote] = useState("");
-  const [error, setError] = useState("");
-
-  const handleSend = () => {
-    if (!slotTime.trim()) { setError("Enter a valid time slot"); return; }
-    onSubmit({ slotTime, note });
-  };
-
-  return (
-    <div className="border-t bg-card/95 backdrop-blur-sm p-4 space-y-3 animate-in slide-in-from-bottom-4 duration-200">
-      <div className="flex items-center justify-between">
-        <div>
-          <span className="font-semibold text-sm">🕐 Change Time Slot</span>
-          <span className="text-xs text-muted-foreground ml-2">({remainingRounds} remaining)</span>
-        </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCancel}>
-          <X className="w-4 h-4" />
-        </Button>
-      </div>
-
-      <div className="text-xs text-muted-foreground">
-        Current slot: <span className="font-medium text-foreground">{currentSlot || "TBD"}</span>
-      </div>
-
-      <Input
-        className="text-base h-12"
-        value={slotTime}
-        onChange={e => { setSlotTime(e.target.value); setError(""); }}
-        placeholder="e.g. 8:00 PM - 10:00 PM"
-        autoFocus
-      />
-
-      <Textarea
-        className="resize-none text-sm min-h-[60px]"
-        placeholder="Optional: reason for slot change…"
-        value={note}
-        onChange={e => { setNote(e.target.value); setError(""); }}
-      />
-
-      {error && <p className="text-xs text-destructive">{error}</p>}
-
-      <Button
-        className="w-full h-12 text-base font-semibold bg-blue-600 hover:bg-blue-700"
-        onClick={handleSend}
-        disabled={isPending}
-      >
-        {isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CalendarClock className="w-4 h-4 mr-2" />}
-        Propose Slot Change
-      </Button>
-    </div>
-  );
-}
-
-// ─── Walk Away Confirm Sheet ────────────────────────────────────────────────
-
-function WalkAwaySheet({
-  onConfirm,
-  onCancel,
-  isPending,
-}: {
-  onConfirm: (note: string) => void;
-  onCancel: () => void;
-  isPending: boolean;
-}) {
-  const [note, setNote] = useState("");
-  return (
-    <div className="border-t bg-card/95 backdrop-blur-sm p-4 space-y-3 animate-in slide-in-from-bottom-4 duration-200">
-      <div className="flex items-center justify-between">
-        <span className="font-semibold text-sm text-destructive">Walk Away from Deal</span>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCancel}>
-          <X className="w-4 h-4" />
-        </Button>
-      </div>
-      <p className="text-sm text-muted-foreground">This will cancel the booking. Are you sure?</p>
-      <Textarea
-        className="resize-none text-sm min-h-[60px]"
-        placeholder="Optional: reason for walking away…"
-        value={note}
-        onChange={e => setNote(e.target.value)}
-      />
-      <div className="grid grid-cols-2 gap-2">
-        <Button variant="outline" className="h-12" onClick={onCancel}>Cancel</Button>
-        <Button
-          variant="destructive"
-          className="h-12 font-semibold"
-          onClick={() => onConfirm(note)}
-          disabled={isPending}
-        >
-          {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm Walk Away"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Contract Terms Sheet ───────────────────────────────────────────────────
-
-function ContractTermsSheet({
-  onConfirm,
-  onCancel,
-  isPending,
-}: {
-  onConfirm: (terms: any) => void;
-  onCancel: () => void;
-  isPending: boolean;
-}) {
-  const [terms, setTerms] = useState({
-    travel: { flightClass: "economy", flightPreference: "", routing: "" },
-    accommodation: { hotelStarRating: "3", roomType: "private room" },
-    hospitality: { perDiem: 0, guestListCount: 2 },
-  });
-
-  return (
-    <div className="border-t bg-card/95 backdrop-blur-sm p-4 space-y-4 animate-in slide-in-from-bottom-4 duration-200 h-96 overflow-y-auto">
-      <div className="flex items-center justify-between sticky top-0 bg-card/95 pb-2 z-10">
-        <span className="font-semibold text-sm text-emerald-500">Configure Contract Terms</span>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCancel}>
-          <X className="w-4 h-4" />
-        </Button>
-      </div>
-      
-      <div className="space-y-4 text-sm">
-        <div className="space-y-2">
-          <Label className="text-xs text-primary">Travel & Flights</Label>
-          <Input 
-            placeholder="e.g. Business Class" 
-            value={terms.travel.flightClass}
-            onChange={e => setTerms({...terms, travel: {...terms.travel, flightClass: e.target.value}})} 
-          />
-          <Input 
-            placeholder="Airline Preference (e.g. Star Alliance)" 
-            value={terms.travel.flightPreference}
-            onChange={e => setTerms({...terms, travel: {...terms.travel, flightPreference: e.target.value}})} 
-          />
-          <Input 
-            placeholder="Routing Requirements (e.g. Direct only via BOM)" 
-            value={terms.travel.routing}
-            onChange={e => setTerms({...terms, travel: {...terms.travel, routing: e.target.value}})} 
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-xs text-primary">Accommodation</Label>
-          <div className="flex gap-2">
-            <Input 
-              type="number" placeholder="Star Rating (e.g. 5)" min="1" max="5"
-              value={terms.accommodation.hotelStarRating}
-              onChange={e => setTerms({...terms, accommodation: {...terms.accommodation, hotelStarRating: e.target.value}})} 
-            />
-            <Input 
-              placeholder="Room Type" 
-              value={terms.accommodation.roomType}
-              onChange={e => setTerms({...terms, accommodation: {...terms.accommodation, roomType: e.target.value}})} 
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-xs text-primary">Hospitality</Label>
-          <div className="flex gap-2">
-            <Input 
-              type="number" placeholder="Per Diem (€/₹)" 
-              value={terms.hospitality.perDiem}
-              onChange={e => setTerms({...terms, hospitality: {...terms.hospitality, perDiem: Number(e.target.value)}})} 
-            />
-            <Input 
-              type="number" placeholder="Guest List Count" 
-              value={terms.hospitality.guestListCount}
-              onChange={e => setTerms({...terms, hospitality: {...terms.hospitality, guestListCount: Number(e.target.value)}})} 
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 pt-4 sticky bottom-0 bg-card/95">
-        <Button variant="outline" className="h-12" onClick={onCancel}>Cancel</Button>
-        <Button
-          className="h-12 font-semibold bg-emerald-600 hover:bg-emerald-700"
-          onClick={() => onConfirm(terms)}
-          disabled={isPending}
-        >
-          {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Finalize & Accept"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Main Component ──────────────────────────────────────────────────────────
-
 export function NegotiationFlow({ booking, onClose, onStartContract }: NegotiationFlowProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const [conversationId, setConversationId] = useState<number | null>(null);
-  const [sheet, setSheet] = useState<"cost" | "slot" | "rider" | "walkaway" | "terms" | null>(null);
-  const [, navigate] = useLocation();
+  const [mode, setMode] = useState<"view" | "propose" | "rider">("view");
 
-  // 1. Open / retrieve conversation
-  const { mutate: openConvo, isPending: isOpening } = useMutation({
-    mutationFn: async () => {
+  const { data: summary, isLoading, refetch } = useQuery<NegotiationSummaryResponse>({
+    queryKey: [api.bookings.negotiationSummary.path.replace(":id", booking.id.toString())],
+    queryFn: async () => {
       const res = await apiRequest(
-        "POST",
-        `/api/entities/booking/${booking.id}/conversation/negotiation/open`
+        api.bookings.negotiationSummary.method,
+        api.bookings.negotiationSummary.path.replace(":id", booking.id.toString())
       );
       return res.json();
     },
-    onSuccess: (data) => setConversationId(data.id),
-    onError: () => toast({ title: "Could not open negotiation", variant: "destructive" }),
+    refetchInterval: 5000,
   });
 
-  useEffect(() => { openConvo(); }, [booking.id]);
-
-  // 2. Conversation + workflow state (poll every 4s)
-  const { data: conversation } = useQuery<any>({
-    queryKey: [`/api/conversations/${conversationId}`],
-    enabled: !!conversationId,
-    refetchInterval: 4000,
-  });
-
-  // 3. Messages (poll every 4s)
-  const { data: messages = [], isLoading: loadingMsgs } = useQuery<any[]>({
-    queryKey: [`/api/conversations/${conversationId}/messages`],
-    enabled: !!conversationId,
-    refetchInterval: 4000,
-  });
-
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
-
-  // 4. Perform action mutation
-  const { mutate: act, isPending: isActing } = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", `/api/conversations/${conversationId}/actions`, data);
+  const proposeMutation = useMutation({
+    mutationFn: async (payload: ProposalSubmitInput) => {
+      const res = await apiRequest(
+        api.bookings.submitProposal.method,
+        api.bookings.submitProposal.path.replace(":id", booking.id.toString()),
+        payload
+      );
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/conversations/${conversationId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/conversations/${conversationId}/messages`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/bookings`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/organizer/bookings`] });
-      setSheet(null);
-    },
-    onError: (err: any) => {
-      toast({ title: "Action failed", description: err.message, variant: "destructive" });
+      toast({ title: "Proposal sent" });
+      setMode("view");
+      refetch();
     },
   });
 
-  const handleAction = (actionKey: string, inputs: any = {}) => {
-    act({ actionKey, clientMsgId: crypto.randomUUID(), inputs });
-  };
+  const confirmRiderMutation = useMutation({
+    mutationFn: async (payload: RiderConfirmationInput) => {
+      const res = await apiRequest(
+        api.bookings.confirmRider.method,
+        api.bookings.confirmRider.path.replace(":id", booking.id.toString()),
+        payload
+      );
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Rider confirmed" });
+      setMode("view");
+      refetch();
+    },
+  });
 
-  // Derive state from workflow
-  const wf = conversation?.workflowInstance;
-  const ctx = (wf?.context as any) || {};
-  const isCostMyTurn = ctx.costAwaitingUserId === user?.id;
-  const isSlotMyTurn = ctx.slotAwaitingUserId === user?.id;
-  const isTerminal = wf && ["ACCEPTED", "DECLINED"].includes(wf.currentNodeKey);
-  const currentOffer = formatCurrency(booking.offerAmount, booking.offerCurrency);
+  const acceptMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest(
+        api.bookings.finalAccept.method,
+        api.bookings.finalAccept.path.replace(":id", booking.id.toString()),
+        { proposalVersion: summary?.round }
+      );
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Accepted proposal" });
+      refetch();
+    },
+  });
 
-  // Determine actor's role and remaining rounds
-  const isArtist = user?.id === ctx.artistUserId;
-  const myRole = isArtist ? "artist" : "organizer";
-  const costKey = isArtist ? "costRoundsArtist" : "costRoundsOrganizer";
-  const slotKey = isArtist ? "slotRoundsArtist" : "slotRoundsOrganizer";
-  const myCostRoundsUsed = ctx[costKey] || 0;
-  const mySlotRoundsUsed = ctx[slotKey] || 0;
-  const costRemaining = Math.max(0, 2 - myCostRoundsUsed);
-  const slotRemaining = Math.max(0, 1 - mySlotRoundsUsed);
-  const costLocked = ctx.costLocked || false;
-  const slotLocked = ctx.slotLocked || false;
+  const walkAwayMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest(
+        api.bookings.walkAway.method,
+        api.bookings.walkAway.path.replace(":id", booking.id.toString()),
+        { reason: "User walked away" }
+      );
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Walked away" });
+      onClose();
+    },
+  });
 
-  const counterName = isArtist
-    ? (ctx.organizerName || booking.organizer?.organizationName || booking.organizer?.name || "Organizer")
-    : (ctx.artistName || booking.artist?.stageName || booking.artist?.name || "Artist");
+  if (isLoading || !summary) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="mt-4 text-sm text-muted-foreground">Loading negotiation workspace...</p>
+      </div>
+    );
+  }
+
+  const isArtist = user?.id === summary.booking.artistId;
+  const isAgreed = summary.status === "agreed";
+  const isWalkedAway = summary.status === "walked_away";
+  
+  // Deadline calculation
+  const [timeLeft, setTimeLeft] = useState<string>("");
+  const [isExpired, setIsExpired] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!summary.booking.flowDeadlineAt || isAgreed || isWalkedAway) return;
+
+    const deadline = new Date(summary.booking.flowDeadlineAt);
+    
+    const updateTime = () => {
+      const now = new Date();
+      if (now > deadline) {
+        setIsExpired(true);
+        setTimeLeft("Expired");
+        return;
+      }
+      
+      const hours = differenceInHours(deadline, now);
+      const minutes = differenceInMinutes(deadline, now) % 60;
+      setTimeLeft(`${hours}h ${minutes}m remaining`);
+    };
+
+    updateTime();
+    const interval = setInterval(updateTime, 60000); // update every minute
+    return () => clearInterval(interval);
+  }, [summary.booking.flowDeadlineAt, isAgreed, isWalkedAway]);
+
+  // My acceptance state
+  const myAcceptedVersion = isArtist ? summary.acceptance.artistAcceptedVersion : summary.acceptance.organizerAcceptedVersion;
+  const iHaveAccepted = myAcceptedVersion === summary.round;
+  const otherHasAccepted = isArtist 
+    ? summary.acceptance.organizerAcceptedVersion === summary.round 
+    : summary.acceptance.artistAcceptedVersion === summary.round;
+
+  const canAccept = !isAgreed && !isWalkedAway && !isExpired && !iHaveAccepted && summary.riderConfirmation.isConfirmed;
 
   return (
-    <div className="flex flex-col w-full h-full bg-background" style={{ maxHeight: "100%" }}>
-
-      {/* ── Header ── */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b bg-card/80 backdrop-blur-sm shrink-0">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="font-semibold text-sm truncate">
-              {ctx.artistName || "Artist"} ↔ {ctx.organizerName || "Organizer"}
-            </h2>
-            {isTerminal && (
-              <Badge variant={wf.currentNodeKey === "ACCEPTED" ? "default" : "destructive"} className="text-[10px] px-1.5 py-0 shrink-0">
-                {wf.currentNodeKey === "ACCEPTED" ? "✅ Agreed" : "❌ Cancelled"}
-              </Badge>
-            )}
-          </div>
-          {/* Lock status + current terms */}
-          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <span className="text-xs text-muted-foreground">{currentOffer}</span>
-            {ctx.currentSlot && (
-              <span className="text-xs text-muted-foreground">• {ctx.currentSlot}</span>
-            )}
-            {costLocked && (
-              <Badge variant="outline" className="text-[9px] px-1 py-0 bg-amber-500/10 text-amber-500 border-amber-500/30">
-                <Lock className="w-2.5 h-2.5 mr-0.5" />Cost Locked
-              </Badge>
-            )}
-            {slotLocked && (
-              <Badge variant="outline" className="text-[9px] px-1 py-0 bg-blue-500/10 text-blue-400 border-blue-500/30">
-                <Lock className="w-2.5 h-2.5 mr-0.5" />Slot Locked
-              </Badge>
-            )}
-            {ctx.riderLocked && (
-              <Badge variant="outline" className="text-[9px] px-1 py-0 bg-amber-500/10 text-amber-500 border-amber-500/30">
-                <Lock className="w-2.5 h-2.5 mr-0.5" />Rider Locked
+    <div className="flex flex-col h-[80vh] bg-background">
+      <div className="flex justify-between items-center px-4 py-3 border-b shrink-0">
+        <div>
+          <h2 className="text-lg font-semibold">Negotiation Workspace</h2>
+          <div className="flex items-center gap-2 mt-1">
+            <Badge variant="outline">Round {summary.round}</Badge>
+            <Badge variant={isAgreed ? "default" : isWalkedAway ? "destructive" : "secondary"}>
+              {summary.status.replace(/_/g, " ").toUpperCase()}
+            </Badge>
+            {!isAgreed && !isWalkedAway && summary.booking.flowDeadlineAt && (
+              <Badge variant={isExpired ? "destructive" : "outline"} className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {timeLeft || "Calculating..."}
               </Badge>
             )}
           </div>
         </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose}>
-          <X className="w-4 h-4" />
+        <Button variant="ghost" size="icon" onClick={onClose}>
+          <X className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* ── Chat Area ── */}
-      <div className="flex-1 overflow-y-auto py-3" style={{ overscrollBehavior: "contain" }}>
-        {(isOpening || loadingMsgs) && !conversationId ? (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <>
-            {/* Initial context bubble */}
-            <div className="flex justify-center mb-4">
-              <div className="text-center text-xs text-muted-foreground px-4 py-2 bg-muted/30 rounded-xl max-w-xs">
-                <span className="font-medium">Negotiation started</span>
-                <br />
-                Initial offer: <span className="font-semibold text-foreground">{currentOffer}</span>
-                {ctx.currentSlot && (
-                  <>
-                    <br />
-                    Slot: <span className="font-semibold text-foreground">{ctx.currentSlot}</span>
-                  </>
+      <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
+        {/* Left: Terms Board */}
+        <ScrollArea className="flex-1 border-b lg:border-b-0 lg:border-r p-4 lg:p-6">
+          <h3 className="font-semibold mb-4 text-sm uppercase tracking-wider text-muted-foreground">Current Terms Board</h3>
+          
+          {summary.currentProposal?.snapshot ? (
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Financial</Label>
+                <div className="p-3 bg-muted/40 rounded-md font-mono text-lg">
+                  {summary.currentProposal.snapshot.financial?.currency || 'INR'} {summary.currentProposal.snapshot.financial?.offerAmount?.toLocaleString() || '0'}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Schedule</Label>
+                <div className="p-3 bg-muted/40 rounded-md text-sm">
+                  {summary.currentProposal.snapshot.schedule?.startsAt ? format(new Date(summary.currentProposal.snapshot.schedule.startsAt), "PPp") : "TBD"}
+                  {" - "}
+                  {summary.currentProposal.snapshot.schedule?.endsAt ? format(new Date(summary.currentProposal.snapshot.schedule.endsAt), "PPp") : "TBD"}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Tech Rider Requirements</Label>
+                <div className="p-3 bg-muted/40 rounded-md text-sm space-y-1">
+                  {summary.currentProposal.snapshot.techRider?.artistRequirements?.length ? (
+                    summary.currentProposal.snapshot.techRider.artistRequirements.map((req, i) => (
+                      <div key={i} className="flex justify-between items-center">
+                        <span>{req.quantity}x {req.item}</span>
+                        <Badge variant={req.status === "confirmed" ? "default" : "secondary"}>{req.status}</Badge>
+                      </div>
+                    ))
+                  ) : (
+                    <span className="text-muted-foreground">None</span>
+                  )}
+                </div>
+                {!summary.riderConfirmation.isConfirmed && !isArtist && !isAgreed && !isWalkedAway && (
+                  <p className="text-xs text-amber-500 mt-1">⚠️ You must confirm rider items before final acceptance.</p>
                 )}
-                <br />
-                <span className="text-[10px] opacity-60">
-                  Each party: 2 cost negotiations, 1 slot change
-                </span>
               </div>
-            </div>
 
-            {/* Messages */}
-            {messages
-              .filter((m: any) => m.messageType !== "system" || m.body)
-              .map((msg: any, i: number) => {
-                const isMe = msg.senderId === user?.id;
-                return (
-                  <MessageBubble
-                    key={msg.id ?? i}
-                    msg={msg}
-                    isMe={isMe}
-                    currency={booking.offerCurrency}
-                  />
-                );
-              })}
-
-            {/* "Waiting" indicator */}
-            {!isTerminal && conversationId && !isCostMyTurn && !isSlotMyTurn && (
-              <div className="flex items-center gap-2 px-4 mt-3 text-muted-foreground">
-                <div className="flex gap-0.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:0ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:150ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:300ms]" />
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Artist Brings</Label>
+                <div className="p-3 bg-muted/40 rounded-md text-sm space-y-1">
+                  {summary.currentProposal.snapshot.techRider?.artistBrings?.length ? (
+                    summary.currentProposal.snapshot.techRider.artistBrings.map((req, i) => (
+                      <div key={i}>
+                        {req.quantity}x {req.item}
+                      </div>
+                    ))
+                  ) : (
+                    <span className="text-muted-foreground">None</span>
+                  )}
                 </div>
-                <span className="text-xs">{counterName} is reviewing…</span>
               </div>
-            )}
-
-            <div ref={bottomRef} />
-          </>
-        )}
-      </div>
-
-      {/* ── Bottom Action Bar ── */}
-      {!isTerminal && conversationId && (
-        <>
-          {sheet === "cost" && (
-            <CounterCostSheet
-              booking={booking}
-              remainingRounds={costRemaining}
-              onSubmit={(data) => handleAction("PROPOSE_COST", { offerAmount: data.offerAmount, note: data.note })}
-              onCancel={() => setSheet(null)}
-              isPending={isActing}
-            />
-          )}
-
-          {sheet === "slot" && (
-            <SlotChangeSheet
-              currentSlot={ctx.currentSlot || ""}
-              remainingRounds={slotRemaining}
-              onSubmit={(data) => handleAction("PROPOSE_SLOT", { slotTime: data.slotTime, note: data.note })}
-              onCancel={() => setSheet(null)}
-              isPending={isActing}
-            />
-          )}
-
-          {sheet === "rider" && (
-            <RiderUpdateSheet
-              current={ctx.currentRider}
-              isArtist={isArtist}
-              onConfirm={(payload: any) => handleAction("PROPOSE_RIDER", payload)}
-              onCancel={() => setSheet(null)}
-              isPending={isActing}
-            />
-          )}
-
-          {sheet === "walkaway" && (
-            <WalkAwaySheet
-              onConfirm={(note) => handleAction("WALK_AWAY", { note })}
-              onCancel={() => setSheet(null)}
-              isPending={isActing}
-            />
-          )}
-
-          {sheet === "terms" && (
-            <ContractTermsSheet
-              onConfirm={(terms) => handleAction("ACCEPT", { terms })}
-              onCancel={() => setSheet(null)}
-              isPending={isActing}
-            />
-          )}
-
-          {!sheet && (
-            <div className="border-t bg-card/90 backdrop-blur-sm px-4 py-3 shrink-0">
-                <div className="space-y-2">
-                  {/* Negotiation actions */}
-                  <div className="grid grid-cols-3 gap-2">
-                    <Button
-                      variant="outline"
-                      className="h-12 font-medium rounded-xl border-violet-500/40 text-violet-400 hover:bg-violet-500/10 flex-col gap-0 py-1"
-                      onClick={() => setSheet("cost")}
-                      disabled={isActing || costLocked || costRemaining <= 0 || !isCostMyTurn}
-                    >
-                      <span className="text-xs">💰 Cost</span>
-                      <span className="text-[9px] text-muted-foreground">
-                        {costLocked ? "Locked" : !isCostMyTurn ? "Waiting" : `${costRemaining}/2 left`}
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="h-12 font-medium rounded-xl border-blue-500/40 text-blue-400 hover:bg-blue-500/10 flex-col gap-0 py-1"
-                      onClick={() => setSheet("slot")}
-                      disabled={isActing || slotLocked || slotRemaining <= 0 || !isSlotMyTurn}
-                    >
-                      <span className="text-xs">🕐 Slot</span>
-                      <span className="text-[9px] text-muted-foreground">
-                        {slotLocked ? "Locked" : !isSlotMyTurn ? "Waiting" : `${slotRemaining}/1 left`}
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="h-12 font-medium rounded-xl border-amber-500/40 text-amber-400 hover:bg-amber-500/10 flex-col gap-0 py-1"
-                      onClick={() => setSheet("rider")}
-                      disabled={isActing || ctx.riderLocked}
-                    >
-                      <span className="text-xs">🎸 Rider</span>
-                      <span className="text-[9px] text-muted-foreground">
-                        {ctx.riderLocked ? "Locked" : `Update`}
-                      </span>
-                    </Button>
-                  </div>
-
-                  {/* Primary: Accept */}
-                  <Button
-                    className="w-full h-14 text-base font-semibold bg-emerald-600 hover:bg-emerald-700 rounded-xl"
-                    onClick={() => setSheet("terms")}
-                    disabled={isActing}
-                  >
-                    {isActing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ThumbsUp className="w-5 h-5 mr-2" />}
-                    Configure Terms & Accept
-                  </Button>
-
-                  {/* Walk Away */}
-                  <Button
-                    variant="ghost"
-                    className="w-full h-10 text-sm font-medium text-destructive/70 hover:text-destructive hover:bg-destructive/10 rounded-xl"
-                    onClick={() => setSheet("walkaway")}
-                    disabled={isActing}
-                  >
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Walk Away
-                  </Button>
-                </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ── Terminal State Banner ── */}
-      {isTerminal && (
-        <div className={`border-t px-4 py-5 shrink-0 ${
-          wf.currentNodeKey === "ACCEPTED" ? "bg-emerald-500/10" : "bg-destructive/10"
-        }`}>
-          {wf.currentNodeKey === "ACCEPTED" ? (
-            <div className="space-y-3">
-              <div className="text-center">
-                <p className="text-emerald-400 font-bold text-base">🎉 Deal Agreed!</p>
-                <p className="text-emerald-400/70 text-sm mt-1">
-                  {currentOffer} {ctx.currentSlot ? `• ${ctx.currentSlot}` : ""}
-                </p>
-              </div>
-              <Button
-                className="w-full h-14 text-base font-semibold bg-primary hover:bg-primary/90 rounded-xl"
-                onClick={() => {
-                  if (onStartContract) {
-                    onStartContract();
-                  } else {
-                    navigate(`/contract/${booking.id}`);
-                  }
-                }}
-              >
-                <FileText className="w-5 h-5 mr-2" />
-                Start Contract →
-              </Button>
             </div>
           ) : (
-            <p className="text-destructive font-semibold text-sm text-center">Negotiation ended. Booking cancelled.</p>
+             <div className="text-sm text-muted-foreground p-4 bg-muted/20 rounded-md">
+               No proposal snapshot available yet.
+             </div>
           )}
+        </ScrollArea>
+
+        {/* Right: Activity & Actions */}
+        <div className="w-full lg:w-96 flex flex-col bg-muted/10 shrink-0">
+          <ScrollArea className="flex-1 p-4 lg:p-6">
+            <h3 className="font-semibold mb-4 text-sm uppercase tracking-wider text-muted-foreground">Activity</h3>
+            <div className="space-y-4">
+              {summary.activity.map((act) => (
+                <div key={act.id} className="text-sm">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold capitalize text-xs">{act.actorRole || 'System'}</span>
+                    <span className="text-[10px] text-muted-foreground">{format(new Date(act.createdAt), "MMM d, h:mm a")}</span>
+                  </div>
+                  <div className="bg-background border rounded-md p-2 text-xs">
+                    {act.type.replace(/_/g, " ")}
+                    {act.metadata && typeof act.metadata.note === "string" && (
+                      <div className="mt-1 italic opacity-80">"{act.metadata.note}"</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+
+          <Separator />
+
+          <div className="p-4 lg:p-6 space-y-2 shrink-0 bg-background border-t">
+            {mode === "view" && !isAgreed && !isWalkedAway && (
+              <>
+                {otherHasAccepted && !iHaveAccepted && (
+                  <div className="bg-green-500/10 text-green-600 p-2 rounded text-xs mb-2 flex items-center gap-2">
+                    <CheckCheck className="w-4 h-4" />
+                    Other party accepted this version!
+                  </div>
+                )}
+                {iHaveAccepted && !otherHasAccepted && (
+                  <div className="bg-blue-500/10 text-blue-600 p-2 rounded text-xs mb-2 flex items-center gap-2">
+                    <Check className="w-4 h-4" />
+                    Waiting for other party to accept...
+                  </div>
+                )}
+                
+                <Button 
+                  className="w-full" 
+                  onClick={() => acceptMutation.mutate()} 
+                  disabled={!canAccept || acceptMutation.isPending}
+                >
+                  {acceptMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ThumbsUp className="w-4 h-4 mr-2" />}
+                  {iHaveAccepted ? "Accepted" : "Accept Final Terms"}
+                </Button>
+                
+                <Button 
+                  variant="outline" 
+                  className="w-full" 
+                  onClick={() => setMode("propose")}
+                  disabled={iHaveAccepted || isExpired} // Cannot propose if already accepted this round
+                >
+                  <ArrowLeftRight className="w-4 h-4 mr-2" />
+                  {summary.round === 0 ? 'Submit Initial Proposal' : 'Propose Changes'}
+                </Button>
+
+                {!isArtist && !summary.riderConfirmation.isConfirmed && (
+                  <Button 
+                    variant="outline" 
+                    className="w-full text-amber-500 hover:text-amber-600" 
+                    onClick={() => setMode("rider")}
+                    disabled={isExpired}
+                  >
+                    Confirm Rider
+                  </Button>
+                )}
+                
+                <Button 
+                  variant="ghost" 
+                  className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => walkAwayMutation.mutate()}
+                  disabled={walkAwayMutation.isPending || isExpired}
+                >
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Walk Away
+                </Button>
+              </>
+            )}
+
+            {isAgreed && onStartContract && (
+              <Button className="w-full" onClick={onStartContract}>
+                <CheckCheck className="w-4 h-4 mr-2" />
+                Proceed to Contract
+              </Button>
+            )}
+
+            {mode === "propose" && (
+              <ProposeForm 
+                currentSnapshot={summary.currentProposal?.snapshot} 
+                onCancel={() => setMode("view")}
+                onSubmit={(payload: any) => proposeMutation.mutate(payload)}
+                isPending={proposeMutation.isPending}
+              />
+            )}
+
+            {mode === "rider" && (
+              <RiderConfirmForm 
+                currentSnapshot={summary.currentProposal?.snapshot} 
+                onCancel={() => setMode("view")}
+                onSubmit={(payload: any) => confirmRiderMutation.mutate(payload)}
+                isPending={confirmRiderMutation.isPending}
+              />
+            )}
+          </div>
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
+
+function ProposeForm({ currentSnapshot, onCancel, onSubmit, isPending }: any) {
+  const defaultAmount = currentSnapshot?.financial?.offerAmount?.toString() || "0";
+  const defaultCurrency = currentSnapshot?.financial?.currency || "INR";
+  
+  const [amount, setAmount] = useState(defaultAmount);
+  const [note, setNote] = useState("");
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <Label className="text-xs">New Offer Amount ({defaultCurrency})</Label>
+        <Input type="number" value={amount} onChange={e => setAmount(e.target.value)} />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Note</Label>
+        <Textarea value={note} onChange={e => setNote(e.target.value)} className="h-16 text-sm" />
+      </div>
+      <div className="flex gap-2">
+        <Button variant="outline" className="flex-1" onClick={onCancel} disabled={isPending}>Cancel</Button>
+        <Button className="flex-1" disabled={isPending} onClick={() => {
+          onSubmit({
+            baseVersion: currentSnapshot?.version || 1,
+            snapshot: {
+              ...(currentSnapshot || {}),
+              financial: {
+                ...(currentSnapshot?.financial || {}),
+                currency: defaultCurrency,
+                offerAmount: Number(amount)
+              }
+            },
+            note
+          });
+        }}>
+          {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function RiderConfirmForm({ currentSnapshot, onCancel, onSubmit, isPending }: any) {
+  const [note, setNote] = useState("");
+
+  // Create a simplified confirmation flow where all pending items are marked as confirmed
+  // Real implementation would let user select status per item.
+  return (
+    <div className="space-y-3 p-3 bg-amber-500/10 rounded-md border border-amber-500/20">
+      <h4 className="text-sm font-semibold text-amber-700">Confirm Tech Rider</h4>
+      <p className="text-xs text-muted-foreground">
+        By clicking confirm, you agree to provide all requested technical rider items.
+      </p>
+      
+      <div className="space-y-1">
+        <Label className="text-xs">Note (Optional)</Label>
+        <Textarea value={note} onChange={e => setNote(e.target.value)} className="h-16 text-sm" />
+      </div>
+
+      <div className="flex gap-2">
+        <Button variant="outline" className="flex-1" onClick={onCancel} disabled={isPending}>Cancel</Button>
+        <Button className="flex-1 bg-amber-600 hover:bg-amber-700 text-white" disabled={isPending} onClick={() => {
+          onSubmit({
+            proposalVersion: currentSnapshot?.version || 1,
+            artistRequirements: (currentSnapshot?.techRider?.artistRequirements || []).map((req: any) => ({
+              ...req,
+              status: "confirmed"
+            })),
+            organizerCommitments: [],
+            note
+          });
+        }}>
+          {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm All"}
+        </Button>
+      </div>
     </div>
   );
 }

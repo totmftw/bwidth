@@ -5,7 +5,7 @@ import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
-import { Booking } from "@shared/schema";
+import { Booking, auditLogs, bookingProposals, bookings } from "@shared/schema";
 import opportunitiesRouter from "./routes/opportunities";
 import contractsRouter from "./routes/contracts";
 import conversationsRouter from "./routes/conversations";
@@ -13,6 +13,9 @@ import organizerRouter from "./routes/organizer";
 import { isSameDay } from "date-fns";
 import { artistProfileCompleteSchema, buildArtistMetadata, buildArtistRecord } from "./artist-profile-utils";
 import { venueProfileCompleteSchema, buildVenueMetadata, buildVenueRecord } from "./venue-profile-utils";
+import { db } from "./db";
+import { normalizeApplicationProposalSnapshot } from "@shared/negotiation-application";
+import { negotiationService } from "./services/negotiation.service";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -60,7 +63,7 @@ export async function registerRoutes(
   app.use("/api", contractsRouter);
   app.use("/api", conversationsRouter);
   app.use("/api", organizerRouter);
-  app.use(adminRouter); // Admin routes defined as /admin/...
+  app.use("/api/admin", adminRouter); // Admin routes mounted under /api/admin
 
 
   // Artists
@@ -594,6 +597,9 @@ export async function registerRoutes(
         eventId = newEvent.id;
       }
 
+      const now = new Date();
+      const deadline = new Date(now.getTime() + 72 * 60 * 60 * 1000);
+
       // Prepare booking data
       const bookingData = {
         eventId: eventId || null, // Should be set now if date was provided
@@ -601,6 +607,8 @@ export async function registerRoutes(
         status: "offered" as const, // Default for new offers
         offerAmount: offerAmount ? String(offerAmount) : null,
         offerCurrency: currency || "INR",
+        flowStartedAt: now,
+        flowDeadlineAt: deadline,
         meta: {
           notes,
           slotTime,
@@ -649,145 +657,70 @@ export async function registerRoutes(
     }
   });
 
-  // Negotiation Logic
-  const handleNegotiation = async (req: any, res: any, action: 'negotiate' | 'accept' | 'decline') => {
+  // --- New Negotiation API Routes ---
+  
+  function getParamId(idParam: string | string[] | undefined): number {
+    const idStr = Array.isArray(idParam) ? idParam[0] : idParam;
+    return parseInt(idStr || "0");
+  }
+
+  app.get(api.bookings.negotiationSummary.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-
-      const booking = await storage.getBooking(id);
-      if (!booking) return res.status(404).json({ message: "Booking not found" });
-
-      const user = req.user as any;
-      const userRole = user.role || (user.metadata as any)?.role || 'artist';
-      const isArtist = userRole === 'artist';
-
-      // Verify authorization (Artist owns booking, Organizer owns event)
-      // Simplifying check for now since we need `event` fetched to check organizer.
-      // Ideally we check `booking.artistId` vs `user.id` (if artist)
-
-      const meta = booking.meta as any || { negotiationRound: 0, history: [] };
-      const history = meta.history || [];
-      const round = meta.negotiationRound || 1;
-
-      if (action === 'negotiate') {
-        const MAX_ROUNDS = 3;
-        if (round >= MAX_ROUNDS) {
-          return res.status(400).json({ message: "Max negotiation rounds reached. You must Accept or Decline." });
-        }
-
-        const { offerAmount, counterOffer, message, slotTime } = req.body;
-        const newAmount = counterOffer || offerAmount;
-
-        const newMeta = {
-          ...meta,
-          negotiationRound: round + (newAmount ? 1 : 0),
-          lastOfferBy: userRole,
-          slotTime: slotTime || meta.slotTime, // Update slot time if provided
-          history: [...history, {
-            action: 'negotiate',
-            by: userRole,
-            offerAmount: newAmount,
-            message: message,
-            slotTime: slotTime,
-            at: new Date().toISOString()
-          }]
-        };
-
-        const updateData: any = {
-          status: 'negotiating',
-          meta: newMeta
-        };
-
-        if (newAmount) {
-          updateData.offerAmount = String(newAmount);
-        }
-
-        const updated = await storage.updateBooking(id, updateData);
-
-        await storage.createAuditLog({
-          who: user.id,
-          action: "negotiation_update",
-          entityType: "booking",
-          entityId: id,
-          context: { amount: newAmount, hasMessage: !!message }
-        });
-
-        return res.json(updated);
-
-      } else if (action === 'accept') {
-        const newMeta = {
-          ...meta,
-          history: [...history, { action: 'accepted', by: userRole, at: new Date().toISOString() }]
-        };
-        
-        // Ensure the finalAmount is saved before snapshotting
-        await storage.updateBooking(id, {
-          finalAmount: booking.offerAmount,
-          meta: newMeta
-        });
-
-        // Use the new booking service to calculate math and snapshot
-        const { bookingService } = await import("./services/booking.service");
-        const updated = await bookingService.confirmBookingAndSnapshot(id);
-
-        await storage.createAuditLog({
-          who: user.id,
-          action: "negotiation_accepted",
-          entityType: "booking",
-          entityId: id,
-          context: { finalAmount: updated.finalAmount }
-        });
-
-        // Auto-initiate contract stage
-        try {
-          const bookingDetails = await storage.getBookingWithDetails(id);
-          const now = new Date();
-          const deadline = new Date(now.getTime() + 48 * 60 * 60 * 1000);
-
-          // Check if contract already exists
-          const existingContract = await storage.getContractByBookingId(id);
-          if (!existingContract) {
-            // We'll let the contract routes handle the detailed generation
-            // via the ContractViewer component calling /initiate
-            console.log(`[Negotiation] Booking ${id} accepted, moved to contracting stage. Contract will be initiated by /initiate endpoint.`);
-          }
-        } catch (contractErr) {
-          console.error("Warning: Failed to prepare contract stage:", contractErr);
-        }
-
-        return res.json(updated);
-
-      } else if (action === 'decline') {
-        const newMeta = {
-          ...meta,
-          history: [...history, { action: 'declined', by: userRole, at: new Date().toISOString() }]
-        };
-        const updated = await storage.updateBooking(id, {
-          status: 'cancelled',
-          meta: newMeta
-        });
-
-        await storage.createAuditLog({
-          who: user.id,
-          action: "negotiation_declined",
-          entityType: "booking",
-          entityId: id
-        });
-
-        return res.json(updated);
-      }
-    } catch (error) {
-      console.error("Negotiation error:", error);
-      res.status(500).json({ message: "Negotiation update failed" });
+      const summary = await negotiationService.getSummary(getParamId(req.params.id));
+      res.json(summary);
+    } catch (err: any) {
+      if (err.message === "Booking not found") return res.status(404).json({ message: err.message });
+      res.status(500).json({ message: "Failed to get negotiation summary" });
     }
-  };
+  });
 
-  app.post("/api/bookings/:id/negotiate", (req, res) => handleNegotiation(req, res, 'negotiate'));
-  app.post("/api/bookings/:id/accept", (req, res) => handleNegotiation(req, res, 'accept'));
-  app.post("/api/bookings/:id/decline", (req, res) => handleNegotiation(req, res, 'decline'));
+  app.post(api.bookings.submitProposal.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const payload = api.bookings.submitProposal.input.parse(req.body);
+      const summary = await negotiationService.submitProposal(getParamId(req.params.id), (req.user as any).id, payload);
+      res.json(summary);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation failed", errors: err.errors });
+      res.status(400).json({ message: err.message });
+    }
+  });
 
+  app.post(api.bookings.confirmRider.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const payload = api.bookings.confirmRider.input.parse(req.body);
+      const summary = await negotiationService.confirmRider(getParamId(req.params.id), (req.user as any).id, payload);
+      res.json(summary);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation failed", errors: err.errors });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post(api.bookings.finalAccept.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const payload = api.bookings.finalAccept.input.parse(req.body);
+      const summary = await negotiationService.finalAccept(getParamId(req.params.id), (req.user as any).id, payload);
+      res.json(summary);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation failed", errors: err.errors });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post(api.bookings.walkAway.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const payload = api.bookings.walkAway.input.parse(req.body);
+      await negotiationService.walkAway(getParamId(req.params.id), (req.user as any).id, payload.reason);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
 
   // Artist Apply to Event
   app.post("/api/bookings/apply", async (req, res) => {
@@ -799,10 +732,13 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Only artists can apply to events" });
       }
 
-      const { eventId, offerAmount, currency, stageId } = req.body;
-      if (!eventId) {
-        return res.status(400).json({ message: "Event ID is required" });
-      }
+      const applicationInput = api.bookings.apply.input.parse(req.body);
+      const normalizedProposalSnapshot = normalizeApplicationProposalSnapshot(applicationInput.proposal);
+      const eventId = applicationInput.eventId;
+      const stageId = normalizedProposalSnapshot.schedule?.stageId ?? null;
+      const offerAmount = normalizedProposalSnapshot.financial.offerAmount;
+      const currency = normalizedProposalSnapshot.financial.currency;
+      const artistMessage = applicationInput.message?.trim() || normalizedProposalSnapshot.notes?.artist || null;
 
       const artist = await storage.getArtistByUserId(user.id);
       if (!artist) {
@@ -822,38 +758,151 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Event not found or not accepting applications" });
       }
 
-      // Create booking Inquiry
-      const booking = await storage.createBooking({
-        eventId,
-        artistId: artist.id,
-        stageId: stageId || null,
-        status: 'inquiry',
-        offerAmount: offerAmount ? String(offerAmount) : undefined,
-        offerCurrency: currency || 'INR',
-        depositPercent: '30.00', // Default
-        meta: {
-          appliedAt: new Date().toISOString(),
-          negotiationRound: 1,
-          history: [{
-            action: 'applied',
-            by: 'artist',
-            at: new Date().toISOString(),
-            offerAmount: offerAmount,
-            stageId: stageId
-          }]
-        }
+      const appliedAt = new Date();
+      const appliedAtIso = appliedAt.toISOString();
+      const riderRequirements = normalizedProposalSnapshot.techRider?.artistRequirements || [];
+      const artistBrings = normalizedProposalSnapshot.techRider?.artistBrings || [];
+      const riderConfirmation = {
+        isConfirmed: riderRequirements.length === 0,
+        confirmedAt: null,
+        confirmedBy: null,
+        unresolvedItemCount: riderRequirements.length,
+      };
+      const activity = [{
+        id: `application-submitted-${appliedAt.getTime()}`,
+        type: 'application_submitted' as const,
+        proposalVersion: 1,
+        actorUserId: user.id,
+        actorRole: 'artist' as const,
+        createdAt: appliedAtIso,
+        messageId: null,
+        metadata: {
+          eventId,
+          stageId,
+          artistRequirementCount: riderRequirements.length,
+          artistBringsCount: artistBrings.length,
+        },
+      }];
+
+      const [booking, proposal] = await db.transaction(async (tx) => {
+        const now = new Date();
+        const deadline = new Date(now.getTime() + 72 * 60 * 60 * 1000);
+
+        const [createdBooking] = await tx.insert(bookings).values({
+          eventId,
+          artistId: artist.id,
+          stageId,
+          status: 'inquiry',
+          offerAmount: String(offerAmount),
+          offerCurrency: currency,
+          depositPercent: String(normalizedProposalSnapshot.financial.depositPercent ?? 30),
+          flowStartedAt: now,
+          flowDeadlineAt: deadline,
+          meta: {
+            appliedAt: appliedAtIso,
+            negotiationRound: 1,
+            history: [{
+              action: 'applied',
+              by: 'artist',
+              at: appliedAtIso,
+              offerAmount,
+              stageId,
+              message: artistMessage,
+            }],
+            negotiation: {
+              source: 'application',
+              status: 'negotiating',
+              latestProposalVersion: 1,
+              currentProposalSnapshot: normalizedProposalSnapshot,
+              acceptance: {
+                artistAcceptedVersion: null,
+                organizerAcceptedVersion: null,
+                artistAcceptedAt: null,
+                organizerAcceptedAt: null,
+              },
+              riderConfirmation,
+              agreement: null,
+              activity,
+            },
+          },
+        }).returning();
+
+        const [createdProposal] = await tx.insert(bookingProposals).values({
+          bookingId: createdBooking.id,
+          createdBy: user.id,
+          round: 1,
+          proposedTerms: normalizedProposalSnapshot,
+          note: artistMessage,
+          status: 'active',
+        }).returning();
+
+        await tx.insert(auditLogs).values({
+          who: user.id,
+          action: "gig_applied",
+          entityType: "booking",
+          entityId: createdBooking.id,
+          context: {
+            eventId,
+            amount: offerAmount,
+            proposalVersion: 1,
+            artistRequirementCount: riderRequirements.length,
+            artistBringsCount: artistBrings.length,
+          },
+        });
+
+        return [createdBooking, createdProposal] as const;
       });
 
-      await storage.createAuditLog({
-        who: user.id,
-        action: "gig_applied",
-        entityType: "booking",
-        entityId: booking.id,
-        context: { eventId, amount: offerAmount }
-      });
+      const proposalResponse = {
+        id: proposal.id,
+        bookingId: booking.id,
+        conversationId: null,
+        version: 1,
+        snapshot: normalizedProposalSnapshot,
+        status: proposal.status,
+        note: proposal.note,
+        createdAt: proposal.createdAt ?? appliedAt,
+        createdBy: proposal.createdBy,
+        createdByRole: 'artist' as const,
+      };
 
-      res.status(201).json(booking);
+      res.status(201).json({
+        booking,
+        proposal: proposalResponse,
+        summary: {
+          booking: {
+            id: booking.id,
+            status: booking.status || 'inquiry',
+            eventId: booking.eventId,
+            artistId: booking.artistId,
+            stageId: booking.stageId,
+            contractId: booking.contractId ?? null,
+          },
+          conversation: null,
+          status: 'negotiating',
+          round: 1,
+          currentProposal: proposalResponse,
+          history: [proposalResponse],
+          agreement: null,
+          acceptance: {
+            artistAcceptedVersion: null,
+            organizerAcceptedVersion: null,
+            artistAcceptedAt: null,
+            organizerAcceptedAt: null,
+          },
+          riderConfirmation,
+          activity,
+          readyForContract: false,
+        },
+      });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: error.errors,
+        });
+      }
+
       console.error("Error applying to event:", error);
       res.status(500).json({ message: "Failed to apply to event" });
     }

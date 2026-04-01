@@ -8,6 +8,7 @@ import {
 } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { generateContractText, buildTermsFromBooking } from "../contract-utils";
+import { bookingService } from "../services/booking.service";
 import PDFDocument from "pdfkit";
 
 const router = Router();
@@ -34,6 +35,17 @@ function getUserRole(user: any): 'artist' | 'promoter' {
     // Default to promoter for any unrecognized role on the contract side
     return 'promoter';
 }
+
+async function checkBookingFlowDeadline(bookingId: number, req: any, res: any): Promise<boolean> {
+    const booking = await storage.getBooking(bookingId);
+    if (booking && booking.flowDeadlineAt && new Date() > new Date(booking.flowDeadlineAt)) {
+        await bookingService.expireBookingFlow(bookingId, "Booking flow 72-hour deadline has passed", req.user?.id);
+        res.status(400).json({ message: "Booking flow 72-hour deadline has passed. Booking is cancelled." });
+        return true; // Indicates deadline passed
+    }
+    return false;
+}
+
 
 
 
@@ -286,6 +298,18 @@ router.post("/bookings/:bookingId/contract/initiate", async (req, res) => {
         const booking = await storage.getBookingWithDetails(bookingId);
         if (!booking) return res.status(404).json({ message: "Booking not found" });
 
+        if (booking.flowDeadlineAt && new Date() > new Date(booking.flowDeadlineAt)) {
+            await bookingService.expireBookingFlow(bookingId, "Booking flow 72-hour deadline has passed", (req.user as any)?.id);
+            return res.status(400).json({ message: "Booking flow 72-hour deadline has passed. Booking is cancelled." });
+        }
+
+        // Require fully agreed negotiation
+        const meta = (booking.meta as any) || {};
+        const negotiationStatus = meta.negotiation?.status;
+        if (negotiationStatus !== 'agreed') {
+            return res.status(400).json({ message: "Contract initiation blocked. Both parties must finalize and accept the negotiation terms first." });
+        }
+
         // Check for existing contract
         const existing = await storage.getContractByBookingId(bookingId);
         if (existing) {
@@ -347,9 +371,9 @@ router.post("/bookings/:bookingId/contract/initiate", async (req, res) => {
             contract: details,
             message: 'Contract initiated. Both parties must review and sign within 48 hours.'
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error initiating contract:", error);
-        res.status(500).json({ message: "Failed to initiate contract" });
+        res.status(500).json({ message: error.message || "Failed to initiate contract" });
     }
 });
 
@@ -411,6 +435,8 @@ router.post("/contracts/:id/review", async (req, res) => {
 
         const contract = await storage.getContract(contractId);
         if (!contract) return res.status(404).json({ message: "Contract not found" });
+
+        if (await checkBookingFlowDeadline(contract.bookingId!, req, res)) return;
 
         if (isDeadlinePassed(contract)) {
             return res.status(400).json({ message: "Contract deadline has passed" });
@@ -563,6 +589,8 @@ router.post("/contracts/:id/edit-requests/:reqId/respond", async (req, res) => {
 
         const contract = await storage.getContract(contractId);
         if (!contract) return res.status(404).json({ message: "Contract not found" });
+
+        if (await checkBookingFlowDeadline(contract.bookingId!, req, res)) return;
 
         if (isDeadlinePassed(contract)) {
             return res.status(400).json({ message: "Contract deadline has passed" });
@@ -727,6 +755,8 @@ router.post("/contracts/:id/accept", async (req, res) => {
         const contract = await storage.getContract(contractId);
         if (!contract) return res.status(404).json({ message: "Contract not found" });
 
+        if (await checkBookingFlowDeadline(contract.bookingId!, req, res)) return;
+
         if (isDeadlinePassed(contract)) {
             return res.status(400).json({ message: "Contract deadline has passed" });
         }
@@ -808,6 +838,8 @@ router.post("/contracts/:id/sign", async (req, res) => {
 
         const contract = await storage.getContract(contractId);
         if (!contract) return res.status(404).json({ message: "Contract not found" });
+
+        if (await checkBookingFlowDeadline(contract.bookingId!, req, res)) return;
 
         if (isDeadlinePassed(contract)) {
             return res.status(400).json({ message: "Contract deadline has passed" });

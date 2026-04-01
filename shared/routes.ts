@@ -19,6 +19,26 @@ import { insertUserSchema, insertArtistSchema, insertOrganizerSchema, insertVenu
 // negotiation system between artists and organizers.
 
 export const riderItemStatusEnum = z.enum(["pending", "confirmed", "alternate_offered", "cannot_provide"]);
+export const negotiationParticipantRoleEnum = z.enum(["artist", "organizer"]);
+export const negotiationProposalStatusEnum = z.enum(["active", "accepted", "rejected", "expired", "withdrawn"]);
+export const negotiationSummaryStatusEnum = z.enum([
+  "draft",
+  "negotiating",
+  "awaiting_rider_confirmation",
+  "ready_for_acceptance",
+  "awaiting_artist_acceptance",
+  "awaiting_organizer_acceptance",
+  "agreed",
+  "walked_away",
+]);
+export const negotiationActivityTypeEnum = z.enum([
+  "application_submitted",
+  "proposal_submitted",
+  "rider_confirmation_submitted",
+  "accepted",
+  "walked_away",
+]);
+export const negotiationDateTimeSchema = z.string().datetime();
 
 export const techRiderRequirementSchema = z.object({
   item: z.string().min(1),
@@ -35,25 +55,45 @@ export const techRiderBringsSchema = z.object({
   notes: z.string().optional(),
 });
 
+export const organizerCommitmentSchema = z.object({
+  item: z.string().min(1),
+  quantity: z.number().int().positive().default(1),
+  notes: z.string().optional().nullable(),
+  linkedRequirementItem: z.string().optional().nullable(),
+});
+
+export const negotiationScheduleSchema = z.object({
+  stageId: z.number().int().optional().nullable(),
+  stageName: z.string().optional().nullable(),
+  slotLabel: z.string().optional().nullable(),
+  startsAt: negotiationDateTimeSchema.optional().nullable(),
+  endsAt: negotiationDateTimeSchema.optional().nullable(),
+  soundCheckLabel: z.string().optional().nullable(),
+  soundCheckAt: negotiationDateTimeSchema.optional().nullable(),
+});
+
+export const negotiationTechRiderSchema = z.object({
+  artistRequirements: z.array(techRiderRequirementSchema).default([]),
+  artistBrings: z.array(techRiderBringsSchema).default([]),
+  organizerCommitments: z.array(organizerCommitmentSchema).default([]),
+  organizerConfirmedAt: negotiationDateTimeSchema.optional().nullable(),
+  organizerConfirmedBy: z.number().int().optional().nullable(),
+});
+
+export const negotiationLogisticsSectionSchema = z.record(z.unknown());
+
 export const negotiationSnapshotSchema = z.object({
   financial: z.object({
     offerAmount: z.number().nonnegative(),
     currency: z.string().length(3).default("INR"),
+    depositPercent: z.number().min(0).max(100).optional().nullable(),
   }),
-  schedule: z.object({
-    stageId: z.number().int().optional().nullable(),
-    slotLabel: z.string().optional().nullable(),
-    soundCheckLabel: z.string().optional().nullable(),
-  }).optional().nullable(),
-  techRider: z.object({
-    artistRequirements: z.array(techRiderRequirementSchema).default([]),
-    artistBrings: z.array(techRiderBringsSchema).default([]),
-    organizerProvides: z.array(z.string()).default([]),
-  }).optional().nullable(),
+  schedule: negotiationScheduleSchema.optional().nullable(),
+  techRider: negotiationTechRiderSchema.optional().nullable(),
   logistics: z.object({
-    travel: z.record(z.any()).optional().nullable(),
-    accommodation: z.record(z.any()).optional().nullable(),
-    hospitality: z.record(z.any()).optional().nullable(),
+    travel: negotiationLogisticsSectionSchema.optional().nullable(),
+    accommodation: negotiationLogisticsSectionSchema.optional().nullable(),
+    hospitality: negotiationLogisticsSectionSchema.optional().nullable(),
   }).optional().nullable(),
   notes: z.object({
     artist: z.string().optional().nullable(),
@@ -61,33 +101,164 @@ export const negotiationSnapshotSchema = z.object({
   }).optional().nullable(),
 });
 
-export const negotiationStateSchema = z.object({
+export const negotiationProposalSchema = z.object({
+  id: z.number().int().positive(),
+  bookingId: z.number().int().positive().optional().nullable(),
+  conversationId: z.number().int().positive().optional().nullable(),
   version: z.number().int().positive(),
-  agreedAt: z.string().datetime().optional().nullable(),
-  agreedBy: z.object({
+  snapshot: negotiationSnapshotSchema,
+  status: negotiationProposalStatusEnum.default("active"),
+  note: z.string().optional().nullable(),
+  createdAt: z.union([negotiationDateTimeSchema, z.date()]),
+  createdBy: z.number().int().nullable(),
+  createdByRole: negotiationParticipantRoleEnum.optional().nullable(),
+});
+
+export const bookingNegotiationAgreementSchema = z.object({
+  version: z.number().int().positive(),
+  agreedAt: negotiationDateTimeSchema,
+  acceptedBy: z.object({
     artistUserId: z.number().int().optional().nullable(),
     organizerUserId: z.number().int().optional().nullable(),
-  }).optional().nullable(),
+  }),
+  acceptedAt: z.object({
+    artist: negotiationDateTimeSchema.optional().nullable(),
+    organizer: negotiationDateTimeSchema.optional().nullable(),
+  }),
   snapshot: negotiationSnapshotSchema,
+});
+
+export const negotiationStateSchema = bookingNegotiationAgreementSchema;
+
+export const negotiationAcceptanceStateSchema = z.object({
+  artistAcceptedVersion: z.number().int().positive().optional().nullable(),
+  organizerAcceptedVersion: z.number().int().positive().optional().nullable(),
+  artistAcceptedAt: negotiationDateTimeSchema.optional().nullable(),
+  organizerAcceptedAt: negotiationDateTimeSchema.optional().nullable(),
+});
+
+export const negotiationRiderConfirmationStateSchema = z.object({
+  isConfirmed: z.boolean(),
+  confirmedAt: negotiationDateTimeSchema.optional().nullable(),
+  confirmedBy: z.number().int().optional().nullable(),
+  unresolvedItemCount: z.number().int().nonnegative(),
+});
+
+export const negotiationActivitySchema = z.object({
+  id: z.union([z.number().int().positive(), z.string().min(1)]),
+  type: negotiationActivityTypeEnum,
+  proposalVersion: z.number().int().positive().optional().nullable(),
+  actorUserId: z.number().int().nullable(),
+  actorRole: negotiationParticipantRoleEnum.optional().nullable(),
+  createdAt: z.union([negotiationDateTimeSchema, z.date()]),
+  messageId: z.number().int().positive().optional().nullable(),
+  metadata: z.record(z.unknown()).default({}),
 });
 
 export const applicationSubmitSchema = z.object({
   eventId: z.number().int().positive(),
-  stageId: z.number().int().optional().nullable(),
-  offerAmount: z.number().nonnegative(),
-  currency: z.string().length(3).default("INR"),
   message: z.string().optional().nullable(),
-  techRiderRequirements: z.array(techRiderRequirementSchema).default([]),
-  techRiderBrings: z.array(techRiderBringsSchema).default([]),
+  proposal: negotiationSnapshotSchema,
 });
 
 export const proposalSubmitSchema = z.object({
+  baseVersion: z.number().int().nonnegative().optional().nullable(),
   snapshot: negotiationSnapshotSchema,
+  note: z.string().optional().nullable(),
 });
 
 export const riderConfirmationSchema = z.object({
-  resolvedItems: z.array(techRiderRequirementSchema),
+  proposalVersion: z.number().int().positive(),
+  artistRequirements: z.array(techRiderRequirementSchema),
+  organizerCommitments: z.array(organizerCommitmentSchema).default([]),
+  note: z.string().optional().nullable(),
+}).superRefine(({ artistRequirements }, ctx) => {
+  artistRequirements.forEach((item, index) => {
+    if (item.status === "pending") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["artistRequirements", index, "status"],
+        message: "Rider confirmation requires a resolved status",
+      });
+    }
+  });
 });
+
+export const finalAcceptanceSchema = z.object({
+  proposalVersion: z.number().int().positive(),
+});
+
+export const negotiationSummaryResponseSchema = z.object({
+  booking: z.object({
+    id: z.number().int().positive(),
+    status: z.string(),
+    eventId: z.number().int().positive().nullable(),
+    artistId: z.number().int().positive().nullable(),
+    stageId: z.number().int().positive().nullable(),
+    contractId: z.number().int().positive().nullable(),
+    flowDeadlineAt: z.string().nullable().optional(),
+  }),
+  conversation: z.object({
+    id: z.number().int().positive(),
+    subject: z.string().optional().nullable(),
+  }).optional().nullable(),
+  status: negotiationSummaryStatusEnum,
+  round: z.number().int().nonnegative(),
+  currentProposal: negotiationProposalSchema.nullable(),
+  history: z.array(negotiationProposalSchema),
+  agreement: bookingNegotiationAgreementSchema.nullable(),
+  acceptance: negotiationAcceptanceStateSchema,
+  riderConfirmation: negotiationRiderConfirmationStateSchema,
+  activity: z.array(negotiationActivitySchema).default([]),
+  readyForContract: z.boolean(),
+});
+
+export const applicationSubmitResponseSchema = z.object({
+  booking: z.custom<typeof bookings.$inferSelect>(),
+  proposal: negotiationProposalSchema,
+  summary: negotiationSummaryResponseSchema,
+});
+
+export const proposalSubmitResponseSchema = z.object({
+  success: z.literal(true),
+  proposal: negotiationProposalSchema,
+  summary: negotiationSummaryResponseSchema,
+});
+
+export const riderConfirmationResponseSchema = z.object({
+  success: z.literal(true),
+  proposal: negotiationProposalSchema,
+  summary: negotiationSummaryResponseSchema,
+});
+
+export const finalAcceptanceResponseSchema = z.object({
+  success: z.literal(true),
+  proposalVersion: z.number().int().positive(),
+  status: negotiationSummaryStatusEnum,
+  agreement: bookingNegotiationAgreementSchema.nullable(),
+  booking: z.custom<typeof bookings.$inferSelect>(),
+});
+
+export type RiderItemStatus = z.infer<typeof riderItemStatusEnum>;
+export type NegotiationParticipantRole = z.infer<typeof negotiationParticipantRoleEnum>;
+export type NegotiationProposalStatus = z.infer<typeof negotiationProposalStatusEnum>;
+export type NegotiationSummaryStatus = z.infer<typeof negotiationSummaryStatusEnum>;
+export type NegotiationActivityType = z.infer<typeof negotiationActivityTypeEnum>;
+export type TechRiderRequirement = z.infer<typeof techRiderRequirementSchema>;
+export type TechRiderBrings = z.infer<typeof techRiderBringsSchema>;
+export type OrganizerCommitment = z.infer<typeof organizerCommitmentSchema>;
+export type NegotiationSchedule = z.infer<typeof negotiationScheduleSchema>;
+export type NegotiationTechRider = z.infer<typeof negotiationTechRiderSchema>;
+export type NegotiationSnapshot = z.infer<typeof negotiationSnapshotSchema>;
+export type NegotiationProposal = z.infer<typeof negotiationProposalSchema>;
+export type BookingNegotiationAgreement = z.infer<typeof bookingNegotiationAgreementSchema>;
+export type NegotiationState = z.infer<typeof negotiationStateSchema>;
+export type NegotiationActivity = z.infer<typeof negotiationActivitySchema>;
+export type ApplicationSubmitInput = z.infer<typeof applicationSubmitSchema>;
+export type ProposalSubmitInput = z.infer<typeof proposalSubmitSchema>;
+export type RiderConfirmationInput = z.infer<typeof riderConfirmationSchema>;
+export type FinalAcceptanceInput = z.infer<typeof finalAcceptanceSchema>;
+export type NegotiationSummaryResponse = z.infer<typeof negotiationSummaryResponseSchema>;
 
 /**
  * Reusable contact person schema for organizer profiles.
@@ -145,9 +316,9 @@ const contactPersonSchema = z.object({
  * ```
  */
 const socialLinksSchema = z.object({
-  instagram: z.string().regex(/^@?[\w.]+$/, "Invalid Instagram handle").optional(),
-  twitter: z.string().regex(/^@?[\w]+$/, "Invalid Twitter handle").optional(),
-  linkedin: z.string().min(1, "LinkedIn profile cannot be empty").optional(),
+  instagram: z.string().regex(/^@?[\w.]+$/, "Invalid Instagram handle").optional().or(z.literal("")),
+  twitter: z.string().regex(/^@?[\w]+$/, "Invalid Twitter handle").optional().or(z.literal("")),
+  linkedin: z.string().min(1, "LinkedIn profile cannot be empty").optional().or(z.literal("")),
 });
 
 /**
@@ -225,7 +396,7 @@ export const organizerOnboardingSchema = z.object({
   /** Primary contact person details — stored in promoters.contact_person JSONB */
   contactPerson: contactPersonSchema,
   /** Organization website URL (optional) — stored in promoters.metadata */
-  website: z.string().url().optional(),
+  website: z.string().url().optional().or(z.literal("")),
   /** Links or descriptions of past events for credibility (optional) */
   pastEventReferences: z.array(z.string().min(1)).optional(),
 });
@@ -253,7 +424,7 @@ export const organizerProfileUpdateSchema = z.object({
   /** Updated contact person details */
   contactPerson: contactPersonSchema.optional(),
   /** Updated website URL */
-  website: z.string().url().optional(),
+  website: z.string().url().optional().or(z.literal("")),
   /** Social media handles — stored in promoters.metadata.socialLinks */
   socialLinks: socialLinksSchema.optional(),
 });
@@ -532,7 +703,7 @@ export const api = {
       path: '/api/bookings/apply',
       input: applicationSubmitSchema,
       responses: {
-        201: z.custom<typeof bookings.$inferSelect>(),
+        201: applicationSubmitResponseSchema,
         400: errorSchemas.validation,
       },
     },
@@ -540,19 +711,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/bookings/:id/negotiation',
       responses: {
-        200: z.object({
-          currentProposal: negotiationSnapshotSchema,
-          round: z.number(),
-          status: z.string(),
-          history: z.array(z.object({
-            id: z.number(),
-            round: z.number(),
-            proposedTerms: negotiationSnapshotSchema,
-            status: z.string(),
-            createdAt: z.string().or(z.date()),
-            createdBy: z.number().nullable(),
-          })),
-        }),
+        200: negotiationSummaryResponseSchema,
         404: errorSchemas.notFound,
       },
     },
@@ -561,7 +720,7 @@ export const api = {
       path: '/api/bookings/:id/negotiation/propose',
       input: proposalSubmitSchema,
       responses: {
-        200: z.object({ success: z.boolean() }),
+        200: proposalSubmitResponseSchema,
         400: errorSchemas.validation,
       },
     },
@@ -570,15 +729,16 @@ export const api = {
       path: '/api/bookings/:id/negotiation/rider-confirm',
       input: riderConfirmationSchema,
       responses: {
-        200: z.object({ success: z.boolean() }),
+        200: riderConfirmationResponseSchema,
         400: errorSchemas.validation,
       },
     },
     finalAccept: {
       method: 'POST' as const,
       path: '/api/bookings/:id/negotiation/accept',
+      input: finalAcceptanceSchema,
       responses: {
-        200: z.object({ success: z.boolean() }),
+        200: finalAcceptanceResponseSchema,
         400: errorSchemas.validation,
       },
     },

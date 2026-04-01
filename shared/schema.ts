@@ -484,6 +484,10 @@ export const bookings = pgTable("bookings", {
   artistCategorySnapshot: text("artist_category_snapshot"),
   trustTierSnapshot: text("trust_tier_snapshot"),
   contractId: integer("contract_id"), // Added this relation manually below
+  flowStartedAt: timestamp("flow_started_at", { withTimezone: true }),
+  flowDeadlineAt: timestamp("flow_deadline_at", { withTimezone: true }),
+  flowExpiredAt: timestamp("flow_expired_at", { withTimezone: true }),
+  flowExpiredReason: text("flow_expired_reason"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   meta: jsonb("meta").default({}),

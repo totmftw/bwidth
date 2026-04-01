@@ -9,9 +9,9 @@ import { Badge } from "@/components/ui/badge";
 export default function AdminDashboard() {
     // Fetch pending contracts
     const { data: pendingContracts, isLoading: isLoadingContracts } = useQuery({
-        queryKey: ["/admin/contracts/pending"],
+        queryKey: ["/api/admin/contracts/pending"],
         queryFn: async () => {
-            const res = await apiRequest("GET", "/admin/contracts/pending");
+            const res = await apiRequest("GET", "/api/admin/contracts/pending");
             if (!res.ok) throw new Error("Failed to fetch pending contracts");
             return await res.json();
         }

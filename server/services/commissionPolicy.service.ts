@@ -32,7 +32,8 @@ export class CommissionPolicyService {
       throw new Error(`Commission policy not found for category: ${artistCategory}`);
     }
 
-    let artistPct = Number(policy.artistPct || 0) / 100;
+    let artistPayoutPct = Number(policy.artistPct || 0) / 100;
+    let artistCommissionRate = 1 - artistPayoutPct; // Platform's cut from artist
     let organizerPct = Number(policy.organizerPct || 0) / 100;
 
     // Trust tier modifier
@@ -47,7 +48,7 @@ export class CommissionPolicyService {
 
     const artistFee = agreedFee;
     const organizerFeeAmount = agreedFee * organizerPct;
-    const artistCommissionAmount = agreedFee * artistPct;
+    const artistCommissionAmount = agreedFee * artistCommissionRate;
 
     const netCostToOrganizer = agreedFee + organizerFeeAmount;
     const netPayoutToArtist = agreedFee - artistCommissionAmount;
@@ -59,7 +60,7 @@ export class CommissionPolicyService {
       grossBookingValue: agreedFee,
       artistFee: agreedFee,
       organizerFee: organizerFeeAmount,
-      artistCommissionPct: artistPct * 100,
+      artistCommissionPct: artistCommissionRate * 100,
       organizerCommissionPct: organizerPct * 100,
       platformRevenue,
       netPayoutToArtist,

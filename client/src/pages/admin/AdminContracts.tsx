@@ -22,9 +22,9 @@ export default function AdminContracts() {
     // For now, we only have the 'pending' endpoint. 
     // Ideally we'd have a general search/filter endpoint for all contracts.
     const { data: pendingContracts, isLoading } = useQuery({
-        queryKey: ["/admin/contracts/pending"],
+        queryKey: ["/api/admin/contracts/pending"],
         queryFn: async () => {
-            const res = await apiRequest("GET", "/admin/contracts/pending");
+            const res = await apiRequest("GET", "/api/admin/contracts/pending");
             if (!res.ok) throw new Error("Failed to fetch contracts");
             return await res.json();
         }

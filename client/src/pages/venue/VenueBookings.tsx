@@ -253,7 +253,7 @@ export default function VenueBookings() {
                                         {["inquiry", "offered", "negotiating"].includes(selectedBooking.status) && (
                                             <Button variant="outline" onClick={() => setShowNegotiation(true)}>
                                                 <MessageSquare className="w-4 h-4 mr-2" />
-                                                Negotiate / Chat
+                                                Open Workspace
                                             </Button>
                                         )}
 
@@ -264,33 +264,9 @@ export default function VenueBookings() {
                                             </Button>
                                         )}
 
-                                        {["inquiry", "offered"].includes(selectedBooking.status) && (
-                                            <>
-                                                <Button
-                                                    variant="outline"
-                                                    onClick={() => {
-                                                        setShowDetailsDialog(false);
-                                                        openResponseDialog(selectedBooking, "decline");
-                                                    }}
-                                                >
-                                                    Decline
-                                                </Button>
-                                                <Button
-                                                    className="bg-green-600 hover:bg-green-500"
-                                                    onClick={() => {
-                                                        setShowDetailsDialog(false);
-                                                        openResponseDialog(selectedBooking, "accept");
-                                                    }}
-                                                >
-                                                    Accept
-                                                </Button>
-                                            </>
-                                        )}
-                                        {!["inquiry", "offered"].includes(selectedBooking.status) && (
-                                            <Button variant="outline" onClick={handleCloseDetails}>
-                                                Close
-                                            </Button>
-                                        )}
+                                        <Button variant="outline" onClick={handleCloseDetails}>
+                                            Close
+                                        </Button>
                                     </DialogFooter>
                                 </>
                     )}
@@ -301,7 +277,7 @@ export default function VenueBookings() {
             <Sheet open={!!selectedBooking && (showNegotiation || showContract)} onOpenChange={(open) => !open && handleCloseDetails()}>
                 <SheetContent
                     side="right"
-                    className="w-full sm:max-w-md h-full p-0 flex flex-col overflow-hidden border-l border-white/10"
+                    className="w-full sm:max-w-4xl h-full p-0 flex flex-col overflow-hidden border-l border-white/10"
                 >
                     <VisuallyHidden><SheetTitle>{showNegotiation ? "Negotiation" : "Contract"}</SheetTitle></VisuallyHidden>
                     {selectedBooking && showNegotiation && (

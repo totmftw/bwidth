@@ -63,7 +63,7 @@ export function Sidebar() {
         label: "Messages",
         href: "/organizer/messages",
         icon: MessageSquare,
-        show: true,
+        show: false,
         badge: 0 // TODO: Wire up unread count from useConversations hook
       },
       {
