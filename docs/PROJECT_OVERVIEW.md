@@ -214,7 +214,13 @@ A **curator-led booking system** that manages who plays where, when, under what 
 ### 3. Venues/Clubs
 - **Primary Goal**: Consistent programming that attracts crowds
 - **Pain Points**: Don't know how to curate, inconsistent quality
-- **Key Features**: Programming packages, calendar management, curator matching
+- **Implemented Features (as of April 2026)**:
+  - 7-step onboarding wizard (`VenueProfileSetup`) — Basic Info, Location, Capacity, Music Policy, Amenities, Photos, Preferences
+  - Role-specific sidebar navigation: Dashboard, Applications, Find Artists, Profile
+  - Application inbox (`/venue/applications`) — view all artist applications, filter by status, search by artist/event name, Accept/Decline actions with audit logging, NegotiationFlow sheet for in-progress negotiations
+  - Dashboard with real-time stats: shows hosted, artists booked, monthly budget utilization (SQL SUM of confirmed/paid/completed bookings), trust score (read from `venue.metadata.trustScore`); all action buttons wired to live routes
+  - Profile management with 4 tabs: Basic Info (operating days badge-toggles), Location & Space, Music & Equipment, Photos & Media (cover URL, gallery URLs, virtual tour URL)
+- **Planned Features**: Programming packages, curator matching, calendar management
 
 ### 4. Curators
 - **Primary Goal**: Match artists to venues professionally
@@ -329,6 +335,6 @@ A **curator-led booking system** that manages who plays where, when, under what 
 
 ---
 
-**Last Updated**: February 3, 2026  
+**Last Updated**: April 2, 2026  
 **Version**: 1.0.0  
 **Maintained By**: Development Team

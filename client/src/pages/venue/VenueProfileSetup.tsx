@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -134,6 +135,7 @@ const STEPS = [
 export default function VenueProfileSetup() {
     const [, setLocation] = useLocation();
     const { toast } = useToast();
+    const queryClient = useQueryClient();
     const [currentStep, setCurrentStep] = useState(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -252,7 +254,9 @@ export default function VenueProfileSetup() {
                 description: "Your venue is now ready for bookings.",
             });
 
-            setLocation("/venue/dashboard");
+            // Set cache immediately so PrivateRoute sees complete status before redirect
+            queryClient.setQueryData(["/api/venues/profile/status"], { isComplete: true });
+            setLocation("/dashboard");
         } catch (error: any) {
             console.error("Profile submission error:", error);
             toast({
@@ -726,12 +730,6 @@ function PhotosStep({ data, onUpdate, onNext, onBack }: { data: any; onUpdate: (
 
     return (
         <div className="space-y-6">
-            <div className="p-6 border-2 border-dashed border-white/20 rounded-xl text-center">
-                <Camera className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                <p className="text-muted-foreground mb-2">Photo upload coming soon</p>
-                <p className="text-xs text-muted-foreground">For now, you can add URLs to your photos</p>
-            </div>
-
             <div className="space-y-2">
                 <Label>Cover Image URL</Label>
                 <Input

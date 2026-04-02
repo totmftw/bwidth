@@ -84,8 +84,8 @@ export function useCompleteOnboarding() {
       return await res.json();
     },
     onSuccess: () => {
+      queryClient.setQueryData([api.organizer.profile.status.path], { isComplete: true });
       queryClient.invalidateQueries({ queryKey: [api.organizer.profile.get.path] });
-      queryClient.invalidateQueries({ queryKey: [api.organizer.profile.status.path] });
       toast({ title: "Welcome!", description: "Your organizer profile is now complete." });
     },
     onError: (error: Error) => {

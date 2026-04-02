@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -91,6 +92,7 @@ export default function ArtistProfileSetup() {
     const [, setLocation] = useLocation();
     const { user } = useAuth();
     const { toast } = useToast();
+    const queryClient = useQueryClient();
     const [currentStep, setCurrentStep] = useState(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -164,7 +166,8 @@ export default function ArtistProfileSetup() {
                 description: "Your artist profile has been set up successfully.",
             });
 
-            // Redirect to dashboard
+            // Set cache immediately so PrivateRoute sees complete status before redirect
+            queryClient.setQueryData(["/api/artists/profile/status"], { isComplete: true });
             setLocation("/dashboard");
         } catch (error: any) {
             console.error("Profile submission error:", error);

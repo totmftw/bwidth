@@ -1,152 +1,367 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
 import { Link } from "wouter";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { motion } from "framer-motion";
+import {
+  Users,
+  ClipboardList,
+  FileText,
+  Calendar,
+  Music2,
+  Building2,
+  MapPin,
+  BarChart3,
+  ChevronRight,
+  Activity,
+  ShieldCheck,
+  TrendingUp,
+} from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Users, FileText, ArrowRight, Loader2, Calendar, MessageSquare } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 
-export default function AdminDashboard() {
-    // Fetch pending contracts
-    const { data: pendingContracts, isLoading: isLoadingContracts } = useQuery({
-        queryKey: ["/api/admin/contracts/pending"],
-        queryFn: async () => {
-            const res = await apiRequest("GET", "/api/admin/contracts/pending");
-            if (!res.ok) throw new Error("Failed to fetch pending contracts");
-            return await res.json();
-        }
-    });
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-    return (
-        <div className="space-y-8">
-            <div className="flex flex-col gap-2">
-                <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
-                <p className="text-muted-foreground">
-                    Overview of platform activity and pending tasks.
-                </p>
-            </div>
-
-            {/* Quick Stats / Overview Cards */}
-            <div className="grid gap-4 md:grid-cols-3">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Pending Contracts</CardTitle>
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">
-                            {isLoadingContracts ? <Loader2 className="h-4 w-4 animate-spin" /> : pendingContracts?.length || 0}
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                            Waiting for admin review
-                        </p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Active Users</CardTitle>
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <Link href="/admin/users">
-                            <div className="text-2xl font-bold hover:underline cursor-pointer">View</div>
-                        </Link>
-                        <p className="text-xs text-muted-foreground">
-                            Manage user accounts
-                        </p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Conversations</CardTitle>
-                        <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <Link href="/admin/chat">
-                            <div className="text-2xl font-bold hover:underline cursor-pointer">View</div>
-                        </Link>
-                        <p className="text-xs text-muted-foreground">
-                            Monitor platform chats
-                        </p>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* Action Required: Pending Contracts */}
-            <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-semibold tracking-tight">Action Required</h2>
-                    <Link href="/admin/contracts">
-                        <Button variant="ghost" size="sm" className="gap-1">
-                            View All <ArrowRight className="h-4 w-4" />
-                        </Button>
-                    </Link>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {isLoadingContracts ? (
-                        <div className="col-span-full flex justify-center p-8">
-                            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                        </div>
-                    ) : pendingContracts && pendingContracts.length > 0 ? (
-                        pendingContracts.slice(0, 6).map((contract: any) => (
-                            <Card key={contract.id} className="overflow-hidden border-l-4 border-l-amber-500">
-                                <CardHeader className="pb-2">
-                                    <div className="flex justify-between items-start">
-                                        <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/20">
-                                            Admin Review
-                                        </Badge>
-                                        <span className="text-xs text-muted-foreground">
-                                            {new Date(contract.createdAt).toLocaleDateString()}
-                                        </span>
-                                    </div>
-                                    <CardTitle className="text-base mt-2">
-                                        Booking #{contract.bookingId}
-                                    </CardTitle>
-                                    <CardDescription className="line-clamp-1">
-                                        Contract v{contract.version} ready for review
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="flex items-center gap-2 mt-2">
-                                        <Link href={`/admin/contracts`}>
-                                            <Button size="sm" className="w-full bg-amber-600 hover:bg-amber-700">
-                                                Review Now
-                                            </Button>
-                                        </Link>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))
-                    ) : (
-                        <div className="col-span-full flex flex-col items-center justify-center p-8 border border-dashed rounded-lg bg-muted/20">
-                            <CheckCircleIcon className="h-10 w-10 text-muted-foreground/50 mb-2" />
-                            <p className="text-muted-foreground font-medium">All caught up!</p>
-                            <p className="text-sm text-muted-foreground/70">No contracts currently require admin review.</p>
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
+interface PlatformStats {
+  totalUsers: number;
+  activeUsers: number;
+  pendingVerification: number;
+  totalArtists: number;
+  totalOrganizers: number;
+  totalVenues: number;
+  totalEvents: number;
+  totalBookings: number;
+  activeBookings: number;
+  pendingContracts: number;
 }
 
-function CheckCircleIcon(props: any) {
-    return (
-        <svg
-            {...props}
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+
+interface StatCardProps {
+  label: string;
+  value: number | string;
+  icon: React.ComponentType<{ className?: string }>;
+  gradient: string;
+  iconColor: string;
+  delay?: number;
+}
+
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  gradient,
+  iconColor,
+  delay = 0,
+}: StatCardProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay }}
+    >
+      <Card className="glass-card border-white/5 overflow-hidden relative">
+        <div
+          className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-40`}
+        />
+        <CardContent className="p-6 relative">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-muted-foreground">{label}</span>
+            <div
+              className={`w-9 h-9 rounded-xl bg-background/60 flex items-center justify-center ${iconColor}`}
+            >
+              <Icon className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="text-3xl font-bold font-display">
+            {typeof value === "number" ? value.toLocaleString("en-IN") : value}
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
+// ─── Skeleton row ─────────────────────────────────────────────────────────────
+
+function StatRow({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="flex items-center justify-between py-3 border-b border-white/5 last:border-0">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="text-sm font-semibold tabular-nums">
+        {typeof value === "number" ? value.toLocaleString("en-IN") : value}
+      </span>
+    </div>
+  );
+}
+
+// ─── Quick Action ─────────────────────────────────────────────────────────────
+
+function QuickAction({
+  label,
+  href,
+  icon: Icon,
+}: {
+  label: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <Link href={href}>
+      <div className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors group cursor-pointer">
+        <div className="flex items-center gap-3">
+          <Icon className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+          <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
+            {label}
+          </span>
+        </div>
+        <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-primary transition-colors" />
+      </div>
+    </Link>
+  );
+}
+
+// ─── AdminDashboard ───────────────────────────────────────────────────────────
+
+export default function AdminDashboard() {
+  const { data: stats, isLoading } = useQuery<PlatformStats>({
+    queryKey: ["/api/admin/stats"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/stats", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch platform stats");
+      return res.json();
+    },
+  });
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+      >
+        <h1 className="text-3xl font-display font-bold">Control Panel</h1>
+        <p className="text-muted-foreground mt-1">BANDWIDTH Admin — Platform Overview</p>
+      </motion.div>
+
+      {/* Primary Stats Row */}
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-28 rounded-xl" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <StatCard
+            label="Total Users"
+            value={stats?.totalUsers ?? 0}
+            icon={Users}
+            gradient="from-violet-500/20 to-purple-500/20"
+            iconColor="text-violet-400"
+            delay={0}
+          />
+          <StatCard
+            label="Active Bookings"
+            value={stats?.activeBookings ?? 0}
+            icon={ClipboardList}
+            gradient="from-green-500/20 to-emerald-500/20"
+            iconColor="text-green-400"
+            delay={0.05}
+          />
+          <StatCard
+            label="Pending Contracts"
+            value={stats?.pendingContracts ?? 0}
+            icon={FileText}
+            gradient="from-yellow-500/20 to-orange-500/20"
+            iconColor="text-yellow-400"
+            delay={0.1}
+          />
+          <StatCard
+            label="Total Events"
+            value={stats?.totalEvents ?? 0}
+            icon={Calendar}
+            gradient="from-blue-500/20 to-cyan-500/20"
+            iconColor="text-blue-400"
+            delay={0.15}
+          />
+        </div>
+      )}
+
+      {/* Secondary Stats Row */}
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-28 rounded-xl" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <StatCard
+            label="Artists"
+            value={stats?.totalArtists ?? 0}
+            icon={Music2}
+            gradient="from-rose-500/20 to-pink-500/20"
+            iconColor="text-rose-400"
+            delay={0.2}
+          />
+          <StatCard
+            label="Organizers"
+            value={stats?.totalOrganizers ?? 0}
+            icon={Building2}
+            gradient="from-indigo-500/20 to-blue-500/20"
+            iconColor="text-indigo-400"
+            delay={0.25}
+          />
+          <StatCard
+            label="Venues"
+            value={stats?.totalVenues ?? 0}
+            icon={MapPin}
+            gradient="from-teal-500/20 to-cyan-500/20"
+            iconColor="text-teal-400"
+            delay={0.3}
+          />
+          <StatCard
+            label="Platform Bookings"
+            value={stats?.totalBookings ?? 0}
+            icon={BarChart3}
+            gradient="from-purple-500/20 to-violet-500/20"
+            iconColor="text-purple-400"
+            delay={0.35}
+          />
+        </div>
+      )}
+
+      {/* Two-column section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Platform Overview — 2/3 */}
+        <motion.div
+          className="lg:col-span-2"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.4 }}
         >
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-            <polyline points="22 4 12 14.01 9 11.01" />
-        </svg>
-    )
+          <Card className="glass-card border-white/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-primary" />
+                Platform Overview
+              </CardTitle>
+              <CardDescription>
+                Key metrics across all entities
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3, 4, 5, 6].map((i) => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : (
+                <div>
+                  <StatRow label="Total Users (all time)" value={stats?.totalUsers ?? 0} />
+                  <StatRow label="Active Users" value={stats?.activeUsers ?? 0} />
+                  <StatRow label="Pending Verification" value={stats?.pendingVerification ?? 0} />
+                  <StatRow label="Artists on Platform" value={stats?.totalArtists ?? 0} />
+                  <StatRow label="Organizers on Platform" value={stats?.totalOrganizers ?? 0} />
+                  <StatRow label="Registered Venues" value={stats?.totalVenues ?? 0} />
+                  <StatRow label="Total Events Created" value={stats?.totalEvents ?? 0} />
+                  <StatRow label="Total Bookings (all time)" value={stats?.totalBookings ?? 0} />
+                  <StatRow label="Active / In-Flight Bookings" value={stats?.activeBookings ?? 0} />
+                  <StatRow label="Contracts Awaiting Admin Review" value={stats?.pendingContracts ?? 0} />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Right column — 1/3 */}
+        <div className="space-y-6">
+          {/* Quick Actions */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.45 }}
+          >
+            <Card className="glass-card border-white/5">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ShieldCheck className="w-5 h-5 text-primary" />
+                  Quick Actions
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 pb-3">
+                <QuickAction
+                  label="Manage Users"
+                  href="/admin/users"
+                  icon={Users}
+                />
+                <QuickAction
+                  label="Review Contracts"
+                  href="/admin/contracts"
+                  icon={FileText}
+                />
+                <QuickAction
+                  label="View Bookings"
+                  href="/admin/bookings"
+                  icon={ClipboardList}
+                />
+                <QuickAction
+                  label="Platform Settings"
+                  href="/admin/settings"
+                  icon={Activity}
+                />
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Recent Activity placeholder */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.5 }}
+          >
+            <Card className="glass-card border-white/5">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Activity className="w-5 h-5 text-muted-foreground" />
+                  Recent Activity
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-8">
+                  <div className="w-12 h-12 rounded-full bg-muted/30 flex items-center justify-center mx-auto mb-3">
+                    <Activity className="w-6 h-6 text-muted-foreground/50" />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Audit log coming soon
+                  </p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">
+                    Full audit trail is tracked server-side
+                  </p>
+                  <Link href="/admin/audit">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mt-3 text-primary hover:text-primary"
+                    >
+                      View Audit Log
+                      <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                    </Button>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
+      </div>
+    </div>
+  );
 }

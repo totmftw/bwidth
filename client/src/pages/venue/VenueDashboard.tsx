@@ -141,9 +141,9 @@ export default function VenueDashboard() {
                             <CardTitle>Upcoming Events</CardTitle>
                             <CardDescription>Your scheduled performances</CardDescription>
                         </div>
-                        <Link href="/venue/calendar">
+                        <Link href="/venue/applications">
                             <Button variant="ghost" size="sm">
-                                View Calendar <ChevronRight className="ml-1 w-4 h-4" />
+                                View All <ChevronRight className="ml-1 w-4 h-4" />
                             </Button>
                         </Link>
                     </CardHeader>
@@ -235,9 +235,11 @@ export default function VenueDashboard() {
                                     <p className="text-sm text-muted-foreground mb-4">
                                         Plan your 3-6 month calendar with our curators.
                                     </p>
-                                    <Button className="w-full" variant="outline">
-                                        Start Programming
-                                    </Button>
+                                    <Link href="/venue/applications">
+                                        <Button className="w-full" variant="outline">
+                                            View Applications
+                                        </Button>
+                                    </Link>
                                 </TabsContent>
                             </Tabs>
                         </CardContent>
@@ -261,7 +263,7 @@ export default function VenueDashboard() {
                                             Respond within 48 hours
                                         </p>
                                     </div>
-                                    <Link href="/bookings">
+                                    <Link href="/venue/applications">
                                         <Button className="w-full" size="sm">
                                             Review Requests
                                         </Button>
@@ -288,12 +290,16 @@ export default function VenueDashboard() {
                                     Edit Venue Profile
                                 </Button>
                             </Link>
-                            <Button variant="ghost" className="w-full justify-start">
-                                Update Availability
-                            </Button>
-                            <Button variant="ghost" className="w-full justify-start">
-                                View Past Performances
-                            </Button>
+                            <Link href="/venue/profile">
+                                <Button variant="ghost" className="w-full justify-start">
+                                    Update Availability
+                                </Button>
+                            </Link>
+                            <Link href="/venue/applications">
+                                <Button variant="ghost" className="w-full justify-start">
+                                    View Past Performances
+                                </Button>
+                            </Link>
                         </CardContent>
                     </Card>
                 </div>

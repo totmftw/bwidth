@@ -10,7 +10,8 @@ import {
   Settings,
   Search,
   CalendarDays,
-  MessageSquare
+  MessageSquare,
+  Inbox
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -73,7 +74,7 @@ export function Sidebar() {
         show: true
       }
     ];
-  } else {
+  } else if (role === "venue_manager" || role === "venue") {
     navItems = [
       {
         label: "Dashboard",
@@ -82,10 +83,32 @@ export function Sidebar() {
         show: true
       },
       {
-        label: "Discover",
-        href: role === "venue_manager" || role === "venue" ? "/explore" : "/explore",
+        label: "Applications",
+        href: "/venue/applications",
+        icon: Inbox,
+        show: true,
+        badge: 0
+      },
+      {
+        label: "Find Artists",
+        href: "/explore",
         icon: Search,
-        show: role === "venue_manager" || role === "venue"
+        show: true
+      },
+      {
+        label: "Profile",
+        href: "/profile",
+        icon: Users,
+        show: true
+      }
+    ];
+  } else {
+    navItems = [
+      {
+        label: "Dashboard",
+        href: "/dashboard",
+        icon: LayoutDashboard,
+        show: true
       },
       {
         label: "Bookings",

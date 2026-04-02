@@ -1,109 +1,280 @@
-import { Link, useLocation } from "wouter";
-import { useAuth } from "@/hooks/use-auth";
-import { Loader2, LayoutDashboard, Users, FileText, Calendar, LogOut, Shield, MessageSquare, Settings } from "lucide-react";
+import { useState } from "react";
+import { useLocation, Redirect, Link } from "wouter";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  LayoutDashboard,
+  Users,
+  Music2,
+  Building2,
+  MapPin,
+  Calendar,
+  ClipboardList,
+  FileText,
+  MessageSquare,
+  Settings,
+  Shield,
+  LogOut,
+  Menu,
+  ChevronRight,
+} from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Sheet,
+  SheetContent,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { useAuth } from "@/hooks/use-auth";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface NavItem {
+  label: string;
+  path: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+interface NavSection {
+  heading: string;
+  items: NavItem[];
+}
+
+// ─── Navigation definition ────────────────────────────────────────────────────
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    heading: "OVERVIEW",
+    items: [
+      { label: "Dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
+    ],
+  },
+  {
+    heading: "PLATFORM DATA",
+    items: [
+      { label: "Users", path: "/admin/users", icon: Users },
+      { label: "Artists", path: "/admin/artists", icon: Music2 },
+      { label: "Organizers", path: "/admin/organizers", icon: Building2 },
+      { label: "Venues", path: "/admin/venues", icon: MapPin },
+    ],
+  },
+  {
+    heading: "WORKFLOW",
+    items: [
+      { label: "Events", path: "/admin/events", icon: Calendar },
+      { label: "Bookings", path: "/admin/bookings", icon: ClipboardList },
+      { label: "Contracts", path: "/admin/contracts", icon: FileText },
+      { label: "Negotiations", path: "/admin/chats", icon: MessageSquare },
+    ],
+  },
+  {
+    heading: "SYSTEM",
+    items: [
+      { label: "Settings", path: "/admin/settings", icon: Settings },
+      { label: "Audit Log", path: "/admin/audit", icon: Shield },
+    ],
+  },
+];
+
+// ─── Helper ───────────────────────────────────────────────────────────────────
+
+function isAdminRole(role: string): boolean {
+  return role === "admin" || role === "platform_admin";
+}
+
+// ─── Sidebar content (shared between desktop & mobile sheet) ──────────────────
+
+interface SidebarContentProps {
+  currentPath: string;
+  displayName: string;
+  onLogout: () => void;
+  loggingOut: boolean;
+  onNavigate?: () => void; // called after a nav link click (closes mobile sheet)
+}
+
+function SidebarContent({
+  currentPath,
+  displayName,
+  onLogout,
+  loggingOut,
+  onNavigate,
+}: SidebarContentProps) {
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="px-4 py-5 border-b border-white/5">
+        <div className="flex items-center gap-2">
+          <span className="text-lg font-bold text-gradient-primary tracking-tight">
+            BANDWIDTH
+          </span>
+          <Badge
+            variant="secondary"
+            className="text-[10px] px-1.5 py-0 bg-primary/20 text-primary border-primary/30"
+          >
+            Admin
+          </Badge>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-0.5 tracking-widest uppercase">
+          Control Panel
+        </p>
+      </div>
+
+      {/* Nav */}
+      <ScrollArea className="flex-1 px-3 py-4">
+        <nav className="space-y-6">
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.heading}>
+              <p className="text-[10px] font-semibold tracking-widest text-muted-foreground/60 uppercase px-2 mb-1.5">
+                {section.heading}
+              </p>
+              <ul className="space-y-0.5">
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive =
+                    item.path === "/admin/dashboard"
+                      ? currentPath === item.path
+                      : currentPath.startsWith(item.path);
+
+                  return (
+                    <li key={item.path}>
+                      <Link
+                        href={item.path}
+                        onClick={onNavigate}
+                        className={[
+                          "flex items-center gap-3 px-2 py-2 rounded-lg text-sm transition-all duration-150 group",
+                          isActive
+                            ? "bg-primary/15 text-primary font-medium"
+                            : "text-muted-foreground hover:text-foreground hover:bg-white/5",
+                        ].join(" ")}
+                      >
+                        <Icon
+                          className={[
+                            "w-4 h-4 shrink-0 transition-colors",
+                            isActive
+                              ? "text-primary"
+                              : "text-muted-foreground group-hover:text-foreground",
+                          ].join(" ")}
+                        />
+                        <span className="flex-1">{item.label}</span>
+                        {isActive && (
+                          <ChevronRight className="w-3 h-3 text-primary/60" />
+                        )}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
+      </ScrollArea>
+
+      {/* Footer */}
+      <div className="px-3 py-4 border-t border-white/5 space-y-2">
+        <p className="text-xs text-muted-foreground px-2 truncate">{displayName}</p>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+          onClick={onLogout}
+          disabled={loggingOut}
+        >
+          {loggingOut ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <LogOut className="w-4 h-4" />
+          )}
+          Log Out
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── AdminLayout ──────────────────────────────────────────────────────────────
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
-    const { user, isLoading, logoutMutation } = useAuth();
-    const [location] = useLocation();
+  const { user, isLoading, logoutMutation } = useAuth();
+  const [location] = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-    if (isLoading) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-background text-primary">
-                <Loader2 className="w-10 h-10 animate-spin" />
-            </div>
-        );
-    }
-
-    if (!user || (user.role !== "admin" && user.role !== "platform_admin")) {
-        return (
-            <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background p-4">
-                <Shield className="w-16 h-16 text-muted-foreground/30" />
-                <h1 className="text-2xl font-bold">Access Denied</h1>
-                <p className="text-muted-foreground text-center max-w-md">
-                    You do not have permission to view this area.
-                </p>
-                <Link href="/dashboard">
-                    <Button>Return to Dashboard</Button>
-                </Link>
-            </div>
-        );
-    }
-
-    const navItems = [
-        { href: "/admin", icon: LayoutDashboard, label: "Dashboard" },
-        { href: "/admin/users", icon: Users, label: "User Management" },
-        { href: "/admin/contracts", icon: FileText, label: "Contract Review" },
-        { href: "/admin/bookings", icon: Calendar, label: "All Bookings" },
-        { href: "/admin/chat", icon: MessageSquare, label: "Chat Oversight" },
-        { href: "/admin/settings", icon: Settings, label: "Workflow Toggles" },
-    ];
-
+  if (isLoading) {
     return (
-        <div className="flex min-h-screen bg-background text-foreground">
-            {/* Admin Sidebar */}
-            <aside className="w-64 border-r border-border bg-card/50 hidden md:flex flex-col">
-                <div className="p-6 border-b border-border/50">
-                    <div className="flex items-center gap-2 font-bold text-lg text-primary">
-                        <Shield className="w-5 h-5" />
-                        <span>Admin Portal</span>
-                    </div>
-                </div>
-
-                <div className="flex-1 py-6 px-3 space-y-1">
-                    {navItems.map((item) => (
-                        <Link key={item.href} href={item.href}>
-                            <div className={cn(
-                                "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer",
-                                location === item.href
-                                    ? "bg-primary/10 text-primary"
-                                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                            )}>
-                                <item.icon className="w-4 h-4" />
-                                {item.label}
-                            </div>
-                        </Link>
-                    ))}
-                </div>
-
-                <div className="p-4 border-t border-border/50">
-                    <div className="flex items-center gap-3 px-3 py-2">
-                        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-xs">
-                            {(user.username || "U").slice(0, 2).toUpperCase()}
-                        </div>
-                        <div className="flex-1 overflow-hidden">
-                            <p className="text-sm font-medium truncate">{user.displayName || user.username}</p>
-                            <p className="text-xs text-muted-foreground truncate capitalize">{user.role}</p>
-                        </div>
-                    </div>
-                    <Button
-                        variant="ghost"
-                        className="w-full mt-2 justify-start text-muted-foreground hover:text-destructive"
-                        onClick={() => logoutMutation.mutate()}
-                    >
-                        <LogOut className="w-4 h-4 mr-2" />
-                        Sign Out
-                    </Button>
-                </div>
-            </aside>
-
-            {/* Mobile Header (Simplified) */}
-            <div className="md:hidden fixed top-0 left-0 right-0 h-16 border-b border-border bg-background z-50 flex items-center px-4 justify-between">
-                <span className="font-bold flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-primary" /> Admin Portal
-                </span>
-                {/* Mobile menu could go here */}
-            </div>
-
-            {/* Main Content */}
-            <main className="flex-1 flex flex-col md:ml-0 pt-16 md:pt-0 h-screen overflow-hidden">
-                <div className="flex-1 overflow-y-auto p-6 md:p-10">
-                    <div className="max-w-6xl mx-auto">
-                        {children}
-                    </div>
-                </div>
-            </main>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
     );
+  }
+
+  const role = (user?.metadata as Record<string, string> | null)?.role ?? "";
+  if (!user || !isAdminRole(role)) {
+    return <Redirect to="/admin" />;
+  }
+
+  const displayName =
+    user.displayName || user.firstName || user.username || "Admin";
+
+  const handleLogout = () => {
+    logoutMutation.mutate(undefined, {
+      onSuccess: () => {
+        window.location.href = "/admin";
+      },
+    });
+  };
+
+  return (
+    <div className="flex min-h-screen bg-background">
+      {/* ── Desktop Sidebar ── */}
+      <motion.aside
+        initial={{ x: -20, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        className="hidden md:flex fixed inset-y-0 left-0 w-60 flex-col glass-card border-r border-white/5 z-30"
+      >
+        <SidebarContent
+          currentPath={location}
+          displayName={displayName}
+          onLogout={handleLogout}
+          loggingOut={logoutMutation.isPending}
+        />
+      </motion.aside>
+
+      {/* ── Mobile Header + Sheet ── */}
+      <div className="md:hidden fixed top-0 inset-x-0 z-40 flex items-center gap-3 px-4 py-3 glass-card border-b border-white/5">
+        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+          <SheetTrigger asChild>
+            <Button variant="ghost" size="icon" className="shrink-0">
+              <Menu className="w-5 h-5" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="p-0 w-60 glass-card border-r border-white/5">
+            <SidebarContent
+              currentPath={location}
+              displayName={displayName}
+              onLogout={handleLogout}
+              loggingOut={logoutMutation.isPending}
+              onNavigate={() => setMobileOpen(false)}
+            />
+          </SheetContent>
+        </Sheet>
+        <span className="font-bold text-gradient-primary tracking-tight">
+          BANDWIDTH
+        </span>
+        <Badge
+          variant="secondary"
+          className="text-[10px] px-1.5 py-0 bg-primary/20 text-primary border-primary/30"
+        >
+          Admin
+        </Badge>
+      </div>
+
+      {/* ── Main Content ── */}
+      <main className="flex-1 md:ml-60 pt-16 md:pt-0 min-h-screen overflow-y-auto">
+        <div className="p-6 md:p-8">
+          {children}
+        </div>
+      </main>
+    </div>
+  );
 }

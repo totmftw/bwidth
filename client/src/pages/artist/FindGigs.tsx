@@ -11,16 +11,27 @@ import { useLocation } from "wouter";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBookings, useUpdateBooking } from "@/hooks/use-bookings";
+import { useToast } from "@/hooks/use-toast";
 
 export default function FindGigs() {
     const [search, setSearch] = useState("");
     const [, setLocation] = useLocation();
+    const { toast } = useToast();
     const { data: bookings } = useBookings();
     const { mutate: updateBooking } = useUpdateBooking();
     const [selectedGig, setSelectedGig] = useState<any>(null);
     const [applyModalOpen, setApplyModalOpen] = useState(false);
     const [detailModalOpen, setDetailModalOpen] = useState(false);
     const [selectedOpportunity, setSelectedOpportunity] = useState<any>(null);
+
+    const { data: artistStatus } = useQuery({
+        queryKey: ["/api/artists/profile/status"],
+        queryFn: async () => {
+            const res = await fetch("/api/artists/profile/status", { credentials: "include" });
+            if (!res.ok) return { isComplete: true };
+            return await res.json();
+        },
+    });
 
     const { data: opportunities, isLoading } = useQuery({
         queryKey: ["/api/opportunities", search],
@@ -34,6 +45,11 @@ export default function FindGigs() {
     });
 
     const handleApply = (opportunity: any, stage?: any) => {
+        if (artistStatus && !artistStatus.isComplete) {
+            toast({ title: "Complete your profile first", description: "You need to complete your artist profile before applying to gigs.", variant: "destructive" });
+            setLocation("/profile/setup");
+            return;
+        }
         // opportunity object contains { event, venue, organizer }
         // The modal expects just the event object
         setSelectedGig({ event: opportunity.event || opportunity, stage });

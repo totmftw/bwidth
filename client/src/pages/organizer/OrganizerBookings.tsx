@@ -6,6 +6,8 @@ import { useState } from "react";
 import { useOrganizerBookings } from "@/hooks/use-organizer-bookings";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 import { format, isAfter } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -55,7 +57,18 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: str
 
 export default function OrganizerBookings() {
     const { user } = useAuth();
+    const [, setLocation] = useLocation();
+    const { toast } = useToast();
     const { data: bookings, isLoading } = useOrganizerBookings();
+
+    const { data: organizerStatus } = useQuery({
+        queryKey: ["/api/organizer/profile/status"],
+        queryFn: async () => {
+            const res = await fetch("/api/organizer/profile/status", { credentials: "include" });
+            if (!res.ok) return { isComplete: true };
+            return await res.json();
+        },
+    });
 
     const [activeTab, setActiveTab] = useState<BookingTab>("all");
     const [searchQuery, setSearchQuery] = useState("");
@@ -101,6 +114,11 @@ export default function OrganizerBookings() {
     const completedCount = bookings?.filter(b => b.status === "completed").length || 0;
 
     const openSheet = (booking: any, view: "negotiate" | "contract" = "negotiate") => {
+        if (view === "negotiate" && organizerStatus && !organizerStatus.isComplete) {
+            toast({ title: "Complete your profile first", description: "Complete your organizer profile before starting negotiations.", variant: "destructive" });
+            setLocation("/organizer/setup");
+            return;
+        }
         setSheetBooking(booking);
         setSheetView(view);
     };

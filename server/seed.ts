@@ -1,6 +1,6 @@
 import { db } from "./db";
-import { users, promoters, venues, events, currencies } from "../shared/schema";
-import { eq } from "drizzle-orm";
+import { currencies, events, promoters, roles, userRoles, users, venues } from "../shared/schema";
+import { eq, sql } from "drizzle-orm";
 
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
@@ -10,7 +10,7 @@ const scryptAsync = promisify(scrypt);
 async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
   const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-  return `${buf.toString("hex")}.${salt}`;
+  return `${salt}.${buf.toString("hex")}`;
 }
 
 async function seed() {
@@ -39,17 +39,80 @@ async function seed() {
         }).returning();
     }
 
-    // App Admin (SuperUser)
+    // Ensure roles exist (admin + platform_admin + staff)
+    await db.insert(roles).values([
+        { name: "admin", description: "Platform administrator" },
+        { name: "platform_admin", description: "Super admin with all privileges" },
+        { name: "staff", description: "Platform staff member" },
+    ]).onConflictDoNothing();
+
+    // App Admin (SuperUser) - kept for backwards compat
+    const superUserPasswordHash = await hashPassword("music app");
     const [superUser] = await db.insert(users).values({
         username: "musicapp",
         displayName: "App Admin",
         email: "admin@musicapp.com",
-        password: await hashPassword("music app"),
-        role: "platform_admin",
+        passwordHash: superUserPasswordHash,
         status: "active",
-        createdAt: new Date(),
-    } as any).returning();
-    console.log(`✅ Created superuser 'musicapp'`);
+        metadata: { role: "platform_admin" },
+    }).onConflictDoUpdate({
+        target: users.username,
+        set: {
+            displayName: "App Admin",
+            email: "admin@musicapp.com",
+            passwordHash: superUserPasswordHash,
+            status: "active",
+            metadata: { role: "platform_admin" },
+        },
+    }).returning();
+
+    if (superUser) {
+        const [platformAdminRole] = await db.select().from(roles).where(sql`name = 'platform_admin'`).limit(1);
+        if (platformAdminRole) {
+            await db.insert(userRoles).values({
+                userId: superUser.id,
+                roleId: platformAdminRole.id,
+            }).onConflictDoNothing();
+        }
+    }
+
+    console.log(`✅ Created/updated superuser 'musicapp'`);
+
+    // Primary Admin User
+    await db.insert(roles).values([
+        { name: "admin", description: "Platform administrator" },
+    ]).onConflictDoNothing();
+
+    const adminPasswordHash = await hashPassword("581321");
+    const [adminUser] = await db.insert(users).values({
+        username: "admin",
+        displayName: "BANDWIDTH Admin",
+        email: "admin@bandwidth.in",
+        passwordHash: adminPasswordHash,
+        status: "active",
+        metadata: { role: "admin" },
+    }).onConflictDoUpdate({
+        target: users.username,
+        set: {
+            displayName: "BANDWIDTH Admin",
+            email: "admin@bandwidth.in",
+            passwordHash: adminPasswordHash,
+            status: "active",
+            metadata: { role: "admin" },
+        },
+    }).returning();
+
+    if (adminUser) {
+        const [adminRole] = await db.select().from(roles).where(sql`name = 'admin'`).limit(1);
+        if (adminRole) {
+            await db.insert(userRoles).values({
+                userId: adminUser.id,
+                roleId: adminRole.id,
+            }).onConflictDoNothing();
+        }
+    }
+
+    console.log(`✅ Created/updated admin user 'admin' (password: 581321)`);
 
     // 3. Create Promoters
     const promoterData = [

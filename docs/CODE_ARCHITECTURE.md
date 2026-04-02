@@ -15,6 +15,7 @@ This document describes the architectural patterns, design decisions, and code o
 5. [Type Safety Strategy](#type-safety-strategy)
 6. [Error Handling Patterns](#error-handling-patterns)
 7. [Testing Strategy](#testing-strategy)
+8. [File Organization — Venue Layer](#file-organization--venue-layer)
 
 ---
 
@@ -551,16 +552,19 @@ describe('POST /api/organizer/profile/complete', () => {
 Related code lives together:
 - Validation schemas → `shared/routes.ts`
 - Database queries → `server/storage.ts`
-- API routes → `server/routes/organizer.ts`
-- React hooks → `client/src/hooks/use-organizer.ts`
+- Organizer API routes → `server/routes/organizer.ts`
+- Venue API routes → `server/routes/venue.ts`
+- Organizer React hooks → `client/src/hooks/use-organizer.ts`
+- Venue pages → `client/src/pages/venue/`
 
 ### 2. Single Responsibility
 
 Each module has one clear purpose:
 - `shared/routes.ts` — API contracts and validation
 - `server/storage.ts` — Data access
-- `server/routes/organizer.ts` — HTTP request handling
-- `client/src/hooks/use-organizer.ts` — Server state management
+- `server/routes/organizer.ts` — Organizer HTTP request handling
+- `server/routes/venue.ts` — Venue HTTP request handling (applications, accept/decline)
+- `client/src/hooks/use-organizer.ts` — Organizer server state management
 
 ### 3. Dependency Direction
 
@@ -590,9 +594,54 @@ const organizerOnboardingSchema = z.object({
 
 ---
 
+## File Organization — Venue Layer
+
+The venue role has its own dedicated layer of files. All were added or substantially reworked in April 2026.
+
+### Server
+
+| File | Purpose |
+|------|---------|
+| `server/routes/venue.ts` | Express router for `/api/venue/applications` endpoints. Applies `isAuthenticated` + `isVenueManager` middleware, verifies event ownership before mutations, writes audit log entries on accept/decline. |
+| `server/storage.ts` — `getVenueDashboardStats()` | Computes dashboard KPIs with real SQL queries: total shows hosted, upcoming shows, artists booked, budget utilization (SUM of confirmed/paid/completed booking payments this month), trust score (read from `venue.metadata.trustScore ?? 50`). |
+
+### Client pages (`client/src/pages/venue/`)
+
+| File | Purpose |
+|------|---------|
+| `VenueProfileSetup.tsx` | 7-step onboarding wizard (Basic Info → Location → Capacity → Music Policy → Amenities → Photos → Preferences). Canonical onboarding path — the former duplicate `VenueOnboarding.tsx` has been deleted. |
+| `VenueDashboard.tsx` | Role dashboard. Fetches stats from `/api/venues/dashboard` and upcoming events from `/api/venues/events/upcoming`. All action buttons link to real routes. |
+| `VenueApplications.tsx` | Artist application inbox. Stats cards (Total / Pending / Accepted / Completed), status tabs, search, Accept / Decline buttons for `inquiry`-status bookings, `NegotiationFlow` sheet for `negotiating`-status bookings, `ArtistProfileModal` on artist name click. |
+| `VenueProfile.tsx` | 4-tab profile editor: Basic Info (operating days badge-toggles), Location & Space, Music & Equipment, Photos & Media (cover URL, gallery URL list, virtual tour URL). "Change Photo" button uses a URL input field. |
+| `CreateEvent.tsx` | Event creation form for the venue manager. |
+
+### Client routing (`client/src/App.tsx`)
+
+| Route | Component | Notes |
+|-------|-----------|-------|
+| `/venue/setup` | `VenueSetupRoute` → `VenueProfileSetup` | Auth-guarded, no sidebar |
+| `/venue/dashboard` | `VenueDashboard` | Requires auth |
+| `/venue/applications` | `VenueApplications` | Requires auth; also served at `/bookings` for venue roles via `RoleBasedBookings` |
+| `/venue/profile` | `VenueProfile` | Requires auth; also served at `/profile` for venue roles via `RoleBasedProfile` |
+| `/venue/events/create` | `CreateEvent` | Requires auth |
+
+### Client navigation (`client/src/components/Navigation.tsx`)
+
+Venue managers (`venue_manager` / `venue` roles) get a dedicated sidebar distinct from the organizer sidebar:
+
+```
+Dashboard        → /dashboard
+Applications     → /venue/applications
+Find Artists     → /explore
+Profile          → /profile
+```
+
+---
+
 ## Related Documentation
 
 - [Validation Schemas](./VALIDATION_SCHEMAS.md) — Complete schema reference
 - [Organizer API](./ORGANIZER_API.md) — API endpoint documentation
+- [Venue Workflow](./VENUE_WORKFLOW.md) — Venue role end-to-end reference
 - [Project Structure](../.kiro/steering/structure.md) — File organization
 - [Tech Stack](../.kiro/steering/tech.md) — Technology choices

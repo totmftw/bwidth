@@ -31,7 +31,7 @@ const registerBaseSchema = insertUserSchema.extend({
 
 export default function AuthPage() {
   const [location, setLocation] = useLocation();
-  const { user, loginMutation, registerMutation } = useAuth();
+  const { user } = useAuth();
 
   // Extract query params manually since wouter doesn't provide them nicely in hook
   const searchParams = new URLSearchParams(window.location.search);
@@ -40,6 +40,7 @@ export default function AuthPage() {
 
   const [mode, setMode] = useState<"login" | "register">(initialMode);
 
+  // Redirect already-logged-in users (e.g., landing on /auth while session is active)
   useEffect(() => {
     if (user) setLocation("/dashboard");
   }, [user, setLocation]);
@@ -83,13 +84,20 @@ export default function AuthPage() {
 }
 
 function LoginForm() {
+  const [, setLocation] = useLocation();
   const { loginMutation } = useAuth();
   const form = useForm<z.infer<typeof loginSchema>>({
     resolver: zodResolver(loginSchema),
   });
 
+  const onSubmit = (data: z.infer<typeof loginSchema>) => {
+    loginMutation.mutate(data, {
+      onSuccess: () => setLocation("/dashboard"),
+    });
+  };
+
   return (
-    <form onSubmit={form.handleSubmit((data) => loginMutation.mutate(data))} className="space-y-4">
+    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
         <Label>Username</Label>
         <Input {...form.register("username")} className="bg-background/50" />
@@ -113,6 +121,7 @@ function LoginForm() {
 }
 
 function RegisterForm({ initialRole }: { initialRole: string }) {
+  const [, setLocation] = useLocation();
   const { registerMutation } = useAuth();
   const [role, setRole] = useState(initialRole);
 
@@ -178,7 +187,14 @@ function RegisterForm({ initialRole }: { initialRole: string }) {
     }
 
 
-    registerMutation.mutate(payload);
+    registerMutation.mutate(payload, {
+      onSuccess: () => {
+        // Redirect directly to role-specific setup to avoid PrivateRoute bounce
+        if (role === "artist") setLocation("/profile/setup");
+        else if (role === "organizer") setLocation("/organizer/setup");
+        else setLocation("/venue/setup");
+      },
+    });
   };
 
 

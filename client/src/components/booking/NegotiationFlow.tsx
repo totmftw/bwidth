@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { format, differenceInHours, differenceInMinutes } from "date-fns";
@@ -24,7 +25,28 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const [mode, setMode] = useState<"view" | "propose" | "rider">("view");
+
+  // Profile completion check
+  const profileStatusEndpoint =
+    user?.role === "artist" ? "/api/artists/profile/status" :
+    (user?.role === "organizer" || user?.role === "promoter") ? "/api/organizer/profile/status" :
+    (user?.role === "venue_manager" || user?.role === "venue") ? "/api/venues/profile/status" :
+    null;
+
+  const { data: profileStatus } = useQuery({
+    queryKey: [profileStatusEndpoint],
+    queryFn: async () => {
+      const res = await fetch(profileStatusEndpoint!, { credentials: "include" });
+      if (!res.ok) return { isComplete: true };
+      return res.json();
+    },
+    enabled: !!profileStatusEndpoint && !!user,
+    staleTime: 60000,
+  });
+
+  const isProfileComplete = profileStatus?.isComplete ?? true;
 
   const { data: summary, isLoading, refetch } = useQuery<NegotiationSummaryResponse>({
     queryKey: [api.bookings.negotiationSummary.path.replace(":id", booking.id.toString())],
@@ -100,25 +122,16 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
     },
   });
 
-  if (isLoading || !summary) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="mt-4 text-sm text-muted-foreground">Loading negotiation workspace...</p>
-      </div>
-    );
-  }
+  const isArtist = user?.id === summary?.booking?.artistId;
+  const isAgreed = summary?.status === "agreed";
+  const isWalkedAway = summary?.status === "walked_away";
 
-  const isArtist = user?.id === summary.booking.artistId;
-  const isAgreed = summary.status === "agreed";
-  const isWalkedAway = summary.status === "walked_away";
-  
   // Deadline calculation
   const [timeLeft, setTimeLeft] = useState<string>("");
   const [isExpired, setIsExpired] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!summary.booking.flowDeadlineAt || isAgreed || isWalkedAway) return;
+    if (!summary?.booking?.flowDeadlineAt || isAgreed || isWalkedAway) return;
 
     const deadline = new Date(summary.booking.flowDeadlineAt);
     
@@ -138,7 +151,40 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
     updateTime();
     const interval = setInterval(updateTime, 60000); // update every minute
     return () => clearInterval(interval);
-  }, [summary.booking.flowDeadlineAt, isAgreed, isWalkedAway]);
+  }, [summary?.booking?.flowDeadlineAt, isAgreed, isWalkedAway]);
+
+  if (isLoading || !summary) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="mt-4 text-sm text-muted-foreground">Loading negotiation workspace...</p>
+      </div>
+    );
+  }
+
+  if (!isProfileComplete) {
+    const setupPath =
+      user?.role === "artist" ? "/profile/setup" :
+      (user?.role === "organizer" || user?.role === "promoter") ? "/organizer/setup" :
+      "/venue/setup";
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4 p-6 text-center">
+        <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+          <Info className="w-6 h-6 text-primary" />
+        </div>
+        <div className="space-y-1">
+          <h3 className="text-lg font-semibold">Profile Required</h3>
+          <p className="text-muted-foreground text-sm max-w-xs">
+            Complete your profile to participate in negotiations. You can still view bookings and apply to gigs.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={() => setLocation(setupPath)}>Complete Profile</Button>
+          <Button variant="ghost" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    );
+  }
 
   // My acceptance state
   const myAcceptedVersion = isArtist ? summary.acceptance.artistAcceptedVersion : summary.acceptance.organizerAcceptedVersion;

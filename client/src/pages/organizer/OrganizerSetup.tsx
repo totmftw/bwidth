@@ -110,7 +110,7 @@ export default function OrganizerSetup() {
    */
   const handleSkip = () => {
     sessionStorage.setItem("skippedOnboarding", "true");
-    setLocation("/organizer/dashboard");
+    setLocation("/dashboard");
   };
 
   /**
@@ -202,7 +202,7 @@ export default function OrganizerSetup() {
       onSuccess: () => {
         // Redirect to dashboard on successful completion
         // User now has full platform access with profileComplete = true
-        setLocation("/organizer/dashboard");
+        setLocation("/dashboard");
       },
       // onError is handled by the useCompleteOnboarding hook (shows toast)
     });

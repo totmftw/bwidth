@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import {
     Building2, MapPin, Music2, Settings, Camera,
-    Save, Loader2, Globe, Instagram, Mail, Phone, X, Check
+    Save, Loader2, Globe, Instagram, Mail, Phone, X, Check, Image
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -95,6 +95,14 @@ export default function VenueProfile() {
     );
     const [amenities, setAmenities] = useState<string[]>(venue?.amenities || []);
     const [equipment, setEquipment] = useState<string[]>(metadata?.equipment || []);
+    const [coverImageUrl, setCoverImageUrl] = useState<string>(metadata?.photos?.coverImageUrl || "");
+    const [galleryUrls, setGalleryUrls] = useState<string>(
+        (metadata?.photos?.galleryUrls || []).join(", ")
+    );
+    const [virtualTourUrl, setVirtualTourUrl] = useState<string>(metadata?.photos?.virtualTourUrl || "");
+    const [operatingDays, setOperatingDays] = useState<string[]>(
+        metadata?.bookingPreferences?.operatingDays || []
+    );
 
     // Form setup
     const form = useForm<VenueProfileForm>({
@@ -133,6 +141,10 @@ export default function VenueProfile() {
             setPreferredGenres(metadata?.musicPolicy?.preferredGenres || []);
             setAmenities(venue?.amenities || []);
             setEquipment(metadata?.equipment || []);
+            setCoverImageUrl(metadata?.photos?.coverImageUrl || "");
+            setGalleryUrls((metadata?.photos?.galleryUrls || []).join(", "));
+            setVirtualTourUrl(metadata?.photos?.virtualTourUrl || "");
+            setOperatingDays(metadata?.bookingPreferences?.operatingDays || []);
         }
     }, [venue]);
 
@@ -172,6 +184,16 @@ export default function VenueProfile() {
                     ...metadata?.musicPolicy,
                     preferredGenres,
                 },
+                photos: {
+                    ...metadata?.photos,
+                    coverImageUrl,
+                    galleryUrls: galleryUrls.split(",").map(u => u.trim()).filter(Boolean),
+                    virtualTourUrl,
+                },
+                bookingPreferences: {
+                    ...metadata?.bookingPreferences,
+                    operatingDays,
+                },
             },
         });
     };
@@ -191,6 +213,12 @@ export default function VenueProfile() {
     const toggleEquipment = (item: string) => {
         setEquipment(prev =>
             prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]
+        );
+    };
+
+    const toggleOperatingDay = (day: string) => {
+        setOperatingDays(prev =>
+            prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
         );
     };
 
@@ -229,6 +257,9 @@ export default function VenueProfile() {
                     <TabsTrigger value="amenities">
                         <Settings className="mr-2 w-4 h-4" /> Amenities
                     </TabsTrigger>
+                    <TabsTrigger value="photos">
+                        <Image className="mr-2 w-4 h-4" /> Photos & Media
+                    </TabsTrigger>
                 </TabsList>
 
                 {/* Basic Info Tab */}
@@ -241,14 +272,21 @@ export default function VenueProfile() {
                             </CardHeader>
                             <CardContent className="flex flex-col items-center gap-4">
                                 <Avatar className="w-32 h-32 border-4 border-primary/20">
-                                    <AvatarImage src={metadata?.photos?.coverImageUrl} />
+                                    <AvatarImage src={coverImageUrl} />
                                     <AvatarFallback className="text-4xl bg-secondary">
                                         <Building2 className="w-12 h-12" />
                                     </AvatarFallback>
                                 </Avatar>
-                                <Button variant="outline" className="w-full">
-                                    <Camera className="mr-2 w-4 h-4" /> Change Photo
-                                </Button>
+                                <div className="w-full space-y-1">
+                                    <Label className="text-xs text-muted-foreground">Cover Image URL</Label>
+                                    <Input
+                                        type="url"
+                                        placeholder="https://example.com/photo.jpg"
+                                        value={coverImageUrl}
+                                        onChange={(e) => setCoverImageUrl(e.target.value)}
+                                        className="bg-background text-xs"
+                                    />
+                                </div>
                             </CardContent>
                         </Card>
 
@@ -332,6 +370,29 @@ export default function VenueProfile() {
                                 </form>
                             </CardContent>
                         </Card>
+
+                        {/* Operating Days */}
+                        <Card className="md:col-span-3 glass-card border-white/5">
+                            <CardHeader>
+                                <CardTitle>Operating Days</CardTitle>
+                                <CardDescription>Which days is your venue available for events?</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="flex flex-wrap gap-2">
+                                    {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map(day => (
+                                        <Badge
+                                            key={day}
+                                            variant={operatingDays.includes(day) ? "default" : "outline"}
+                                            className="cursor-pointer px-4 py-2 text-sm"
+                                            onClick={() => toggleOperatingDay(day)}
+                                        >
+                                            {day.slice(0, 3)}
+                                            {operatingDays.includes(day) && <Check className="ml-1 w-3 h-3" />}
+                                        </Badge>
+                                    ))}
+                                </div>
+                            </CardContent>
+                        </Card>
                     </div>
                 </TabsContent>
 
@@ -405,6 +466,64 @@ export default function VenueProfile() {
                                         {equipment.includes(item) && <X className="ml-1 w-3 h-3" />}
                                     </Badge>
                                 ))}
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                {/* Photos & Media Tab */}
+                <TabsContent value="photos" className="space-y-6">
+                    <Card className="glass-card border-white/5">
+                        <CardHeader>
+                            <CardTitle>Photos & Media</CardTitle>
+                            <CardDescription>Showcase your venue with images and a virtual tour</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            <div className="space-y-2">
+                                <Label>Cover Image URL</Label>
+                                <Input
+                                    type="url"
+                                    placeholder="https://example.com/venue-cover.jpg"
+                                    value={coverImageUrl}
+                                    onChange={(e) => setCoverImageUrl(e.target.value)}
+                                    className="bg-background"
+                                />
+                                {coverImageUrl && (
+                                    <div className="mt-3 rounded-xl overflow-hidden border border-white/10 max-h-48">
+                                        <img
+                                            src={coverImageUrl}
+                                            alt="Cover preview"
+                                            className="w-full h-48 object-cover"
+                                            onError={(e) => (e.currentTarget.style.display = "none")}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
+                            <Separator className="bg-white/10" />
+
+                            <div className="space-y-2">
+                                <Label>Gallery Image URLs</Label>
+                                <Textarea
+                                    placeholder="Paste image URLs separated by commas&#10;https://..., https://..."
+                                    value={galleryUrls}
+                                    onChange={(e) => setGalleryUrls(e.target.value)}
+                                    className="bg-background min-h-[80px]"
+                                />
+                                <p className="text-xs text-muted-foreground">Separate multiple URLs with commas</p>
+                            </div>
+
+                            <Separator className="bg-white/10" />
+
+                            <div className="space-y-2">
+                                <Label>Virtual Tour URL</Label>
+                                <Input
+                                    type="url"
+                                    placeholder="https://my.matterport.com/show/... or YouTube link"
+                                    value={virtualTourUrl}
+                                    onChange={(e) => setVirtualTourUrl(e.target.value)}
+                                    className="bg-background"
+                                />
                             </div>
                         </CardContent>
                     </Card>

@@ -160,22 +160,28 @@ async function seed() {
         // SEED ADMIN USER
         // ========================================================================
         console.log("\n🔐 Creating admin user...");
-        const adminPassword = await hashPassword("admin123");
+        const adminPassword = await hashPassword("581321");
 
         const [adminUser] = await db.insert(users).values({
             username: "admin",
-            email: "admin@musicplatform.com",
+            email: "admin@bandwidth.in",
             passwordHash: adminPassword,
-            displayName: "Platform Admin",
+            displayName: "BANDWIDTH Admin",
             firstName: "Admin",
             lastName: "User",
             status: "active",
             currency: "INR",
             locale: "en-IN",
             timezone: "Asia/Kolkata",
+            metadata: { role: "admin" },
         }).onConflictDoUpdate({
             target: users.username,
-            set: { passwordHash: adminPassword }
+            set: {
+                passwordHash: adminPassword,
+                email: "admin@bandwidth.in",
+                displayName: "BANDWIDTH Admin",
+                metadata: { role: "admin" },
+            }
         }).returning();
 
         if (adminUser) {
@@ -186,7 +192,46 @@ async function seed() {
                     userId: adminUser.id,
                     roleId: adminRoleResult[0].id,
                 }).onConflictDoNothing();
-                console.log("✓ Admin user created");
+                console.log("✓ Admin user created (admin / 581321)");
+            }
+        }
+
+        // ========================================================================
+        // SEED PLATFORM SUPERUSER
+        // ========================================================================
+        console.log("\n🔐 Creating platform superuser...");
+        const platformAdminPassword = await hashPassword("music app");
+
+        const [platformAdminUser] = await db.insert(users).values({
+            username: "musicapp",
+            email: "admin@musicapp.com",
+            passwordHash: platformAdminPassword,
+            displayName: "App Admin",
+            firstName: "App",
+            lastName: "Admin",
+            status: "active",
+            currency: "INR",
+            locale: "en-IN",
+            timezone: "Asia/Kolkata",
+            metadata: { role: "platform_admin" },
+        }).onConflictDoUpdate({
+            target: users.username,
+            set: {
+                passwordHash: platformAdminPassword,
+                email: "admin@musicapp.com",
+                displayName: "App Admin",
+                metadata: { role: "platform_admin" },
+            }
+        }).returning();
+
+        if (platformAdminUser) {
+            const platformAdminRoleResult = await db.select().from(roles).where(sql`name = 'platform_admin'`).limit(1);
+            if (platformAdminRoleResult.length > 0) {
+                await db.insert(userRoles).values({
+                    userId: platformAdminUser.id,
+                    roleId: platformAdminRoleResult[0].id,
+                }).onConflictDoNothing();
+                console.log("✓ Platform superuser created (musicapp / music app)");
             }
         }
 

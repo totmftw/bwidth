@@ -4,7 +4,10 @@ import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { Sidebar, MobileHeader } from "@/components/Navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 
 // Pages
 import Landing from "@/pages/Landing";
@@ -20,7 +23,6 @@ import ArtistProfile from "@/pages/artist/ArtistProfile";
 import FindGigs from "@/pages/artist/FindGigs";
 
 import ArtistProfileSetup from "@/pages/artist/ProfileSetup";
-import VenueOnboarding from "@/pages/VenueOnboarding";
 
 // Venue Pages
 import VenueProfileSetup from "@/pages/venue/VenueProfileSetup";
@@ -39,19 +41,35 @@ import OrganizerMessages from "@/pages/organizer/OrganizerMessages";
 import OrganizerBookings from "@/pages/organizer/OrganizerBookings";
 import OrganizerProfile from "@/pages/organizer/OrganizerProfile";
 
+import VenueApplications from "@/pages/venue/VenueApplications";
+
 // Legacy pages as fallback
 import Dashboard from "@/pages/Dashboard";
 import Bookings from "@/pages/Bookings";
 import Profile from "@/pages/Profile";
 
 // Admin Pages
+import AdminLogin from "@/pages/admin/AdminLogin";
 import { AdminLayout } from "@/pages/admin/AdminLayout";
 import AdminDashboard from "@/pages/admin/AdminDashboard";
 import AdminUsers from "@/pages/admin/AdminUsers";
-import AdminContracts from "@/pages/admin/AdminContracts";
+import AdminUserDetail from "@/pages/admin/AdminUserDetail";
+import AdminArtists from "@/pages/admin/AdminArtists";
+import AdminArtistEdit from "@/pages/admin/AdminArtistEdit";
+import AdminOrganizers from "@/pages/admin/AdminOrganizers";
+import AdminOrgEdit from "@/pages/admin/AdminOrgEdit";
+import AdminVenues from "@/pages/admin/AdminVenues";
+import AdminVenueEdit from "@/pages/admin/AdminVenueEdit";
+import AdminEvents from "@/pages/admin/AdminEvents";
+import AdminEventEdit from "@/pages/admin/AdminEventEdit";
 import AdminBookings from "@/pages/admin/AdminBookings";
+import AdminBookingDetail from "@/pages/admin/AdminBookingDetail";
+import AdminContracts from "@/pages/admin/AdminContracts";
+import AdminContractEdit from "@/pages/admin/AdminContractEdit";
+import AdminChats from "@/pages/admin/AdminChats";
+import AdminChatView from "@/pages/admin/AdminChatView";
 import AdminSettings from "@/pages/admin/AdminSettings";
-import AdminConversations from "@/pages/admin/AdminConversations";
+import AdminAuditLog from "@/pages/admin/AdminAuditLog";
 
 // Hook to check profile completion status
 function useProfileStatus() {
@@ -134,6 +152,47 @@ function getUserRole(user: any): string {
 }
 
 
+const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+
+function ProfileReminderBanner({ user, isComplete }: { user: any; isComplete: boolean }) {
+  const [show, setShow] = useState(false);
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (isComplete || !user?.id) return;
+    const key = `profileReminder_${user.id}`;
+    const lastShown = localStorage.getItem(key);
+    const now = Date.now();
+    if (!lastShown || now - Number(lastShown) >= TWO_DAYS_MS) {
+      setShow(true);
+      localStorage.setItem(key, String(now));
+    }
+  }, [isComplete, user?.id]);
+
+  if (!show) return null;
+
+  const setupPath =
+    user?.role === "artist" ? "/profile/setup" :
+    (user?.role === "organizer" || user?.role === "promoter") ? "/organizer/setup" :
+    "/venue/setup";
+
+  return (
+    <div className="bg-primary/10 border-b border-primary/20 px-4 py-2 flex items-center justify-between text-sm shrink-0">
+      <span className="text-primary font-medium">
+        Your profile is incomplete. Complete it to unlock all features including negotiations.
+      </span>
+      <div className="flex items-center gap-2 ml-4">
+        <Button size="sm" variant="default" className="h-7 text-xs" onClick={() => setLocation(setupPath)}>
+          Complete Profile
+        </Button>
+        <button onClick={() => setShow(false)} className="text-muted-foreground hover:text-foreground p-1">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // Private Route Wrapper with profile completion check
 function PrivateRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -141,6 +200,30 @@ function PrivateRoute({ component: Component }: { component: React.ComponentType
   const { data: venueStatus, isLoading: isVenueLoading } = useVenueStatus();
   const { data: organizerStatus, isLoading: isOrganizerLoading } = useOrganizerStatus();
   const [location, setLocation] = useLocation();
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (!user) return;
+
+    const isIncomplete =
+      (user.role === "artist" && artistStatus && !artistStatus.isComplete) ||
+      ((user.role === "venue_manager" || user.role === "venue") && venueStatus && !venueStatus.isComplete) ||
+      ((user.role === "organizer" || user.role === "promoter") && organizerStatus && !organizerStatus.isComplete);
+
+    if (!isIncomplete) return;
+
+    const lastReminder = localStorage.getItem("profileReminderAt");
+    const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    if (!lastReminder || now - parseInt(lastReminder) > twoDaysMs) {
+      toast({
+        title: "Complete your profile",
+        description: "A complete profile helps you get better bookings. You can't start negotiations until your profile is complete.",
+      });
+      localStorage.setItem("profileReminderAt", String(now));
+    }
+  }, [artistStatus, venueStatus, organizerStatus, user]);
 
   if (isLoading || isArtistLoading || isVenueLoading || isOrganizerLoading) {
     return (
@@ -162,7 +245,7 @@ function PrivateRoute({ component: Component }: { component: React.ComponentType
       return <Redirect to="/profile/setup" />;
     }
 
-    if ((user.role === "venue_manager" || user.role === "venue") && venueStatus && !venueStatus.isComplete && !location.startsWith("/venue/setup") && !location.startsWith("/venue-onboarding")) {
+    if ((user.role === "venue_manager" || user.role === "venue") && venueStatus && !venueStatus.isComplete && !location.startsWith("/venue/setup")) {
       return <Redirect to="/venue/setup" />;
     }
 
@@ -171,11 +254,18 @@ function PrivateRoute({ component: Component }: { component: React.ComponentType
     }
   }
 
+  const isProfileComplete =
+    (user.role === "artist" ? artistStatus?.isComplete :
+    (user.role === "organizer" || user.role === "promoter") ? organizerStatus?.isComplete :
+    (user.role === "venue_manager" || user.role === "venue") ? venueStatus?.isComplete :
+    true) ?? true;
+
   return (
     <div className="flex min-h-screen bg-background text-foreground">
       <Sidebar />
       <div className="flex-1 flex flex-col md:pl-64">
         <MobileHeader />
+        <ProfileReminderBanner user={user} isComplete={isProfileComplete} />
         <main className="flex-1 p-6 md:p-8 lg:p-10 overflow-y-auto">
           <div className="max-w-7xl mx-auto w-full">
             <Component />
@@ -203,6 +293,25 @@ function ProfileSetupRoute() {
   }
 
   return <ArtistProfileSetup />;
+}
+
+// Venue Profile Setup Route (no sidebar)
+function VenueSetupRoute() {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-primary">
+        <Loader2 className="w-10 h-10 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Redirect to="/auth" />;
+  }
+
+  return <VenueProfileSetup />;
 }
 
 // Role-based Dashboard component
@@ -243,7 +352,7 @@ function RoleBasedBookings() {
       return <OrganizerBookings />;
     case "venue":
     case "venue_manager":
-      return <VenueBookings />;
+      return <VenueApplications />;
     default:
       return <Bookings />;
   }
@@ -283,16 +392,15 @@ function Router() {
         <ProfileSetupRoute />
       </Route>
 
-      <Route path="/venue-onboarding">
-        <VenueOnboarding />
-      </Route>
-
       {/* Venue-specific Routes */}
       <Route path="/venue/setup">
-        <VenueProfileSetup />
+        <VenueSetupRoute />
       </Route>
       <Route path="/venue/dashboard">
         <PrivateRoute component={VenueDashboard} />
+      </Route>
+      <Route path="/venue/applications">
+        <PrivateRoute component={VenueApplications} />
       </Route>
       <Route path="/venue/profile">
         <PrivateRoute component={VenueProfile} />
@@ -344,36 +452,66 @@ function Router() {
         <ContractPage />
       </Route>
 
-      {/* Admin Routes */}
-      <Route path="/admin">
-        <AdminLayout>
-          <AdminDashboard />
-        </AdminLayout>
+      {/* Admin Login - isolated, no layout */}
+      <Route path="/admin" component={AdminLogin} />
+
+      {/* Admin Control Panel */}
+      <Route path="/admin/dashboard">
+        <AdminLayout><AdminDashboard /></AdminLayout>
       </Route>
       <Route path="/admin/users">
-        <AdminLayout>
-          <AdminUsers />
-        </AdminLayout>
+        <AdminLayout><AdminUsers /></AdminLayout>
       </Route>
-      <Route path="/admin/contracts">
-        <AdminLayout>
-          <AdminContracts />
-        </AdminLayout>
+      <Route path="/admin/users/:id">
+        <AdminLayout><AdminUserDetail /></AdminLayout>
+      </Route>
+      <Route path="/admin/artists">
+        <AdminLayout><AdminArtists /></AdminLayout>
+      </Route>
+      <Route path="/admin/artists/:id">
+        <AdminLayout><AdminArtistEdit /></AdminLayout>
+      </Route>
+      <Route path="/admin/organizers">
+        <AdminLayout><AdminOrganizers /></AdminLayout>
+      </Route>
+      <Route path="/admin/organizers/:id">
+        <AdminLayout><AdminOrgEdit /></AdminLayout>
+      </Route>
+      <Route path="/admin/venues">
+        <AdminLayout><AdminVenues /></AdminLayout>
+      </Route>
+      <Route path="/admin/venues/:id">
+        <AdminLayout><AdminVenueEdit /></AdminLayout>
+      </Route>
+      <Route path="/admin/events">
+        <AdminLayout><AdminEvents /></AdminLayout>
+      </Route>
+      <Route path="/admin/events/:id">
+        <AdminLayout><AdminEventEdit /></AdminLayout>
       </Route>
       <Route path="/admin/bookings">
-        <AdminLayout>
-          <AdminBookings />
-        </AdminLayout>
+        <AdminLayout><AdminBookings /></AdminLayout>
       </Route>
-      <Route path="/admin/chat">
-        <AdminLayout>
-          <AdminConversations />
-        </AdminLayout>
+      <Route path="/admin/bookings/:id">
+        <AdminLayout><AdminBookingDetail /></AdminLayout>
+      </Route>
+      <Route path="/admin/contracts">
+        <AdminLayout><AdminContracts /></AdminLayout>
+      </Route>
+      <Route path="/admin/contracts/:id">
+        <AdminLayout><AdminContractEdit /></AdminLayout>
+      </Route>
+      <Route path="/admin/chats">
+        <AdminLayout><AdminChats /></AdminLayout>
+      </Route>
+      <Route path="/admin/chats/:id">
+        <AdminLayout><AdminChatView /></AdminLayout>
       </Route>
       <Route path="/admin/settings">
-        <AdminLayout>
-          <AdminSettings />
-        </AdminLayout>
+        <AdminLayout><AdminSettings /></AdminLayout>
+      </Route>
+      <Route path="/admin/audit">
+        <AdminLayout><AdminAuditLog /></AdminLayout>
       </Route>
 
       <Route component={NotFound} />

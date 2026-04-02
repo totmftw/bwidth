@@ -29,7 +29,7 @@ export interface BookingSummary {
   cancellationRate: number;
   averageBookingValue: number;
 }
-import { eq, sql, or, and, desc, asc, gt, isNull } from "drizzle-orm";
+import { eq, sql, or, and, desc, asc, gt, isNull, inArray, gte } from "drizzle-orm";
 
 export interface IStorage {
   // User & Auth
@@ -127,6 +127,34 @@ export interface IStorage {
   getConversationMessages(id: number): Promise<Message[]>;
   getContractsForAdminReview(): Promise<any[]>;
   reviewContract(contractId: number, adminId: number, status: 'approved' | 'rejected', note?: string): Promise<Contract>;
+
+  // Admin Extended Methods
+  getPlatformStats(): Promise<{
+    totalUsers: number;
+    activeUsers: number;
+    pendingVerification: number;
+    totalArtists: number;
+    totalOrganizers: number;
+    totalVenues: number;
+    totalEvents: number;
+    totalBookings: number;
+    activeBookings: number;
+    pendingContracts: number;
+  }>;
+  getUserWithProfile(id: number): Promise<any>;
+  createUserWithProfile(data: { user: any; role: string; profile?: any }): Promise<any>;
+  adminUpdateUser(id: number, data: any): Promise<any>;
+  getAdminArtistList(): Promise<any[]>;
+  getAdminOrganizerList(): Promise<any[]>;
+  getAdminVenueList(): Promise<any[]>;
+  getAllEvents(filters?: { status?: string }): Promise<any[]>;
+  adminUpdateEvent(id: number, data: any): Promise<any>;
+  adminDeleteEvent(id: number): Promise<void>;
+  getAllBookings(filters?: { status?: string }): Promise<any[]>;
+  adminForceBookingStatus(id: number, status: string, reason: string, adminId: number): Promise<any>;
+  getAllContracts(filters?: { status?: string }): Promise<any[]>;
+  adminUpdateContract(id: number, data: any): Promise<any>;
+  getAuditLogs(filters?: { limit?: number; offset?: number; userId?: number }): Promise<any[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -739,8 +767,25 @@ export class DatabaseStorage implements IStorage {
       totalShowsHosted: Number(allEvents?.count || 0),
       upcomingShows: Number(upcomingEventsCount?.count || 0),
       artistsBooked: Number(artistsBookedCount?.count || 0),
-      budgetUtilization: 45000, // Mock for now
-      trustScore: 88, // Mock for now
+      budgetUtilization: await (async () => {
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+        const [row] = await db
+          .select({ total: sql<string>`COALESCE(SUM(${bookings.offerAmount}::numeric), 0)` })
+          .from(bookings)
+          .innerJoin(events, eq(bookings.eventId, events.id))
+          .where(and(
+            eq(events.venueId, venueId),
+            inArray(bookings.status, ['confirmed', 'paid_deposit', 'completed'] as any[]),
+            gte(bookings.createdAt, startOfMonth)
+          ));
+        return Number(row?.total ?? 0);
+      })(),
+      trustScore: await (async () => {
+        const [venue] = await db.select().from(venues).where(eq(venues.id, venueId));
+        return (venue?.metadata as any)?.trustScore ?? 50;
+      })(),
       pendingRequests: Number(pendingRequestsCount?.count || 0),
     };
   }
@@ -1026,6 +1071,418 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     return updated;
+  }
+
+  // -------------------------------------------------------------------------
+  // Admin Extended Methods
+  // -------------------------------------------------------------------------
+
+  async getPlatformStats(): Promise<{
+    totalUsers: number;
+    activeUsers: number;
+    pendingVerification: number;
+    totalArtists: number;
+    totalOrganizers: number;
+    totalVenues: number;
+    totalEvents: number;
+    totalBookings: number;
+    activeBookings: number;
+    pendingContracts: number;
+  }> {
+    const [totalUsersRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(users);
+
+    const [activeUsersRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(users)
+      .where(eq(users.status, 'active'));
+
+    const [pendingVerificationRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(users)
+      .where(eq(users.status, 'pending_verification'));
+
+    const [totalArtistsRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(artists);
+
+    const [totalOrganizersRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(promoters);
+
+    const [totalVenuesRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(venues);
+
+    const [totalEventsRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(events);
+
+    const [totalBookingsRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(bookings);
+
+    const [activeBookingsRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .where(
+        sql`${bookings.status} NOT IN ('cancelled', 'completed', 'refunded')`
+      );
+
+    const [pendingContractsRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(contracts)
+      .where(eq(contracts.status, 'admin_review'));
+
+    return {
+      totalUsers: Number(totalUsersRow?.count || 0),
+      activeUsers: Number(activeUsersRow?.count || 0),
+      pendingVerification: Number(pendingVerificationRow?.count || 0),
+      totalArtists: Number(totalArtistsRow?.count || 0),
+      totalOrganizers: Number(totalOrganizersRow?.count || 0),
+      totalVenues: Number(totalVenuesRow?.count || 0),
+      totalEvents: Number(totalEventsRow?.count || 0),
+      totalBookings: Number(totalBookingsRow?.count || 0),
+      activeBookings: Number(activeBookingsRow?.count || 0),
+      pendingContracts: Number(pendingContractsRow?.count || 0),
+    };
+  }
+
+  async getUserWithProfile(id: number): Promise<any> {
+    const user = await this.getUser(id);
+    if (!user) return undefined;
+
+    const metadata = (user.metadata as any) || {};
+    const role = metadata.role as string | undefined;
+
+    let profile: any = null;
+    if (role === 'artist') {
+      profile = await this.getArtistByUserId(id);
+    } else if (role === 'organizer' || role === 'promoter') {
+      profile = await this.getOrganizerByUserId(id);
+    } else if (role === 'venue_manager') {
+      profile = await this.getVenueByUserId(id);
+    }
+
+    return { ...user, profile, role };
+  }
+
+  async createUserWithProfile(data: { user: any; role: string; profile?: any }): Promise<any> {
+    const { user: userData, role, profile } = data;
+
+    const [newUser] = await db.insert(users).values({
+      ...userData,
+      metadata: { ...(userData.metadata || {}), role },
+    }).returning();
+
+    // Insert into user_roles table if the role record exists
+    const [roleRecord] = await db.select().from(roles).where(eq(roles.name, role as any));
+    if (roleRecord) {
+      await db.insert(userRoles).values({ userId: newUser.id, roleId: roleRecord.id });
+    }
+
+    let profileRecord: any = null;
+    if (role === 'artist') {
+      const [newArtist] = await db.insert(artists).values({
+        userId: newUser.id,
+        name: newUser.displayName || newUser.username || 'Artist',
+        ...(profile || {}),
+      }).returning();
+      profileRecord = newArtist;
+    } else if (role === 'organizer' || role === 'promoter') {
+      const [newPromoter] = await db.insert(promoters).values({
+        userId: newUser.id,
+        name: newUser.displayName || newUser.username || 'Organizer',
+        ...(profile || {}),
+      }).returning();
+      profileRecord = newPromoter;
+    } else if (role === 'venue_manager') {
+      if (profile?.name) {
+        const [newVenue] = await db.insert(venues).values({
+          userId: newUser.id,
+          name: profile.name,
+          ...(profile || {}),
+        }).returning();
+        profileRecord = newVenue;
+      }
+    }
+
+    return { user: newUser, profile: profileRecord };
+  }
+
+  async adminUpdateUser(id: number, data: any): Promise<any> {
+    const { role, ...userFields } = data;
+
+    const updatePayload: any = { ...userFields, updatedAt: new Date() };
+
+    if (role) {
+      const existingUser = await this.getUser(id);
+      const existingMeta = (existingUser?.metadata as any) || {};
+      updatePayload.metadata = { ...existingMeta, role };
+    }
+
+    const [updated] = await db
+      .update(users)
+      .set(updatePayload)
+      .where(eq(users.id, id))
+      .returning();
+
+    if (role) {
+      const [roleRecord] = await db.select().from(roles).where(eq(roles.name, role as any));
+      if (roleRecord) {
+        await db.delete(userRoles).where(eq(userRoles.userId, id));
+        await db.insert(userRoles).values({ userId: id, roleId: roleRecord.id });
+      }
+    }
+
+    return updated;
+  }
+
+  async getAdminArtistList(): Promise<any[]> {
+    const results = await db.select({
+      artist: artists,
+      user: users,
+    })
+      .from(artists)
+      .innerJoin(users, eq(artists.userId, users.id))
+      .orderBy(desc(artists.createdAt));
+
+    return results.map(({ artist, user }) => {
+      const meta = (artist.metadata as any) || {};
+      return {
+        id: artist.id,
+        userId: artist.userId,
+        name: artist.name,
+        category: artist.artistCategory,
+        priceFrom: artist.priceFrom,
+        priceTo: artist.priceTo,
+        ratingAvg: artist.ratingAvg,
+        createdAt: artist.createdAt,
+        metadata: meta,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          displayName: user.displayName,
+          status: user.status,
+        },
+      };
+    });
+  }
+
+  async getAdminOrganizerList(): Promise<any[]> {
+    const results = await db.select({
+      promoter: promoters,
+      user: users,
+    })
+      .from(promoters)
+      .innerJoin(users, eq(promoters.userId, users.id))
+      .orderBy(desc(promoters.createdAt));
+
+    return results.map(({ promoter, user }) => ({
+      id: promoter.id,
+      userId: promoter.userId,
+      name: promoter.name,
+      contactPerson: promoter.contactPerson,
+      createdAt: promoter.createdAt,
+      metadata: promoter.metadata,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        displayName: user.displayName,
+        status: user.status,
+      },
+    }));
+  }
+
+  async getAdminVenueList(): Promise<any[]> {
+    const results = await db.select({
+      venue: venues,
+      user: users,
+    })
+      .from(venues)
+      .leftJoin(users, eq(venues.userId, users.id))
+      .orderBy(desc(venues.createdAt));
+
+    return results.map(({ venue, user }) => ({
+      id: venue.id,
+      userId: venue.userId,
+      name: venue.name,
+      capacity: venue.capacity,
+      cityId: venue.cityId,
+      createdAt: venue.createdAt,
+      metadata: venue.metadata,
+      user: user
+        ? {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            displayName: user.displayName,
+            status: user.status,
+          }
+        : null,
+    }));
+  }
+
+  async getAllEvents(filters?: { status?: string }): Promise<any[]> {
+    const conditions: any[] = [];
+    if (filters?.status) {
+      conditions.push(eq(events.status, filters.status));
+    }
+
+    const results = await db.select({
+      event: events,
+      organizer: promoters,
+      venue: venues,
+    })
+      .from(events)
+      .leftJoin(promoters, eq(events.organizerId, promoters.id))
+      .leftJoin(venues, eq(events.venueId, venues.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(events.startTime));
+
+    return results.map(({ event, organizer, venue }) => ({
+      ...event,
+      organizer: organizer || null,
+      venue: venue || null,
+    }));
+  }
+
+  async adminUpdateEvent(id: number, data: any): Promise<any> {
+    const [updated] = await db
+      .update(events)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(events.id, id))
+      .returning();
+    return updated;
+  }
+
+  async adminDeleteEvent(id: number): Promise<void> {
+    await db.delete(events).where(eq(events.id, id));
+  }
+
+  async getAllBookings(filters?: { status?: string }): Promise<any[]> {
+    const conditions: any[] = [];
+    if (filters?.status) {
+      conditions.push(eq(bookings.status, filters.status as any));
+    }
+
+    const results = await db.select({
+      booking: bookings,
+      event: events,
+      artist: artists,
+      artistUser: users,
+      organizer: promoters,
+    })
+      .from(bookings)
+      .leftJoin(events, eq(bookings.eventId, events.id))
+      .leftJoin(artists, eq(bookings.artistId, artists.id))
+      .leftJoin(users, eq(artists.userId, users.id))
+      .leftJoin(promoters, eq(events.organizerId, promoters.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(bookings.createdAt));
+
+    return results.map(({ booking, event, artist, artistUser, organizer }) => ({
+      ...booking,
+      event: event || null,
+      artist: artist
+        ? {
+            ...artist,
+            user: artistUser
+              ? {
+                  id: artistUser.id,
+                  displayName: artistUser.displayName,
+                  username: artistUser.username,
+                }
+              : null,
+          }
+        : null,
+      organizer: organizer || null,
+    }));
+  }
+
+  async adminForceBookingStatus(id: number, status: string, reason: string, adminId: number): Promise<any> {
+    const [updated] = await db
+      .update(bookings)
+      .set({ status: status as any, updatedAt: new Date() })
+      .where(eq(bookings.id, id))
+      .returning();
+
+    await this.createAuditLog({
+      who: adminId,
+      action: 'admin_booking_status_forced',
+      entityType: 'booking',
+      entityId: id,
+      context: { status, reason },
+    });
+
+    return updated;
+  }
+
+  async getAllContracts(filters?: { status?: string }): Promise<any[]> {
+    const conditions: any[] = [];
+    if (filters?.status) {
+      conditions.push(eq(contracts.status, filters.status as any));
+    }
+
+    const results = await db.select({
+      contract: contracts,
+      booking: bookings,
+      artist: artists,
+      artistUser: users,
+    })
+      .from(contracts)
+      .leftJoin(bookings, eq(contracts.bookingId, bookings.id))
+      .leftJoin(artists, eq(bookings.artistId, artists.id))
+      .leftJoin(users, eq(artists.userId, users.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(contracts.updatedAt));
+
+    return results.map(({ contract, booking, artist, artistUser }) => ({
+      ...contract,
+      booking: booking || null,
+      artist: artist
+        ? {
+            ...artist,
+            user: artistUser
+              ? {
+                  id: artistUser.id,
+                  displayName: artistUser.displayName,
+                  username: artistUser.username,
+                }
+              : null,
+          }
+        : null,
+    }));
+  }
+
+  async adminUpdateContract(id: number, data: any): Promise<any> {
+    const [updated] = await db
+      .update(contracts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(contracts.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getAuditLogs(filters?: { limit?: number; offset?: number; userId?: number }): Promise<any[]> {
+    const limit = filters?.limit ?? 50;
+    const offset = filters?.offset ?? 0;
+
+    const conditions: any[] = [];
+    if (filters?.userId) {
+      conditions.push(eq(auditLogs.who, filters.userId));
+    }
+
+    return await db
+      .select()
+      .from(auditLogs)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(auditLogs.occurredAt))
+      .limit(limit)
+      .offset(offset);
   }
 }
 
