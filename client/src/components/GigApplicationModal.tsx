@@ -189,6 +189,13 @@ export function GigApplicationModal({ event, stage, open, onOpenChange }: GigApp
                             {form.formState.errors.offerAmount && (
                                 <p className="text-xs text-destructive">{form.formState.errors.offerAmount.message}</p>
                             )}
+                            <p className="text-xs text-muted-foreground">
+                                {(event?.metadata as any)?.budgetMin && (event?.metadata as any)?.budgetMax
+                                    ? `Event budget: ₹${Number((event.metadata as any).budgetMin).toLocaleString('en-IN')}–₹${Number((event.metadata as any).budgetMax).toLocaleString('en-IN')}`
+                                    : event?.capacityTotal
+                                    ? `Venue capacity: ${event.capacityTotal} — factor this into your fee`
+                                    : "Tip: Check the event description for budget expectations"}
+                            </p>
                         </div>
                         <div className="space-y-2">
                             <Label>Currency</Label>

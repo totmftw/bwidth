@@ -136,6 +136,10 @@ export default function ArtistDashboard() {
                                     <p className="text-xs text-muted-foreground">Complete</p>
                                 </div>
                             </div>
+                            <Progress value={profileCompletion} className="h-2 mb-2" />
+                            <p className="text-xs text-muted-foreground mb-3">
+                                {profileFields.filter(f => f).length} of {profileFields.length} sections complete
+                            </p>
                             <div className="space-y-2">
                                 {[
                                     { label: "Basic Info & Bio", done: !!artist?.bio, href: "/profile" },

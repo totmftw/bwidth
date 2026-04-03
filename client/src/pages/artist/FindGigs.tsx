@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { Search, MapPin, Calendar, DollarSign, Music, SlidersHorizontal, ArrowUpRight } from "lucide-react";
 import { GigApplicationModal } from "@/components/GigApplicationModal";
 import { EventDetailModal } from "@/components/EventDetailModal";
@@ -23,6 +24,7 @@ export default function FindGigs() {
     const [applyModalOpen, setApplyModalOpen] = useState(false);
     const [detailModalOpen, setDetailModalOpen] = useState(false);
     const [selectedOpportunity, setSelectedOpportunity] = useState<any>(null);
+    const [genreFilter, setGenreFilter] = useState("All");
 
     const { data: artistStatus } = useQuery({
         queryKey: ["/api/artists/profile/status"],
@@ -79,8 +81,38 @@ export default function FindGigs() {
         };
     });
 
-    // Client-side filtering for now
+    // Extract unique genres from all events for the filter pills
+    const GENRE_PRESETS = ["Jazz", "Rock", "EDM", "Classical", "Bollywood", "Hip-Hop", "Pop", "Indie", "Folk"];
+    const eventGenres = useMemo(() => {
+        const genres = new Set<string>();
+        normalizedOpportunities?.forEach((op: any) => {
+            const meta = op.event?.metadata as any;
+            const genre = meta?.genre || meta?.primaryGenre || meta?.category;
+            if (genre && typeof genre === "string") genres.add(genre);
+            const tags = meta?.genres || meta?.tags;
+            if (Array.isArray(tags)) tags.forEach((t: string) => genres.add(t));
+        });
+        // Merge presets with discovered genres
+        GENRE_PRESETS.forEach(g => genres.add(g));
+        return ["All", ...Array.from(genres).sort()];
+    }, [normalizedOpportunities]);
+
+    // Client-side filtering by search text + genre
     const filteredOpportunities = normalizedOpportunities?.filter((op: any) => {
+        // Genre filter
+        if (genreFilter !== "All") {
+            const meta = op.event?.metadata as any;
+            const eventGenre = (meta?.genre || meta?.primaryGenre || meta?.category || "").toLowerCase();
+            const eventTags = [
+                ...(Array.isArray(meta?.genres) ? meta.genres : []),
+                ...(Array.isArray(meta?.tags) ? meta.tags : []),
+            ].map((t: string) => t.toLowerCase());
+            const matchesGenre = eventGenre.includes(genreFilter.toLowerCase()) || eventTags.some((t: string) => t.includes(genreFilter.toLowerCase()));
+            // Also check if the event title/description mentions the genre
+            const titleMatch = op.event?.title?.toLowerCase().includes(genreFilter.toLowerCase()) || op.event?.description?.toLowerCase().includes(genreFilter.toLowerCase());
+            if (!matchesGenre && !titleMatch) return false;
+        }
+        // Text search filter
         if (!search) return true;
         const term = search.toLowerCase();
         const addrObj = op.venue?.address;
@@ -120,6 +152,24 @@ export default function FindGigs() {
                         <SlidersHorizontal className="w-4 h-4" />
                     </Button>
                 </div>
+            </div>
+
+            {/* Genre Filter Pills */}
+            <div className="flex gap-2 overflow-x-auto pb-2 -mt-4 scrollbar-hide">
+                {eventGenres.map((genre) => (
+                    <button
+                        key={genre}
+                        onClick={() => setGenreFilter(genre)}
+                        className={cn(
+                            "shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
+                            genreFilter === genre
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-background/60 text-muted-foreground border-white/10 hover:border-white/30"
+                        )}
+                    >
+                        {genre}
+                    </button>
+                ))}
             </div>
 
             {isLoading ? (
