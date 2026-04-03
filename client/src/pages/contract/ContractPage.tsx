@@ -5,8 +5,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
     Loader2, FileText, CheckCircle, PenTool, Clock, AlertTriangle,
-    Shield, Edit3, Send, X, ChevronRight, Eye, Check, Download,
-    Plane, Hotel, Mic2, Users, Camera, Megaphone, XCircle, DollarSign, Calendar as CalendarIcon
+    Shield, Edit3, X, ChevronRight, Check, Download,
+    Calendar as CalendarIcon
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -35,12 +35,13 @@ interface ContractViewerProps {
 }
 
 type ContractStep = "review" | "edit" | "accept" | "sign" | "admin_review" | "complete" | "voided";
+type EditPhase = "organizer_review" | "artist_review" | "ready_to_sign";
 
 export default function ContractPage() {
     const [, params] = useRoute("/contract/:id");
     const [, setLocation] = useLocation();
     const bookingId = params?.id ? parseInt(params.id) : 0;
-    
+
     const { toast } = useToast();
     const { user } = useAuth();
     const queryClient = useQueryClient();
@@ -49,30 +50,12 @@ export default function ContractPage() {
     const [showEditForm, setShowEditForm] = useState(false);
     const [editNote, setEditNote] = useState("");
     const [editChanges, setEditChanges] = useState<Record<string, any>>({});
-    const [signatureText, setSignatureText] = useState("");
+    const [signatureText, setSignatureText] = useState(() => user?.name || (user as any)?.displayName || user?.username || "");
 
     const role = user?.role === "artist" ? "artist" : (user?.role === "admin" || user?.role === "platform_admin") ? "admin" : "promoter";
     const isAdmin = role === "admin";
 
-    // ─── 1. Initiate contract (idempotent) ──────────────────────────────
-    const { mutate: initiateContract } = useMutation({
-        mutationFn: async () => {
-            const res = await fetch(`/api/bookings/${bookingId}/contract/initiate`, { method: "POST", credentials: "include" });
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || "Failed to initiate contract");
-            }
-            return await res.json();
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: [`contract-${bookingId}`] });
-        },
-        onError: (error: any) => {
-            console.error("Contract initiation error:", error);
-        }
-    });
-
-    // ─── 2. Fetch contract ──────────────────────────────────────────────
+    // ─── 1. Fetch contract ──────────────────────────────────────────────
     const { data: contract, isLoading, error, refetch } = useQuery({
         queryKey: [`contract-${bookingId}`],
         queryFn: async () => {
@@ -87,28 +70,30 @@ export default function ContractPage() {
         refetchInterval: 15000,
     });
 
-    // Auto-initiate if no contract exists
-    useEffect(() => {
-        if (contract === null) {
-            initiateContract();
-        }
-    }, [contract]);
+    // ─── Derive currentPhase from server-provided editPhase ─────────────
+    const editPhase: EditPhase = (contract?.editPhase as EditPhase) || "organizer_review";
 
-    // ─── Determine current step ─────────────────────────────────────────
+    let currentPhase: string;
+    if (contract?.status === "voided") currentPhase = "voided";
+    else if (contract?.status === "signed" || contract?.status === "completed") currentPhase = "complete";
+    else if (contract?.status === "admin_review") currentPhase = "admin_review";
+    else if (contract?.signedByPromoter || contract?.signedByArtist) currentPhase = "signing";
+    else if (editPhase === "ready_to_sign") currentPhase = "signing";
+    else if (editPhase === "artist_review") currentPhase = "artist_review";
+    else currentPhase = "organizer_review";
+
+    // Keep legacy activeStep in sync for the signing/accept sub-steps
     useEffect(() => {
         if (!contract) return;
-
         if (contract.status === "voided") { setActiveStep("voided"); return; }
         if (contract.status === "signed") { setActiveStep("complete"); return; }
         if (contract.status === "admin_review") { setActiveStep("admin_review"); return; }
 
         const myAccepted = role === "artist" ? contract.artistAcceptedAt : contract.promoterAcceptedAt;
         const mySigned = role === "artist" ? contract.signedByArtist : contract.signedByPromoter;
-        const myReviewDone = role === "artist" ? contract.artistReviewDoneAt : contract.promoterReviewDoneAt;
 
-        if (mySigned) setActiveStep("admin_review"); // Waiting for others or admin
+        if (mySigned) setActiveStep("admin_review");
         else if (myAccepted) setActiveStep("sign");
-        else if (myReviewDone) setActiveStep("accept");
         else setActiveStep("review");
     }, [contract, role]);
 
@@ -139,31 +124,7 @@ export default function ContractPage() {
         }
     });
 
-    // ─── 4. Respond to edit request ─────────────────────────────────────
-    const { mutate: respondToEdit, isPending: isResponding } = useMutation({
-        mutationFn: async ({ reqId, decision, responseNote }: { reqId: number; decision: string; responseNote?: string }) => {
-            const res = await fetch(`/api/contracts/${contract.id}/edit-requests/${reqId}/respond`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ decision, responseNote }),
-                credentials: "include"
-            });
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || "Response failed");
-            }
-            return await res.json();
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: [`contract-${bookingId}`] });
-            toast({ title: "Response recorded" });
-        },
-        onError: (error: any) => {
-            toast({ title: "Error", description: error.message, variant: "destructive" });
-        }
-    });
-
-    // ─── 5. Accept (EULA) ───────────────────────────────────────────────
+    // ─── 4. Accept (EULA) — after review phase is complete ─────────────
     const { mutate: acceptContract, isPending: isAccepting } = useMutation({
         mutationFn: async () => {
             const res = await fetch(`/api/contracts/${contract.id}/accept`, {
@@ -269,7 +230,7 @@ export default function ContractPage() {
     const [activeEditCategory, setActiveEditCategory] = useState<string | null>(null);
 
     // ─── Loading / Error ────────────────────────────────────────────────
-    if (isLoading || (!contract && !error)) {
+    if (isLoading) {
         return (
             <div className="flex flex-col items-center justify-center p-12 gap-3">
                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -278,11 +239,22 @@ export default function ContractPage() {
         );
     }
 
+    if (!contract && !isLoading) {
+        return (
+            <div className="flex flex-col items-center justify-center h-64 gap-4">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <p className="text-muted-foreground">Contract is being generated...</p>
+                <Button variant="outline" onClick={() => refetch()}>Refresh</Button>
+            </div>
+        );
+    }
+
     if (error || !contract) {
         return (
             <div className="flex flex-col items-center justify-center p-12 gap-3">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground">Preparing contract...</p>
+                <AlertTriangle className="w-8 h-8 text-destructive" />
+                <p className="text-sm text-muted-foreground">Failed to load contract.</p>
+                <Button variant="outline" onClick={() => refetch()}>Try Again</Button>
             </div>
         );
     }
@@ -297,26 +269,7 @@ export default function ContractPage() {
     const myReviewDone = role === "artist" ? contract.artistReviewDoneAt : contract.promoterReviewDoneAt;
 
     const commissionBreakdown = contract.commissionBreakdownJson;
-    const pendingEditRequest = contract.editRequests?.find((er: any) => er.status === "pending");
-    const isMyPendingEdit = pendingEditRequest?.requestedByRole === role;
     const deadlineExpired = timeLeft === "Expired";
-
-    // ─── Step definitions ───────────────────────────────────────────────
-    const steps = [
-        { key: "review", label: "Review", icon: Eye },
-        { key: "edit", label: "Edit", icon: Edit3, optional: true },
-        { key: "accept", label: "Accept", icon: Check },
-        { key: "sign", label: "Sign", icon: PenTool },
-    ];
-
-    const getStepStatus = (stepKey: string) => {
-        if (isVoided) return "voided";
-        if (stepKey === "review") return myReviewDone ? "complete" : activeStep === "review" ? "active" : "pending";
-        if (stepKey === "edit") return myEditUsed ? "complete" : "optional";
-        if (stepKey === "accept") return myAccepted ? "complete" : activeStep === "accept" ? "active" : "pending";
-        if (stepKey === "sign") return mySigned ? "complete" : activeStep === "sign" ? "active" : "pending";
-        return "pending";
-    };
 
     // ─── Helper: set nested edit change ────────────────────────────────
     const setNestedChange = (category: string, field: string, value: any) => {
@@ -390,26 +343,28 @@ export default function ContractPage() {
                     </div>
                 </div>
 
-                {/* ═══ Step Progress ═══ */}
-                <div className="flex items-center gap-1 mt-4">
-                    {steps.map((step, i) => {
-                        const status = getStepStatus(step.key);
-                        const Icon = step.icon;
+                {/* ═══ Phase Indicator ═══ */}
+                <div className="flex items-center gap-2 mt-4 overflow-x-auto scrollbar-hide pb-1">
+                    {(["Organizer Review", "Artist Review", "Signing", "Admin Review", "Complete"] as const).map((label, i) => {
+                        const phases = ["organizer_review", "artist_review", "signing", "admin_review", "complete"];
+                        const isActive = phases[i] === currentPhase;
+                        const isPast = phases.indexOf(currentPhase) > i;
                         return (
-                            <div key={step.key} className="flex items-center gap-1">
-                                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all cursor-default ${status === "complete"
-                                    ? "bg-green-500/20 text-green-400"
-                                    : status === "active"
-                                        ? "bg-primary/20 text-primary ring-1 ring-primary/30"
-                                        : status === "optional"
-                                            ? "bg-white/5 text-muted-foreground/50"
-                                            : "bg-white/5 text-muted-foreground/40"
-                                    }`}>
-                                    {status === "complete" ? <CheckCircle className="w-3 h-3" /> : <Icon className="w-3 h-3" />}
-                                    {step.label}
-                                    {step.optional && <span className="opacity-50 text-[10px]">(opt)</span>}
+                            <div key={label} className="flex items-center gap-1 shrink-0">
+                                <div className={cn(
+                                    "w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium",
+                                    isPast ? "bg-primary text-primary-foreground" :
+                                    isActive ? "bg-primary/20 text-primary border-2 border-primary" :
+                                    "bg-white/5 text-muted-foreground/50"
+                                )}>
+                                    {isPast ? <Check className="w-3 h-3" /> : i + 1}
                                 </div>
-                                {i < steps.length - 1 && <ChevronRight className="w-3 h-3 text-muted-foreground/30" />}
+                                <span className={cn(
+                                    "text-xs hidden md:block whitespace-nowrap",
+                                    isActive && "font-semibold text-foreground",
+                                    !isActive && "text-muted-foreground/60"
+                                )}>{label}</span>
+                                {i < 4 && <ChevronRight className="w-3 h-3 text-muted-foreground/30" />}
                             </div>
                         );
                     })}
@@ -432,78 +387,17 @@ export default function ContractPage() {
                         </div>
                     )}
 
-                    {/* ─── Pending Edit Request Alert ─── */}
-                    {pendingEditRequest && !isVoided && (
-                        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4">
-                            <div className="flex items-start gap-3">
-                                <Edit3 className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                                <div className="flex-1">
-                                    <p className="font-semibold text-amber-400">
-                                        {isMyPendingEdit ? "Your Edit Request is Pending" : "Edit Request Needs Your Response"}
-                                    </p>
-                                    {pendingEditRequest.note && (
-                                        <p className="text-sm text-muted-foreground mt-1 italic">
-                                            &ldquo;{pendingEditRequest.note}&rdquo;
-                                        </p>
-                                    )}
-                                    {/* Show categorized changes */}
-                                    {pendingEditRequest.changes && (
-                                        <div className="mt-2 space-y-1 text-xs">
-                                            {Object.entries(pendingEditRequest.changes as any).map(([category, fields]) => (
-                                                <div key={category} className="bg-white/5 rounded p-2">
-                                                    <span className="font-semibold capitalize text-muted-foreground">{category}:</span>
-                                                    <div className="ml-3 mt-0.5">
-                                                        {typeof fields === 'object' && fields !== null
-                                                            ? Object.entries(fields as any).map(([k, v]) => (
-                                                                <div key={k} className="flex gap-2">
-                                                                    <span className="text-muted-foreground">{k}:</span>
-                                                                    <span>{String(v)}</span>
-                                                                </div>
-                                                            ))
-                                                            : <span>{String(fields)}</span>
-                                                        }
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                    {!isMyPendingEdit && (
-                                        <div className="flex gap-2 mt-3">
-                                            <Button
-                                                size="sm"
-                                                className="bg-green-600 hover:bg-green-700 text-xs h-7"
-                                                onClick={() => respondToEdit({ reqId: pendingEditRequest.id, decision: "APPROVE" })}
-                                                disabled={isResponding}
-                                            >
-                                                {isResponding && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
-                                                Approve Changes
-                                            </Button>
-                                            {role === 'promoter' ? (
-                                                <Button
-                                                    size="sm"
-                                                    variant="destructive"
-                                                    className="text-xs h-7"
-                                                    onClick={() => respondToEdit({ reqId: pendingEditRequest.id, decision: "REJECT", responseNote: "WALKAWAY" })}
-                                                    disabled={isResponding}
-                                                    title="Rejecting as Organizer will walk away and cancel the booking"
-                                                >
-                                                    Walk Away
-                                                </Button>
-                                            ) : (
-                                                <Button
-                                                    size="sm"
-                                                    variant="destructive"
-                                                    className="text-xs h-7"
-                                                    onClick={() => respondToEdit({ reqId: pendingEditRequest.id, decision: "REJECT" })}
-                                                    disabled={isResponding}
-                                                >
-                                                    Reject
-                                                </Button>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
+                    {/* ─── Phase Banner: show waiting message for non-active party ─── */}
+                    {!isVoided && currentPhase === "organizer_review" && role === "artist" && (
+                        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex items-center gap-3">
+                            <Clock className="w-5 h-5 text-blue-400 shrink-0" />
+                            <p className="text-sm text-blue-400">Waiting for the organizer to review and finalize the contract.</p>
+                        </div>
+                    )}
+                    {!isVoided && currentPhase === "artist_review" && role === "promoter" && (
+                        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex items-center gap-3">
+                            <Clock className="w-5 h-5 text-blue-400 shrink-0" />
+                            <p className="text-sm text-blue-400">Waiting for the artist to review the contract.</p>
                         </div>
                     )}
 
@@ -560,7 +454,9 @@ export default function ContractPage() {
                                 else if (section.includes("7. INTELLECTUAL PROPERTY")) editKey = "contentRights";
                                 else if (section.includes("8. CANCELLATION")) editKey = "cancellation";
 
-                                const canEdit = !isVoided && activeStep === "review" && !myEditUsed && !isMyPendingEdit;
+                                const isMyReviewPhase = (currentPhase === "organizer_review" && role === "promoter") ||
+                                    (currentPhase === "artist_review" && role === "artist");
+                                const canEdit = !isVoided && isMyReviewPhase && !myEditUsed;
 
                                 return (
                                     <div key={idx} className="relative group mb-6">
@@ -1051,8 +947,11 @@ export default function ContractPage() {
                     </div>
                 ) : (
                     <div className="space-y-3">
-                        {/* STEP: REVIEW */}
-                        {activeStep === "review" && !pendingEditRequest && (
+                        {/* STEP: REVIEW — only shown to the party whose turn it is */}
+                        {activeStep === "review" && (
+                            (currentPhase === "organizer_review" && role === "promoter") ||
+                            (currentPhase === "artist_review" && role === "artist")
+                        ) && (
                             <div className="flex flex-col gap-3">
                                 <div className="flex items-center gap-3">
                                     <Button
@@ -1084,7 +983,7 @@ export default function ContractPage() {
                         )}
 
                         {/* STEP: ACCEPT (EULA) */}
-                        {activeStep === "accept" && !pendingEditRequest && (
+                        {activeStep === "accept" && (
                             <div className="space-y-4">
                                 <div className="flex items-start gap-3 p-4 rounded-lg bg-white/5 border border-white/10">
                                     <Checkbox
@@ -1140,13 +1039,6 @@ export default function ContractPage() {
                             </div>
                         )}
 
-                        {/* Pending edit state */}
-                        {pendingEditRequest && activeStep === "review" && (
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm text-amber-400">Edit request pending resolution...</span>
-                                <Button variant="ghost" onClick={() => setLocation("/dashboard")}>Close</Button>
-                            </div>
-                        )}
                     </div>
                 )}
             </div>

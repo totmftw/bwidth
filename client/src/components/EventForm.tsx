@@ -1,8 +1,8 @@
-import React from "react";
+import React, { useRef, useCallback } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { format } from "date-fns";
+import { format, parse, isValid } from "date-fns";
 import {
     Calendar as CalendarIcon,
     Plus,
@@ -24,6 +24,106 @@ import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollableTimePicker } from "@/components/ScrollableTimePicker";
 import { cn } from "@/lib/utils";
+
+// ---------------------------------------------------------------------------
+// DatePickerInput — combines a text input (DD/MM/YYYY) with a calendar popover
+// ---------------------------------------------------------------------------
+interface DatePickerInputProps {
+  value: Date | undefined;
+  onChange: (date: Date | undefined) => void;
+  placeholder?: string;
+  optional?: boolean;
+}
+
+function DatePickerInput({ value, onChange, placeholder, optional }: DatePickerInputProps) {
+  const [open, setOpen] = React.useState(false);
+  const inputFocused = useRef(false);
+
+  // Controlled text value — derived from the Date when not focused
+  const displayText = value ? format(value, "dd/MM/yyyy") : "";
+  const [inputText, setInputText] = React.useState(displayText);
+
+  // Sync text when value changes externally (e.g. calendar click)
+  React.useEffect(() => {
+    if (!inputFocused.current) {
+      setInputText(value ? format(value, "dd/MM/yyyy") : "");
+    }
+  }, [value]);
+
+  const commitText = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      onChange(undefined);
+      return;
+    }
+    // Try DD/MM/YYYY and YYYY-MM-DD
+    const formats = ["dd/MM/yyyy", "d/M/yyyy", "yyyy-MM-dd", "dd-MM-yyyy"];
+    for (const fmt of formats) {
+      try {
+        const parsed = parse(trimmed, fmt, new Date());
+        if (isValid(parsed)) {
+          onChange(parsed);
+          return;
+        }
+      } catch {
+        // continue
+      }
+    }
+    // Not parseable — revert display
+    setInputText(value ? format(value, "dd/MM/yyyy") : "");
+  }, [onChange, value]);
+
+  return (
+    <div className="flex items-center gap-1 w-full">
+      <div className="relative flex-1">
+        <Input
+          value={inputText}
+          placeholder={placeholder ?? "DD/MM/YYYY"}
+          className="pl-3 pr-3 bg-background/80 h-11"
+          onFocus={() => { inputFocused.current = true; }}
+          onChange={(e) => setInputText(e.target.value)}
+          onBlur={(e) => {
+            inputFocused.current = false;
+            commitText(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              inputFocused.current = false;
+              commitText((e.target as HTMLInputElement).value);
+            }
+          }}
+        />
+      </div>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-11 w-11 shrink-0 bg-background/80"
+            aria-label="Open calendar"
+          >
+            <CalendarIcon className="h-4 w-4 text-primary" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0 z-[100]" align="start">
+          <Calendar
+            mode="single"
+            selected={value}
+            onSelect={(date) => {
+              onChange(date ?? undefined);
+              setOpen(false);
+            }}
+            initialFocus
+          />
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 
 const formSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -212,30 +312,11 @@ export function EventForm({
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                             <div className="space-y-3">
                                 <Label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Start Date *</Label>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant={"outline"}
-                                            className={cn(
-                                                "w-full justify-start text-left font-normal bg-background/80 h-11",
-                                                !form.watch("startDate") && "text-muted-foreground"
-                                            )}
-                                        >
-                                            <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
-                                            {form.watch("startDate") ? format(form.watch("startDate"), "dd MMM yyyy") : <span>Pick a date</span>}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0 z-[100]" align="start">
-                                        <Calendar
-                                            mode="single"
-                                            selected={form.watch("startDate")}
-                                            onSelect={(date) => {
-                                                if (date) form.setValue("startDate", date, { shouldValidate: true });
-                                            }}
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
+                                <DatePickerInput
+                                    value={form.watch("startDate")}
+                                    onChange={(date) => form.setValue("startDate", date as Date, { shouldValidate: true })}
+                                    placeholder="DD/MM/YYYY"
+                                />
                                 {form.formState.errors.startDate && (
                                     <p className="text-xs text-destructive">{form.formState.errors.startDate.message}</p>
                                 )}
@@ -255,30 +336,12 @@ export function EventForm({
 
                             <div className="space-y-3">
                                 <Label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">End Date</Label>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant={"outline"}
-                                            className={cn(
-                                                "w-full justify-start text-left font-normal bg-background/80 h-11",
-                                                !form.watch("endDate") && "text-muted-foreground"
-                                            )}
-                                        >
-                                            <CalendarIcon className="mr-2 h-4 w-4 text-primary opacity-50" />
-                                            {form.watch("endDate") ? format(form.watch("endDate") as Date, "dd MMM yyyy") : <span>(Optional)</span>}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0 z-[100]" align="start">
-                                        <Calendar
-                                            mode="single"
-                                            selected={form.watch("endDate")}
-                                            onSelect={(date) => {
-                                                if (date) form.setValue("endDate", date);
-                                            }}
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
+                                <DatePickerInput
+                                    value={form.watch("endDate")}
+                                    onChange={(date) => form.setValue("endDate", date, { shouldValidate: true })}
+                                    placeholder="DD/MM/YYYY (optional)"
+                                    optional
+                                />
                             </div>
                             
                             <div className="space-y-3">

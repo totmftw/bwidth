@@ -51,7 +51,7 @@ export default function Bookings() {
                   <TableRow key={booking.id} className="border-white/5 hover:bg-white/5">
                     <TableCell>
                       <div className="font-medium">
-                        {isArtist ? booking.organizer.organizationName || booking.organizer.user.displayName : booking.artist.user.displayName || booking.artist.user.username}
+                        {isArtist ? booking.organizer?.organizationName || booking.organizer?.user?.displayName : booking.artist?.user?.displayName || booking.artist?.user?.username}
                       </div>
                       <div className="text-xs text-muted-foreground truncate max-w-[200px]">
                         {booking.notes || "No notes"}

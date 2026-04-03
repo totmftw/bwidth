@@ -46,8 +46,8 @@ const genreSchema = z.object({
 });
 
 const pricingSchema = z.object({
-    feeMin: z.coerce.number().min(100, "Minimum fee must be at least ₹100"),
-    feeMax: z.coerce.number().min(100, "Maximum fee must be at least ₹100"),
+    feeMin: z.coerce.number().min(100, "Minimum fee must be at least ₹100").max(10_000_000, "Maximum fee cannot exceed ₹1,00,00,000"),
+    feeMax: z.coerce.number().min(100, "Maximum fee must be at least ₹100").max(10_000_000, "Maximum fee cannot exceed ₹1,00,00,000"),
     currency: z.string().default("INR"),
     performanceDurations: z.array(z.string()).min(1, "Select at least one duration"),
 });
@@ -91,37 +91,33 @@ const STEPS = [
 export default function ArtistProfileSetup() {
     const [, setLocation] = useLocation();
     const { user } = useAuth();
+    const artist = (user as any)?.artist;
+    const artistMeta = (artist?.metadata as any) || {};
     const { toast } = useToast();
     const queryClient = useQueryClient();
     const [currentStep, setCurrentStep] = useState(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Form data storage
-    const [formData, setFormData] = useState({
-        // Basic Info
-        stageName: "",
-        bio: "",
-        location: "",
-        yearsOfExperience: 0,
-        // Genre
-        primaryGenre: "",
-        secondaryGenres: [] as string[],
-        // Pricing
-        feeMin: 5000,
-        feeMax: 20000,
-        currency: "INR",
-        performanceDurations: ["60 min"],
-        // Portfolio
-        soundcloudUrl: "",
-        mixcloudUrl: "",
-        instagramHandle: "",
-        websiteUrl: "",
-        achievements: "",
-        // Technical
-        technicalRider: "",
-        equipmentRequirements: "",
-        travelPreferences: "",
-    });
+    const [formData, setFormData] = useState(() => ({
+        stageName: (artist?.name as string) || (user?.name as string) || "",
+        bio: (artist?.bio as string) || "",
+        location: (artist?.baseLocation as any)?.name || (artistMeta?.location as string) || "",
+        yearsOfExperience: (artistMeta?.yearsOfExperience as number) || 0,
+        primaryGenre: (artistMeta?.primaryGenre as string) || "",
+        secondaryGenres: (artistMeta?.secondaryGenres as string[]) || [],
+        feeMin: Number(artist?.priceFrom) || 5000,
+        feeMax: Number(artist?.priceTo) || 20000,
+        currency: (artist?.currency as string) || "INR",
+        performanceDurations: (artistMeta?.performanceDurations as string[]) || ["60 min"],
+        soundcloudUrl: (artistMeta?.soundcloud as string) || "",
+        mixcloudUrl: (artistMeta?.mixcloud as string) || "",
+        instagramHandle: (artistMeta?.instagram as string) || "",
+        websiteUrl: (artistMeta?.website as string) || "",
+        achievements: (artistMeta?.achievements as string) || "",
+        technicalRider: (artistMeta?.technicalRider as string) || "",
+        equipmentRequirements: (artistMeta?.equipmentRequirements as string) || "",
+        travelPreferences: (artistMeta?.travelPreferences as string) || "",
+    }));
 
     const progress = (currentStep / STEPS.length) * 100;
 
@@ -158,7 +154,8 @@ export default function ArtistProfileSetup() {
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || "Failed to save profile");
+                const detail = errorData.error ? ` (${errorData.error})` : "";
+                throw new Error((errorData.message || "Failed to save profile") + detail);
             }
 
             toast({

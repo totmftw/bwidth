@@ -36,8 +36,8 @@ export const artistProfileCompleteSchema = z.object({
   yearsOfExperience: z.coerce.number().min(0).max(50).optional(),
   primaryGenre: z.string().min(1),
   secondaryGenres: z.array(z.string()).max(3).optional(),
-  feeMin: z.coerce.number().min(100),
-  feeMax: z.coerce.number().min(100),
+  feeMin: z.coerce.number().min(100).max(10_000_000),
+  feeMax: z.coerce.number().min(100).max(10_000_000),
   currency: z.string().default("INR"),
   performanceDurations: z.array(z.string()).optional(),
   // Social / external links — all optional

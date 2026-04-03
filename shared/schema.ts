@@ -548,6 +548,7 @@ export const contracts = pgTable("contracts", {
   organizerSignatureRequired: boolean("organizer_signature_required").default(true),
   artistSignatureRequired: boolean("artist_signature_required").default(true),
   cancellationPolicyVersion: integer("cancellation_policy_version"),
+  editPhase: text("edit_phase").default("organizer_review"),
 });
 
 // Contract version history (each edit creates a new version)
@@ -722,6 +723,9 @@ export const bookingProposals = pgTable("booking_proposals", {
   reasonCode: text("reason_code"),
   note: text("note"),
   status: proposalStatusEnum("status").notNull().default("active"),
+  submittedByRole: text("submitted_by_role"),  // "artist" | "organizer"
+  stepNumber: integer("step_number"),           // 1-4
+  responseAction: text("response_action"),      // "edit" | "accept" | "walkaway"
   createdAt: timestamp("created_at").defaultNow(),
 });
 

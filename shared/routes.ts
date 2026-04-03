@@ -31,6 +31,18 @@ export const negotiationSummaryStatusEnum = z.enum([
   "agreed",
   "walked_away",
 ]);
+// New step-based negotiation enums
+export const negotiationStepStateEnum = z.enum([
+  "applied",        // step 0: artist submitted application
+  "awaiting_org",   // organizer's turn
+  "awaiting_art",   // artist's turn
+  "locked",         // both agreed, terms frozen
+  "walked_away",    // one party walked away
+  "expired",        // deadline passed
+]);
+
+export const negotiationActionEnum = z.enum(["edit", "accept", "walkaway"]);
+
 export const negotiationActivityTypeEnum = z.enum([
   "application_submitted",
   "proposal_submitted",
@@ -155,6 +167,18 @@ export const negotiationActivitySchema = z.object({
   metadata: z.record(z.unknown()).default({}),
 });
 
+export const stepHistoryRecordSchema = z.object({
+  step: z.number().int().min(0).max(4),
+  stepState: negotiationStepStateEnum,
+  action: z.enum(["apply", "edit", "accept", "walkaway", "timeout"]),
+  actorUserId: z.number().int().nullable(),
+  actorRole: z.enum(["artist", "organizer", "system"]),
+  proposalId: z.number().int().nullable(),
+  proposalVersion: z.number().int().nullable(),
+  timestamp: z.string(),
+  note: z.string().nullable(),
+});
+
 export const applicationSubmitSchema = z.object({
   eventId: z.number().int().positive(),
   message: z.string().optional().nullable(),
@@ -188,6 +212,16 @@ export const finalAcceptanceSchema = z.object({
   proposalVersion: z.number().int().positive(),
 });
 
+export const negotiationActionInputSchema = z.object({
+  action: negotiationActionEnum,
+  snapshot: negotiationSnapshotSchema.optional(),
+  note: z.string().max(2000).optional().nullable(),
+  reason: z.string().max(2000).optional().nullable(),
+}).refine(
+  (data) => data.action !== "edit" || data.snapshot !== undefined,
+  { message: "Snapshot is required for 'edit' action", path: ["snapshot"] }
+);
+
 export const negotiationSummaryResponseSchema = z.object({
   booking: z.object({
     id: z.number().int().positive(),
@@ -211,6 +245,54 @@ export const negotiationSummaryResponseSchema = z.object({
   riderConfirmation: negotiationRiderConfirmationStateSchema,
   activity: z.array(negotiationActivitySchema).default([]),
   readyForContract: z.boolean(),
+});
+
+const negotiationEventStageSchema = z.object({
+  id: z.number().int().positive(),
+  name: z.string().nullable(),
+  startTime: z.string().nullable(),
+  endTime: z.string().nullable(),
+  orderIndex: z.number().int(),
+});
+
+export const negotiationSummaryResponseSchemaV2 = z.object({
+  booking: z.object({
+    id: z.number().int().positive(),
+    status: z.string(),
+    eventId: z.number().int().positive().nullable(),
+    artistId: z.number().int().positive().nullable(),
+    stageId: z.number().int().positive().nullable(),
+    contractId: z.number().int().positive().nullable(),
+    flowDeadlineAt: z.string().nullable().optional(),
+  }),
+  // Event info + stages for the slot selector in the propose form
+  event: z.object({
+    title: z.string(),
+    startTime: z.string(),
+    endTime: z.string().nullable(),
+  }).nullable(),
+  eventStages: z.array(negotiationEventStageSchema),
+  conversation: z.object({
+    id: z.number().int().positive(),
+  }).nullable(),
+  // Step-based fields
+  currentStep: z.number().int().min(0).max(4),
+  stepState: negotiationStepStateEnum,
+  stepDeadlineAt: z.string().nullable(),
+  whoseTurn: z.enum(["artist", "organizer"]).nullable(),
+  availableActions: z.array(negotiationActionEnum),
+  maxSteps: z.literal(4),
+  // Existing fields kept
+  status: z.string(),
+  round: z.number().int().nonnegative(),
+  currentProposal: negotiationProposalSchema.nullable(),
+  history: z.array(negotiationProposalSchema),
+  stepHistory: z.array(stepHistoryRecordSchema),
+  agreement: bookingNegotiationAgreementSchema.nullable(),
+  lockedTerms: negotiationSnapshotSchema.nullable(),
+  activity: z.array(negotiationActivitySchema).default([]),
+  readyForContract: z.boolean(),
+  contractGenerated: z.boolean().optional(),
 });
 
 export const applicationSubmitResponseSchema = z.object({
@@ -259,6 +341,11 @@ export type ProposalSubmitInput = z.infer<typeof proposalSubmitSchema>;
 export type RiderConfirmationInput = z.infer<typeof riderConfirmationSchema>;
 export type FinalAcceptanceInput = z.infer<typeof finalAcceptanceSchema>;
 export type NegotiationSummaryResponse = z.infer<typeof negotiationSummaryResponseSchema>;
+export type NegotiationStepState = z.infer<typeof negotiationStepStateEnum>;
+export type NegotiationAction = z.infer<typeof negotiationActionEnum>;
+export type NegotiationActionInput = z.infer<typeof negotiationActionInputSchema>;
+export type StepHistoryRecord = z.infer<typeof stepHistoryRecordSchema>;
+export type NegotiationSummaryResponseV2 = z.infer<typeof negotiationSummaryResponseSchemaV2>;
 
 /**
  * Reusable contact person schema for organizer profiles.
@@ -748,6 +835,19 @@ export const api = {
       input: z.object({ reason: z.string().optional() }),
       responses: {
         200: z.object({ success: z.boolean() }),
+      },
+    },
+    // --- 4-Step Negotiation Action ---
+    negotiationAction: {
+      method: 'POST' as const,
+      path: '/api/bookings/:id/negotiation/action',
+      input: negotiationActionInputSchema,
+      responses: {
+        200: z.object({
+          success: z.literal(true),
+          summary: negotiationSummaryResponseSchemaV2,
+        }),
+        400: errorSchemas.validation,
       },
     },
   },

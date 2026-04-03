@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2 } from "lucide-react";
 
 // Schemas for the forms
@@ -223,17 +222,29 @@ function RegisterForm({ initialRole }: { initialRole: string }) {
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 max-h-[60vh] overflow-y-auto px-1">
       <div className="space-y-2">
-        <Label>I am a...</Label>
-        <Select value={role} onValueChange={setRole}>
-          <SelectTrigger>
-            <SelectValue placeholder="Select Role" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="artist">Artist</SelectItem>
-            <SelectItem value="organizer">Organizer</SelectItem>
-            <SelectItem value="venue">Venue</SelectItem>
-          </SelectContent>
-        </Select>
+        <Label className="text-sm font-medium">I am a...</Label>
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            { value: "artist", icon: "🎸", title: "Artist", desc: "Perform & earn" },
+            { value: "organizer", icon: "🎪", title: "Organizer", desc: "Book talent" },
+            { value: "venue", icon: "🏛️", title: "Venue", desc: "List your space" },
+          ] as const).map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setRole(opt.value)}
+              className={`flex flex-col items-center gap-1 p-3 rounded-xl border-2 transition-all text-center ${
+                role === opt.value
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-white/10 bg-background/40 text-muted-foreground hover:border-white/30"
+              }`}
+            >
+              <span className="text-2xl">{opt.icon}</span>
+              <span className="text-xs font-semibold">{opt.title}</span>
+              <span className="text-[10px] opacity-70">{opt.desc}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">

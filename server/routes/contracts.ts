@@ -303,14 +303,7 @@ router.post("/bookings/:bookingId/contract/initiate", async (req, res) => {
             return res.status(400).json({ message: "Booking flow 72-hour deadline has passed. Booking is cancelled." });
         }
 
-        // Require fully agreed negotiation
-        const meta = (booking.meta as any) || {};
-        const negotiationStatus = meta.negotiation?.status;
-        if (negotiationStatus !== 'agreed') {
-            return res.status(400).json({ message: "Contract initiation blocked. Both parties must finalize and accept the negotiation terms first." });
-        }
-
-        // Check for existing contract
+        // Idempotency: if contract already exists, return it
         const existing = await storage.getContractByBookingId(bookingId);
         if (existing) {
             if (existing.status === 'voided') {
@@ -318,6 +311,24 @@ router.post("/bookings/:bookingId/contract/initiate", async (req, res) => {
             }
             const details = await storage.getContractWithDetails(existing.id);
             return res.json({ message: "Contract already initiated", contract: details });
+        }
+
+        // Only allow contract generation when booking is in "contracting" status
+        // or when negotiation is agreed (booking about to transition to contracting)
+        const meta = (booking.meta as any) || {};
+        const negotiationStatus = meta.negotiation?.status;
+        const bookingStatus = booking.status;
+
+        if (bookingStatus === 'contracting') {
+            // Already in contracting but no contract yet — proceed to generate
+        } else if (negotiationStatus === 'agreed') {
+            // Negotiation agreed, ready to transition to contracting
+        } else {
+            return res.status(400).json({
+                message: "Contract initiation blocked. Booking must be in 'contracting' status or negotiation must be fully agreed.",
+                currentStatus: bookingStatus,
+                negotiationStatus: negotiationStatus || null,
+            });
         }
 
         const { contractService } = await import("../services/contract.service");
@@ -465,7 +476,8 @@ router.post("/contracts/:id/review", async (req, res) => {
         }
 
         if (body.action === "ACCEPT_AS_IS") {
-            const updateData: any = { updatedAt: new Date(), [reviewDoneField]: new Date() };
+            const nextEditPhase = isArtist ? 'ready_to_sign' : 'artist_review';
+            const updateData: any = { updatedAt: new Date(), [reviewDoneField]: new Date(), editPhase: nextEditPhase };
             await storage.updateContract(contractId, updateData);
 
             await postContractSystemMessage(contract.bookingId!,
@@ -499,20 +511,14 @@ router.post("/contracts/:id/review", async (req, res) => {
                 return res.status(400).json({ message: "You have already used your one-time edit opportunity" });
             }
 
-            // Check for existing pending edit
-            const pendingEdit = await storage.getPendingEditRequest(contractId);
-            if (pendingEdit) {
-                return res.status(400).json({ message: "There is already a pending edit request. Wait for it to be resolved." });
-            }
-
             if (!body.changes || (typeof body.changes === 'object' && Object.keys(body.changes).length === 0)) {
                 return res.status(400).json({ message: "Changes are required for edit proposals" });
             }
 
             // Validate changes against business rules
             const booking = await storage.getBookingWithDetails(contract.bookingId!);
-            const currentVersion = await storage.getLatestContractVersion(contractId);
-            const currentTerms = (currentVersion?.terms as any) || {};
+            const currentVersionObj = await storage.getLatestContractVersion(contractId);
+            const currentTerms = (currentVersionObj?.terms as any) || {};
             const validation = validateContractChanges(body.changes, currentTerms, booking);
 
             if (!validation.valid) {
@@ -522,39 +528,61 @@ router.post("/contracts/:id/review", async (req, res) => {
                 });
             }
 
-            // Create edit request
+            // Directly apply changes (no pending approval needed)
+            const newTerms = applyContractChanges(currentTerms, body.changes);
+            const newVersionNum = (contract.currentVersion || 1) + 1;
+            const newContractText = generateContractText(booking, newTerms);
+
+            // Create new contract version with merged terms
+            await storage.createContractVersion({
+                contractId,
+                version: newVersionNum,
+                contractText: newContractText,
+                terms: newTerms,
+                createdBy: user.id,
+                changeSummary: `${role} edits applied directly: ${body.note || 'Changes applied'}`,
+            });
+
+            // Determine the next editPhase
+            const nextEditPhase = isArtist ? 'ready_to_sign' : 'artist_review';
+
+            // Mark review done + edit used, update version and editPhase
+            await storage.updateContract(contractId, {
+                updatedAt: new Date(),
+                [reviewDoneField]: new Date(),
+                [editUsedField]: true,
+                currentVersion: newVersionNum,
+                contractText: newContractText,
+                editPhase: nextEditPhase,
+                metadata: { ...(contract.metadata as any || {}), terms: newTerms },
+            });
+
+            // Create edit request record with status "applied" for audit trail
             const editRequest = await storage.createContractEditRequest({
                 contractId,
                 requestedBy: user.id,
                 requestedByRole: role,
                 changes: body.changes,
                 note: body.note || null,
-                status: 'pending',
-            });
-
-            // Mark review done + edit used
-            await storage.updateContract(contractId, {
-                updatedAt: new Date(),
-                [reviewDoneField]: new Date(),
-                [editUsedField]: true,
+                status: 'applied',
             });
 
             await postContractSystemMessage(contract.bookingId!,
-                `✏️ ${isArtist ? 'Artist' : 'Promoter'} has proposed edits to the contract. The other party must approve or reject.${body.note ? ` Note: "${body.note}"` : ''}`
+                `✏️ ${isArtist ? 'Artist' : 'Promoter'} has made edits to the contract (v${newVersionNum}). Changes applied immediately.${body.note ? ` Note: "${body.note}"` : ''}`
             );
 
             await storage.createAuditLog({
                 who: user.id,
-                action: "contract_edit_requested",
+                action: "contract_edit_applied",
                 entityType: "contract",
                 entityId: contractId,
-                context: { role, editRequestId: editRequest.id }
+                context: { role, editRequestId: editRequest.id, newVersion: newVersionNum, editPhase: nextEditPhase }
             });
 
             const details = await storage.getContractWithDetails(contractId);
             return res.json({
                 success: true,
-                message: 'Edit request submitted. Awaiting other party approval.',
+                message: `Edits applied. Contract updated to version ${newVersionNum}.`,
                 contract: details,
                 editRequest
             });
@@ -601,7 +629,15 @@ router.post("/contracts/:id/edit-requests/:reqId/respond", async (req, res) => {
         if (editRequest.contractId !== contractId) {
             return res.status(400).json({ message: "Edit request does not belong to this contract" });
         }
+
+        // New contracts use direct-apply flow (status = "applied"), so this endpoint
+        // is only functional for legacy edit requests that are still "pending".
         if (editRequest.status !== 'pending') {
+            if (editRequest.status === 'applied') {
+                return res.status(410).json({
+                    message: "This edit was applied directly. The respond endpoint is deprecated for new contracts. Edits are now applied immediately during review."
+                });
+            }
             return res.status(400).json({ message: "Edit request has already been processed" });
         }
 

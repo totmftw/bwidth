@@ -1,17 +1,34 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { cn } from "@/lib/utils";
 import { format, differenceInHours, differenceInMinutes } from "date-fns";
-import { api, type NegotiationSummaryResponse, type ProposalSubmitInput, type RiderConfirmationInput } from "@shared/routes";
+import {
+  api,
+  type NegotiationSummaryResponseV2,
+  type NegotiationActionInput,
+  type NegotiationSnapshot,
+} from "@shared/routes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCheck, X, ThumbsUp, ArrowLeftRight, Loader2, Info, Check, LogOut, Clock } from "lucide-react";
+import {
+  CheckCheck,
+  X,
+  ThumbsUp,
+  ArrowLeftRight,
+  Loader2,
+  Info,
+  Check,
+  LogOut,
+  Clock,
+} from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 
@@ -26,7 +43,10 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
-  const [mode, setMode] = useState<"view" | "propose" | "rider">("view");
+  const [mode, setMode] = useState<"view" | "propose">("view");
+
+  // Track last dispatched action for toast message in onSuccess
+  const lastActionRef = useRef<NegotiationActionInput["action"]>("edit");
 
   // Profile completion check
   const profileStatusEndpoint =
@@ -48,8 +68,10 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
 
   const isProfileComplete = profileStatus?.isComplete ?? true;
 
-  const { data: summary, isLoading, refetch } = useQuery<NegotiationSummaryResponse>({
-    queryKey: [api.bookings.negotiationSummary.path.replace(":id", booking.id.toString())],
+  const summaryQueryKey = api.bookings.negotiationSummary.path.replace(":id", booking.id.toString());
+
+  const { data: summary, isLoading, refetch } = useQuery<NegotiationSummaryResponseV2>({
+    queryKey: [summaryQueryKey],
     queryFn: async () => {
       const res = await apiRequest(
         api.bookings.negotiationSummary.method,
@@ -60,98 +82,78 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
     refetchInterval: 5000,
   });
 
-  const proposeMutation = useMutation({
-    mutationFn: async (payload: ProposalSubmitInput) => {
+  // Single unified mutation replacing all previous propose/accept/walkaway/rider mutations
+  const actionMutation = useMutation({
+    mutationFn: async (payload: NegotiationActionInput) => {
+      lastActionRef.current = payload.action;
       const res = await apiRequest(
-        api.bookings.submitProposal.method,
-        api.bookings.submitProposal.path.replace(":id", booking.id.toString()),
+        api.bookings.negotiationAction.method,
+        api.bookings.negotiationAction.path.replace(":id", booking.id.toString()),
         payload
       );
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Proposal sent" });
+      const action = lastActionRef.current;
+      toast({
+        title:
+          action === "edit" ? "Proposal sent" :
+          action === "accept" ? "Terms accepted" :
+          "Walked away",
+      });
       setMode("view");
+      queryClient.invalidateQueries({ queryKey: [summaryQueryKey] });
+      queryClient.invalidateQueries({ queryKey: [api.bookings.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.organizer.bookings.list.path] });
       refetch();
+      if (action === "walkaway") onClose();
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Error",
+        description: err.message || "Action failed",
+        variant: "destructive",
+      });
     },
   });
 
-  const confirmRiderMutation = useMutation({
-    mutationFn: async (payload: RiderConfirmationInput) => {
-      const res = await apiRequest(
-        api.bookings.confirmRider.method,
-        api.bookings.confirmRider.path.replace(":id", booking.id.toString()),
-        payload
-      );
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Rider confirmed" });
-      setMode("view");
-      refetch();
-    },
-  });
+  // Derive user role bucket (artist vs organizer side)
+  const userRole = user?.role === "artist" ? "artist" : "organizer";
 
-  const acceptMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest(
-        api.bookings.finalAccept.method,
-        api.bookings.finalAccept.path.replace(":id", booking.id.toString()),
-        { proposalVersion: summary?.round }
-      );
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Accepted proposal" });
-      refetch();
-    },
-  });
-
-  const walkAwayMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest(
-        api.bookings.walkAway.method,
-        api.bookings.walkAway.path.replace(":id", booking.id.toString()),
-        { reason: "User walked away" }
-      );
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Walked away" });
-      onClose();
-    },
-  });
-
-  const isArtist = user?.id === summary?.booking?.artistId;
-  const isAgreed = summary?.status === "agreed";
-  const isWalkedAway = summary?.status === "walked_away";
-
-  // Deadline calculation
+  // Deadline calculation — prefer stepDeadlineAt, fall back to booking.flowDeadlineAt
   const [timeLeft, setTimeLeft] = useState<string>("");
-  const [isExpired, setIsExpired] = useState<boolean>(false);
+  const [isExpiredLocal, setIsExpiredLocal] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!summary?.booking?.flowDeadlineAt || isAgreed || isWalkedAway) return;
+    if (!summary) return;
 
-    const deadline = new Date(summary.booking.flowDeadlineAt);
-    
+    const deadlineSource = summary.stepDeadlineAt ?? summary.booking?.flowDeadlineAt ?? null;
+    const isTerminalState = ["locked", "walked_away", "expired"].includes(summary.stepState ?? "");
+
+    if (!deadlineSource || isTerminalState) {
+      setTimeLeft("");
+      setIsExpiredLocal(false);
+      return;
+    }
+
+    const deadline = new Date(deadlineSource);
+
     const updateTime = () => {
       const now = new Date();
       if (now > deadline) {
-        setIsExpired(true);
+        setIsExpiredLocal(true);
         setTimeLeft("Expired");
         return;
       }
-      
       const hours = differenceInHours(deadline, now);
       const minutes = differenceInMinutes(deadline, now) % 60;
       setTimeLeft(`${hours}h ${minutes}m remaining`);
     };
 
     updateTime();
-    const interval = setInterval(updateTime, 60000); // update every minute
+    const interval = setInterval(updateTime, 60000);
     return () => clearInterval(interval);
-  }, [summary?.booking?.flowDeadlineAt, isAgreed, isWalkedAway]);
+  }, [summary?.stepDeadlineAt, summary?.booking?.flowDeadlineAt, summary?.stepState]);
 
   if (isLoading || !summary) {
     return (
@@ -186,29 +188,64 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
     );
   }
 
-  // My acceptance state
-  const myAcceptedVersion = isArtist ? summary.acceptance.artistAcceptedVersion : summary.acceptance.organizerAcceptedVersion;
-  const iHaveAccepted = myAcceptedVersion === summary.round;
-  const otherHasAccepted = isArtist 
-    ? summary.acceptance.organizerAcceptedVersion === summary.round 
-    : summary.acceptance.artistAcceptedVersion === summary.round;
+  // Turn and action derivations
+  const isMyTurn =
+    (summary.whoseTurn === "artist" && userRole === "artist") ||
+    (summary.whoseTurn === "organizer" && userRole === "organizer");
 
-  const canAccept = !isAgreed && !isWalkedAway && !isExpired && !iHaveAccepted && summary.riderConfirmation.isConfirmed;
+  const availableActions = summary.availableActions ?? [];
+  const canEdit = availableActions.includes("edit") && isMyTurn;
+  const canAccept = availableActions.includes("accept") && isMyTurn;
+  const canWalkAway = availableActions.includes("walkaway") && isMyTurn;
+
+  const stepState = summary.stepState ?? "applied";
+  const activity = summary.activity ?? [];
+
+  const isTerminal = ["locked", "walked_away", "expired"].includes(stepState);
+  const isLocked = stepState === "locked";
+  const isWalkedAway = stepState === "walked_away";
+  const isExpiredState = stepState === "expired";
+
+  // Determine who walked away for the terminal message (from activity log)
+  const walkAwayActivity = activity.find((a) => a.type === "walked_away");
+  const walkedAwayRole = walkAwayActivity?.actorRole ?? "A party";
+
+  // Display snapshot: prefer lockedTerms when negotiation is complete, else current proposal
+  const displaySnapshot = isLocked && summary.lockedTerms
+    ? summary.lockedTerms
+    : summary.currentProposal?.snapshot ?? null;
+
+  const otherPartyLabel = userRole === "artist" ? "organizer" : "artist";
+
+  const stepLabels = ["Organizer Proposal", "Artist Response", "Organizer Response", "Artist Final"];
 
   return (
     <div className="flex flex-col h-[80vh] bg-background">
+      {/* Header */}
       <div className="flex justify-between items-center px-4 py-3 border-b shrink-0">
         <div>
           <h2 className="text-lg font-semibold">Negotiation Workspace</h2>
-          <div className="flex items-center gap-2 mt-1">
-            <Badge variant="outline">Round {summary.round}</Badge>
-            <Badge variant={isAgreed ? "default" : isWalkedAway ? "destructive" : "secondary"}>
-              {summary.status.replace(/_/g, " ").toUpperCase()}
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <Badge variant="outline">
+              Step {summary.currentStep ?? 0}/{summary.maxSteps ?? 4}
             </Badge>
-            {!isAgreed && !isWalkedAway && summary.booking.flowDeadlineAt && (
-              <Badge variant={isExpired ? "destructive" : "outline"} className="flex items-center gap-1">
+            <Badge
+              variant={
+                isLocked ? "default" :
+                isWalkedAway ? "destructive" :
+                isExpiredState ? "destructive" :
+                "secondary"
+              }
+            >
+              {stepState.replace(/_/g, " ").toUpperCase()}
+            </Badge>
+            {!isTerminal && timeLeft && (
+              <Badge
+                variant={isExpiredLocal ? "destructive" : "outline"}
+                className="flex items-center gap-1"
+              >
                 <Clock className="w-3 h-3" />
-                {timeLeft || "Calculating..."}
+                {timeLeft}
               </Badge>
             )}
           </div>
@@ -218,53 +255,132 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
         </Button>
       </div>
 
+      {/* Step Progress Indicator */}
+      <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/30 shrink-0">
+        {[1, 2, 3, 4].map((step) => {
+          const isCompleted = (summary.currentStep ?? 0) >= step;
+          const isCurrent =
+            (summary.currentStep ?? 0) === step - 1 &&
+            !["locked", "walked_away", "expired"].includes(stepState);
+          return (
+            <div key={step} className="flex items-center gap-2 flex-1 min-w-0">
+              <div
+                className={cn(
+                  "w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold border-2 shrink-0",
+                  isCompleted
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : isCurrent
+                    ? "border-primary text-primary bg-primary/10"
+                    : "border-muted-foreground/30 text-muted-foreground"
+                )}
+              >
+                {isCompleted ? <Check className="w-4 h-4" /> : step}
+              </div>
+              <span
+                className={cn(
+                  "text-xs truncate hidden lg:block",
+                  isCurrent ? "font-semibold text-foreground" : "text-muted-foreground"
+                )}
+              >
+                {stepLabels[step - 1]}
+              </span>
+              {step < 4 && (
+                <div
+                  className={cn(
+                    "flex-1 h-0.5",
+                    isCompleted ? "bg-primary" : "bg-muted-foreground/20"
+                  )}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
       <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
         {/* Left: Terms Board */}
         <ScrollArea className="flex-1 border-b lg:border-b-0 lg:border-r p-4 lg:p-6">
-          <h3 className="font-semibold mb-4 text-sm uppercase tracking-wider text-muted-foreground">Current Terms Board</h3>
-          
-          {summary.currentProposal?.snapshot ? (
+          <h3 className="font-semibold mb-4 text-sm uppercase tracking-wider text-muted-foreground">
+            {isLocked ? "Agreed Terms" : "Current Terms Board"}
+          </h3>
+
+          {displaySnapshot ? (
             <div className="space-y-6">
+              {summary.history && summary.history.length > 0 && (
+                <div className="space-y-2 mb-4">
+                  <Label className="text-xs text-muted-foreground">Offer History</Label>
+                  <div className="space-y-1">
+                    {summary.history.map((proposal: any, idx: number) => {
+                      const isLast = idx === summary.history.length - 1;
+                      const amount = proposal.snapshot?.financial?.offerAmount;
+                      const currency = proposal.snapshot?.financial?.currency || "INR";
+                      const role = proposal.submittedByRole || "unknown";
+                      return (
+                        <div key={proposal.id || idx} className={`flex items-center gap-2 text-xs ${isLast ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isLast ? "bg-primary" : "bg-muted-foreground/40"}`} />
+                          <span className="capitalize">{role}</span>
+                          <span>→</span>
+                          <span>{currency} {amount?.toLocaleString('en-IN') || "?"}</span>
+                          {isLast && <span className="ml-1 px-1.5 py-0.5 bg-primary/10 text-primary rounded text-[10px]">current</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground">Financial</Label>
                 <div className="p-3 bg-muted/40 rounded-md font-mono text-lg">
-                  {summary.currentProposal.snapshot.financial?.currency || 'INR'} {summary.currentProposal.snapshot.financial?.offerAmount?.toLocaleString() || '0'}
+                  {displaySnapshot.financial?.currency || "INR"}{" "}
+                  {displaySnapshot.financial?.offerAmount?.toLocaleString() || "0"}
                 </div>
               </div>
 
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground">Schedule</Label>
-                <div className="p-3 bg-muted/40 rounded-md text-sm">
-                  {summary.currentProposal.snapshot.schedule?.startsAt ? format(new Date(summary.currentProposal.snapshot.schedule.startsAt), "PPp") : "TBD"}
-                  {" - "}
-                  {summary.currentProposal.snapshot.schedule?.endsAt ? format(new Date(summary.currentProposal.snapshot.schedule.endsAt), "PPp") : "TBD"}
+                <div className="p-3 bg-muted/40 rounded-md text-sm space-y-0.5">
+                  {displaySnapshot.schedule?.stageName && (
+                    <div className="font-medium">{displaySnapshot.schedule.stageName}</div>
+                  )}
+                  <div>
+                    {displaySnapshot.schedule?.startsAt
+                      ? format(new Date(displaySnapshot.schedule.startsAt), "MMM d, h:mm a")
+                      : "TBD"}
+                    {" – "}
+                    {displaySnapshot.schedule?.endsAt
+                      ? format(new Date(displaySnapshot.schedule.endsAt), "h:mm a")
+                      : "TBD"}
+                  </div>
                 </div>
               </div>
 
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground">Tech Rider Requirements</Label>
                 <div className="p-3 bg-muted/40 rounded-md text-sm space-y-1">
-                  {summary.currentProposal.snapshot.techRider?.artistRequirements?.length ? (
-                    summary.currentProposal.snapshot.techRider.artistRequirements.map((req, i) => (
+                  {displaySnapshot.techRider?.artistRequirements?.length ? (
+                    displaySnapshot.techRider?.artistRequirements?.map((req, i) => (
                       <div key={i} className="flex justify-between items-center">
-                        <span>{req.quantity}x {req.item}</span>
-                        <Badge variant={req.status === "confirmed" ? "default" : "secondary"}>{req.status}</Badge>
+                        <span>
+                          {req.quantity}x {req.item}
+                        </span>
+                        <Badge
+                          variant={req.status === "confirmed" ? "default" : "secondary"}
+                        >
+                          {req.status}
+                        </Badge>
                       </div>
                     ))
                   ) : (
                     <span className="text-muted-foreground">None</span>
                   )}
                 </div>
-                {!summary.riderConfirmation.isConfirmed && !isArtist && !isAgreed && !isWalkedAway && (
-                  <p className="text-xs text-amber-500 mt-1">⚠️ You must confirm rider items before final acceptance.</p>
-                )}
               </div>
 
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground">Artist Brings</Label>
                 <div className="p-3 bg-muted/40 rounded-md text-sm space-y-1">
-                  {summary.currentProposal.snapshot.techRider?.artistBrings?.length ? (
-                    summary.currentProposal.snapshot.techRider.artistBrings.map((req, i) => (
+                  {displaySnapshot.techRider?.artistBrings?.length ? (
+                    displaySnapshot.techRider?.artistBrings?.map((req, i) => (
                       <div key={i}>
                         {req.quantity}x {req.item}
                       </div>
@@ -276,27 +392,35 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
               </div>
             </div>
           ) : (
-             <div className="text-sm text-muted-foreground p-4 bg-muted/20 rounded-md">
-               No proposal snapshot available yet.
-             </div>
+            <div className="text-sm text-muted-foreground p-4 bg-muted/20 rounded-md">
+              No proposal snapshot available yet.
+            </div>
           )}
         </ScrollArea>
 
         {/* Right: Activity & Actions */}
         <div className="w-full lg:w-96 flex flex-col bg-muted/10 shrink-0">
           <ScrollArea className="flex-1 p-4 lg:p-6">
-            <h3 className="font-semibold mb-4 text-sm uppercase tracking-wider text-muted-foreground">Activity</h3>
+            <h3 className="font-semibold mb-4 text-sm uppercase tracking-wider text-muted-foreground">
+              Activity
+            </h3>
             <div className="space-y-4">
-              {summary.activity.map((act) => (
+              {activity.map((act) => (
                 <div key={act.id} className="text-sm">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold capitalize text-xs">{act.actorRole || 'System'}</span>
-                    <span className="text-[10px] text-muted-foreground">{format(new Date(act.createdAt), "MMM d, h:mm a")}</span>
+                    <span className="font-semibold capitalize text-xs">
+                      {act.actorRole || "System"}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {format(new Date(act.createdAt), "MMM d, h:mm a")}
+                    </span>
                   </div>
                   <div className="bg-background border rounded-md p-2 text-xs">
                     {act.type.replace(/_/g, " ")}
                     {act.metadata && typeof act.metadata.note === "string" && (
-                      <div className="mt-1 italic opacity-80">"{act.metadata.note}"</div>
+                      <div className="mt-1 italic opacity-80">
+                        "{act.metadata.note}"
+                      </div>
                     )}
                   </div>
                 </div>
@@ -307,85 +431,113 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
           <Separator />
 
           <div className="p-4 lg:p-6 space-y-2 shrink-0 bg-background border-t">
-            {mode === "view" && !isAgreed && !isWalkedAway && (
-              <>
-                {otherHasAccepted && !iHaveAccepted && (
-                  <div className="bg-green-500/10 text-green-600 p-2 rounded text-xs mb-2 flex items-center gap-2">
-                    <CheckCheck className="w-4 h-4" />
-                    Other party accepted this version!
-                  </div>
-                )}
-                {iHaveAccepted && !otherHasAccepted && (
-                  <div className="bg-blue-500/10 text-blue-600 p-2 rounded text-xs mb-2 flex items-center gap-2">
-                    <Check className="w-4 h-4" />
-                    Waiting for other party to accept...
-                  </div>
-                )}
-                
-                <Button 
-                  className="w-full" 
-                  onClick={() => acceptMutation.mutate()} 
-                  disabled={!canAccept || acceptMutation.isPending}
-                >
-                  {acceptMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ThumbsUp className="w-4 h-4 mr-2" />}
-                  {iHaveAccepted ? "Accepted" : "Accept Final Terms"}
-                </Button>
-                
-                <Button 
-                  variant="outline" 
-                  className="w-full" 
-                  onClick={() => setMode("propose")}
-                  disabled={iHaveAccepted || isExpired} // Cannot propose if already accepted this round
-                >
-                  <ArrowLeftRight className="w-4 h-4 mr-2" />
-                  {summary.round === 0 ? 'Submit Initial Proposal' : 'Propose Changes'}
-                </Button>
-
-                {!isArtist && !summary.riderConfirmation.isConfirmed && (
-                  <Button 
-                    variant="outline" 
-                    className="w-full text-amber-500 hover:text-amber-600" 
-                    onClick={() => setMode("rider")}
-                    disabled={isExpired}
-                  >
-                    Confirm Rider
+            {/* ── Terminal: locked / agreed ── */}
+            {isTerminal && isLocked && (
+              <div className="space-y-3">
+                <div className="bg-green-500/10 text-green-700 p-3 rounded-md text-sm flex items-center gap-2">
+                  <CheckCheck className="w-4 h-4 shrink-0" />
+                  <span className="font-medium">Negotiation Complete</span>
+                </div>
+                {onStartContract && (
+                  <Button className="w-full" onClick={onStartContract}>
+                    <CheckCheck className="w-4 h-4 mr-2" />
+                    Proceed to Contract
                   </Button>
                 )}
-                
-                <Button 
-                  variant="ghost" 
-                  className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => walkAwayMutation.mutate()}
-                  disabled={walkAwayMutation.isPending || isExpired}
-                >
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Walk Away
-                </Button>
+              </div>
+            )}
+
+            {/* ── Terminal: walked away ── */}
+            {isTerminal && isWalkedAway && (
+              <div className="bg-destructive/10 text-destructive p-3 rounded-md text-sm flex items-center gap-2">
+                <LogOut className="w-4 h-4 shrink-0" />
+                <span>
+                  Negotiation ended —{" "}
+                  <span className="font-semibold capitalize">{walkedAwayRole}</span> walked away.
+                </span>
+              </div>
+            )}
+
+            {/* ── Terminal: expired ── */}
+            {isTerminal && isExpiredState && (
+              <div className="bg-destructive/10 text-destructive p-3 rounded-md text-sm flex items-center gap-2">
+                <Clock className="w-4 h-4 shrink-0" />
+                <span>Deadline expired — negotiation closed.</span>
+              </div>
+            )}
+
+            {/* ── Active: not user's turn ── */}
+            {!isTerminal && !isMyTurn && (
+              <div className="bg-blue-500/10 text-blue-700 p-3 rounded-md text-sm flex items-center gap-2">
+                <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                <span>
+                  Waiting for{" "}
+                  <span className="font-semibold capitalize">{otherPartyLabel}</span>...
+                </span>
+              </div>
+            )}
+
+            {/* ── Active: user's turn ── */}
+            {!isTerminal && isMyTurn && mode === "view" && (
+              <>
+                {canAccept && (
+                  <Button
+                    className="w-full"
+                    onClick={() => actionMutation.mutate({ action: "accept" })}
+                    disabled={actionMutation.isPending}
+                  >
+                    {actionMutation.isPending && lastActionRef.current === "accept" ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <ThumbsUp className="w-4 h-4 mr-2" />
+                    )}
+                    Accept Terms
+                  </Button>
+                )}
+
+                {canEdit && (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setMode("propose")}
+                    disabled={actionMutation.isPending}
+                  >
+                    <ArrowLeftRight className="w-4 h-4 mr-2" />
+                    {(summary.currentStep ?? 0) === 0 ? "Submit Initial Proposal" : "Propose Changes"}
+                  </Button>
+                )}
+
+                {canWalkAway && (
+                  <Button
+                    variant="ghost"
+                    className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() =>
+                      actionMutation.mutate({ action: "walkaway", reason: "User walked away" })
+                    }
+                    disabled={actionMutation.isPending}
+                  >
+                    {actionMutation.isPending && lastActionRef.current === "walkaway" ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <LogOut className="w-4 h-4 mr-2" />
+                    )}
+                    Walk Away
+                  </Button>
+                )}
               </>
             )}
 
-            {isAgreed && onStartContract && (
-              <Button className="w-full" onClick={onStartContract}>
-                <CheckCheck className="w-4 h-4 mr-2" />
-                Proceed to Contract
-              </Button>
-            )}
-
+            {/* ── Propose form ── */}
             {mode === "propose" && (
-              <ProposeForm 
-                currentSnapshot={summary.currentProposal?.snapshot} 
+              <ProposeForm
+                currentSnapshot={displaySnapshot}
+                eventStages={summary.eventStages ?? []}
+                event={summary.event ?? null}
                 onCancel={() => setMode("view")}
-                onSubmit={(payload: any) => proposeMutation.mutate(payload)}
-                isPending={proposeMutation.isPending}
-              />
-            )}
-
-            {mode === "rider" && (
-              <RiderConfirmForm 
-                currentSnapshot={summary.currentProposal?.snapshot} 
-                onCancel={() => setMode("view")}
-                onSubmit={(payload: any) => confirmRiderMutation.mutate(payload)}
-                isPending={confirmRiderMutation.isPending}
+                onSubmit={(snapshot: NegotiationSnapshot, note: string) =>
+                  actionMutation.mutate({ action: "edit", snapshot, note })
+                }
+                isPending={actionMutation.isPending}
               />
             )}
           </div>
@@ -395,77 +547,161 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
   );
 }
 
-function ProposeForm({ currentSnapshot, onCancel, onSubmit, isPending }: any) {
-  const defaultAmount = currentSnapshot?.financial?.offerAmount?.toString() || "0";
-  const defaultCurrency = currentSnapshot?.financial?.currency || "INR";
-  
+// ─── ProposeForm sub-component ───────────────────────────────────────────────
+
+type EventStage = { id: number; name: string | null; startTime: string | null; endTime: string | null; orderIndex: number };
+type EventInfo = { title: string; startTime: string; endTime: string | null } | null;
+
+/** Format a stage time range as "9:00 PM – 11:00 PM" */
+function fmtRange(start: string | null, end: string | null): string {
+  if (!start) return "";
+  const s = format(new Date(start), "h:mm a");
+  const e = end ? format(new Date(end), "h:mm a") : "";
+  return e ? `${s} – ${e}` : s;
+}
+
+/** Build the label shown for each Select option */
+function stageOptionLabel(stage: EventStage): string {
+  const timeRange = fmtRange(stage.startTime, stage.endTime);
+  const name = stage.name ?? "Unnamed Stage";
+  return timeRange ? `${name} — ${timeRange}` : name;
+}
+
+interface ProposeFormProps {
+  currentSnapshot: NegotiationSnapshot | null | undefined;
+  eventStages: EventStage[];
+  event: EventInfo;
+  onCancel: () => void;
+  onSubmit: (snapshot: NegotiationSnapshot, note: string) => void;
+  isPending: boolean;
+}
+
+function ProposeForm({ currentSnapshot, eventStages, event, onCancel, onSubmit, isPending }: ProposeFormProps) {
+  const defaultAmount = currentSnapshot?.financial?.offerAmount?.toString() ?? "0";
+  const defaultCurrency = currentSnapshot?.financial?.currency ?? "INR";
+
+  // Pre-select stage if already in snapshot, or auto-select if only one stage
+  const initialStageId = (() => {
+    if (currentSnapshot?.schedule?.stageId) return String(currentSnapshot.schedule.stageId);
+    if (eventStages.length === 1) return String(eventStages[0].id);
+    if (eventStages.length === 0 && event) return "__event__";
+    return "";
+  })();
+
   const [amount, setAmount] = useState(defaultAmount);
+  const [selectedSlot, setSelectedSlot] = useState<string>(initialStageId);
   const [note, setNote] = useState("");
+
+  // Build schedule from the currently selected slot
+  const buildSchedule = () => {
+    if (selectedSlot === "__event__" && event) {
+      return {
+        stageId: null,
+        stageName: null,
+        slotLabel: fmtRange(event.startTime, event.endTime) || "Full Event",
+        startsAt: event.startTime,
+        endsAt: event.endTime ?? null,
+        soundCheckLabel: null,
+        soundCheckAt: null,
+      };
+    }
+    const stage = eventStages.find((s) => String(s.id) === selectedSlot);
+    if (stage) {
+      return {
+        stageId: stage.id,
+        stageName: stage.name ?? null,
+        slotLabel: fmtRange(stage.startTime, stage.endTime) || null,
+        startsAt: stage.startTime ?? null,
+        endsAt: stage.endTime ?? null,
+        soundCheckLabel: null,
+        soundCheckAt: null,
+      };
+    }
+    // No slot selected — preserve existing schedule or null
+    return currentSnapshot?.schedule ?? null;
+  };
+
+  const selectedStage = eventStages.find((s) => String(s.id) === selectedSlot);
+  const previewTime = selectedSlot === "__event__" && event
+    ? fmtRange(event.startTime, event.endTime)
+    : selectedStage
+    ? fmtRange(selectedStage.startTime, selectedStage.endTime)
+    : null;
+
+  const handleSubmit = () => {
+    const updatedSnapshot: NegotiationSnapshot = {
+      ...(currentSnapshot ?? {}),
+      financial: {
+        ...(currentSnapshot?.financial ?? {}),
+        currency: defaultCurrency,
+        offerAmount: Number(amount),
+      },
+      schedule: buildSchedule(),
+    } as NegotiationSnapshot;
+    onSubmit(updatedSnapshot, note);
+  };
+
+  const hasSlotOptions = eventStages.length > 0 || event != null;
 
   return (
     <div className="space-y-3">
       <div className="space-y-1">
         <Label className="text-xs">New Offer Amount ({defaultCurrency})</Label>
-        <Input type="number" value={amount} onChange={e => setAmount(e.target.value)} />
+        <Input
+          type="number"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
       </div>
+
+      {hasSlotOptions && (
+        <div className="space-y-1">
+          <Label className="text-xs">Performance Slot</Label>
+          <Select value={selectedSlot} onValueChange={setSelectedSlot}>
+            <SelectTrigger className="text-sm">
+              <SelectValue placeholder="Select a stage / time slot…" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">No preference (TBD)</SelectItem>
+              {eventStages.length > 0
+                ? eventStages.map((stage) => (
+                    <SelectItem key={stage.id} value={String(stage.id)}>
+                      {stageOptionLabel(stage)}
+                    </SelectItem>
+                  ))
+                : event && (
+                    <SelectItem value="__event__">
+                      {`Full event — ${format(new Date(event.startTime), "MMM d")}${fmtRange(event.startTime, event.endTime) ? `, ${fmtRange(event.startTime, event.endTime)}` : ""}`}
+                    </SelectItem>
+                  )}
+            </SelectContent>
+          </Select>
+          {previewTime && (
+            <p className="text-xs text-muted-foreground pl-1">{previewTime}</p>
+          )}
+        </div>
+      )}
+
       <div className="space-y-1">
         <Label className="text-xs">Note</Label>
-        <Textarea value={note} onChange={e => setNote(e.target.value)} className="h-16 text-sm" />
+        <Textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="h-16 text-sm"
+          placeholder="Optional message to the other party..."
+        />
       </div>
       <div className="flex gap-2">
-        <Button variant="outline" className="flex-1" onClick={onCancel} disabled={isPending}>Cancel</Button>
-        <Button className="flex-1" disabled={isPending} onClick={() => {
-          onSubmit({
-            baseVersion: currentSnapshot?.version || 1,
-            snapshot: {
-              ...(currentSnapshot || {}),
-              financial: {
-                ...(currentSnapshot?.financial || {}),
-                currency: defaultCurrency,
-                offerAmount: Number(amount)
-              }
-            },
-            note
-          });
-        }}>
-          {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit"}
+        <Button
+          variant="outline"
+          className="flex-1"
+          onClick={onCancel}
+          disabled={isPending}
+        >
+          Cancel
         </Button>
-      </div>
-    </div>
-  );
-}
-
-function RiderConfirmForm({ currentSnapshot, onCancel, onSubmit, isPending }: any) {
-  const [note, setNote] = useState("");
-
-  // Create a simplified confirmation flow where all pending items are marked as confirmed
-  // Real implementation would let user select status per item.
-  return (
-    <div className="space-y-3 p-3 bg-amber-500/10 rounded-md border border-amber-500/20">
-      <h4 className="text-sm font-semibold text-amber-700">Confirm Tech Rider</h4>
-      <p className="text-xs text-muted-foreground">
-        By clicking confirm, you agree to provide all requested technical rider items.
-      </p>
-      
-      <div className="space-y-1">
-        <Label className="text-xs">Note (Optional)</Label>
-        <Textarea value={note} onChange={e => setNote(e.target.value)} className="h-16 text-sm" />
-      </div>
-
-      <div className="flex gap-2">
-        <Button variant="outline" className="flex-1" onClick={onCancel} disabled={isPending}>Cancel</Button>
-        <Button className="flex-1 bg-amber-600 hover:bg-amber-700 text-white" disabled={isPending} onClick={() => {
-          onSubmit({
-            proposalVersion: currentSnapshot?.version || 1,
-            artistRequirements: (currentSnapshot?.techRider?.artistRequirements || []).map((req: any) => ({
-              ...req,
-              status: "confirmed"
-            })),
-            organizerCommitments: [],
-            note
-          });
-        }}>
-          {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm All"}
+        <Button className="flex-1" disabled={isPending} onClick={handleSubmit}>
+          {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit"}
         </Button>
       </div>
     </div>

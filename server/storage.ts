@@ -5,13 +5,15 @@ import {
   roles,
   userRoles,
   payments,
+  bookingProposals,
   type User, type Artist, type Organizer, type Venue, type Booking, type Event, type Contract, type AuditLog, type TemporaryVenue,
   type InsertUser, type InsertArtist, type InsertOrganizer, type InsertVenue, type InsertBooking, type InsertContract, type InsertAuditLog, type InsertEvent, type InsertTemporaryVenue,
   type ContractVersion, type InsertContractVersion,
   type ContractEditRequest, type InsertContractEditRequest,
   type ContractSignature, type InsertContractSignature,
   type Message,
-  type Payment
+  type Payment,
+  type BookingProposal, type InsertBookingProposal
 } from "@shared/schema";
 
 export interface OrganizerDashboardStats {
@@ -41,7 +43,7 @@ export interface IStorage {
   // Profiles
   getArtistByUserId(userId: number): Promise<Artist | undefined>;
   createArtist(artist: InsertArtist): Promise<Artist>;
-  updateArtist(id: number, artist: Partial<InsertArtist>): Promise<Artist>;
+  updateArtist(id: number, artist: Partial<InsertArtist>): Promise<Artist | undefined>;
   getArtists(): Promise<(Artist & { user: User, [key: string]: any })[]>;
   getArtist(id: number): Promise<(Artist & { user: User, [key: string]: any }) | undefined>;
 
@@ -66,6 +68,12 @@ export interface IStorage {
   getBookingWithDetails(id: number): Promise<any>;
   updateBooking(id: number, booking: Partial<InsertBooking>): Promise<Booking>;
   getBooking(id: number): Promise<Booking | undefined>;
+
+  // Booking Proposals
+  getBookingProposals(bookingId: number): Promise<BookingProposal[]>;
+  getLatestBookingProposal(bookingId: number): Promise<BookingProposal | undefined>;
+  createBookingProposal(proposal: InsertBookingProposal): Promise<BookingProposal>;
+  getBookingProposalByStep(bookingId: number, step: number): Promise<BookingProposal | undefined>;
 
   // Opportunities
   getOpportunities(filters?: { genre?: string; minBudget?: number; maxBudget?: number; location?: string }): Promise<Event[]>;
@@ -196,7 +204,7 @@ export class DatabaseStorage implements IStorage {
     return newArtist;
   }
 
-  async updateArtist(id: number, artist: Partial<InsertArtist>): Promise<Artist> {
+  async updateArtist(id: number, artist: Partial<InsertArtist>): Promise<Artist | undefined> {
     const [updated] = await db.update(artists).set(artist).where(eq(artists.id, id)).returning();
     return updated;
   }
@@ -479,6 +487,35 @@ export class DatabaseStorage implements IStorage {
   async getBooking(id: number): Promise<Booking | undefined> {
     const [booking] = await db.select().from(bookings).where(eq(bookings.id, id));
     return booking;
+  }
+
+  // Booking Proposals
+  async getBookingProposals(bookingId: number): Promise<BookingProposal[]> {
+    return db.query.bookingProposals.findMany({
+      where: eq(bookingProposals.bookingId, bookingId),
+      orderBy: [asc(bookingProposals.stepNumber), asc(bookingProposals.round)],
+    });
+  }
+
+  async getLatestBookingProposal(bookingId: number): Promise<BookingProposal | undefined> {
+    return db.query.bookingProposals.findFirst({
+      where: eq(bookingProposals.bookingId, bookingId),
+      orderBy: [desc(bookingProposals.round)],
+    });
+  }
+
+  async createBookingProposal(proposal: InsertBookingProposal): Promise<BookingProposal> {
+    const [created] = await db.insert(bookingProposals).values(proposal).returning();
+    return created;
+  }
+
+  async getBookingProposalByStep(bookingId: number, step: number): Promise<BookingProposal | undefined> {
+    return db.query.bookingProposals.findFirst({
+      where: and(
+        eq(bookingProposals.bookingId, bookingId),
+        eq(bookingProposals.stepNumber, step),
+      ),
+    });
   }
 
   async getOpportunities(filters?: { genre?: string; minBudget?: number; maxBudget?: number; location?: string }): Promise<any[]> {

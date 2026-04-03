@@ -197,11 +197,16 @@ export async function registerRoutes(
       let artist = await storage.getArtistByUserId(user.id);
 
       if (artist) {
-        const metadata = buildArtistMetadata(profileData, artist.metadata as Record<string, any> || {});
-        artist = await storage.updateArtist(artist.id, {
+        const existingArtistId = artist.id;
+        const metadata = buildArtistMetadata(profileData, (artist.metadata as Record<string, any>) || {});
+        const updated = await storage.updateArtist(existingArtistId, {
           ...record,
           metadata,
         });
+        if (!updated) {
+          throw new Error(`updateArtist returned undefined for artist id=${existingArtistId} (user ${user.id})`);
+        }
+        artist = updated;
 
         await storage.createAuditLog({
           who: user.id,
@@ -217,6 +222,9 @@ export async function registerRoutes(
           ...record,
           metadata: metadata as any,
         });
+        if (!artist) {
+          throw new Error(`createArtist returned undefined for user ${user.id}`);
+        }
 
         await storage.createAuditLog({
           who: user.id,
@@ -238,10 +246,10 @@ export async function registerRoutes(
           errors: err.errors
         });
       }
-      console.error("CRITICAL ERROR completing profile:", err);
+      console.error("CRITICAL ERROR completing artist profile:", err.stack || err);
       res.status(500).json({
         message: "Failed to complete profile",
-        error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        error: err.message,
       });
     }
   });
@@ -677,11 +685,41 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.bookings.submitProposal.path, async (req, res) => {
+  // --- 4-Step Negotiation Action (unified endpoint) ---
+  app.post(api.bookings.negotiationAction.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
+      const bookingId = getParamId(req.params.id);
+      const payload = api.bookings.negotiationAction.input.parse(req.body);
+      const summary = await negotiationService.handleNegotiationAction(
+        bookingId,
+        (req.user as any).id,
+        payload
+      );
+      res.json({ success: true, summary });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: "Validation failed", errors: err.errors });
+      }
+      if (err.message.includes("not a participant") || err.message.includes("turn")) {
+        return res.status(403).json({ message: err.message });
+      }
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // --- Legacy endpoints (deprecated, delegate to unified handler) ---
+
+  app.post(api.bookings.submitProposal.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    res.setHeader('X-Deprecated', 'Use POST /api/bookings/:id/negotiation/action instead');
+    try {
       const payload = api.bookings.submitProposal.input.parse(req.body);
-      const summary = await negotiationService.submitProposal(getParamId(req.params.id), (req.user as any).id, payload);
+      const summary = await negotiationService.handleNegotiationAction(
+        getParamId(req.params.id),
+        (req.user as any).id,
+        { action: "edit", snapshot: payload.snapshot, note: payload.note || undefined }
+      );
       res.json(summary);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation failed", errors: err.errors });
@@ -690,34 +728,34 @@ export async function registerRoutes(
   });
 
   app.post(api.bookings.confirmRider.path, async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    try {
-      const payload = api.bookings.confirmRider.input.parse(req.body);
-      const summary = await negotiationService.confirmRider(getParamId(req.params.id), (req.user as any).id, payload);
-      res.json(summary);
-    } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation failed", errors: err.errors });
-      res.status(400).json({ message: err.message });
-    }
+    res.status(410).json({ message: "Rider confirmation is now part of the proposal snapshot. Use POST /api/bookings/:id/negotiation/action with action='edit' instead." });
   });
 
   app.post(api.bookings.finalAccept.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
+    res.setHeader('X-Deprecated', 'Use POST /api/bookings/:id/negotiation/action instead');
     try {
-      const payload = api.bookings.finalAccept.input.parse(req.body);
-      const summary = await negotiationService.finalAccept(getParamId(req.params.id), (req.user as any).id, payload);
+      const summary = await negotiationService.handleNegotiationAction(
+        getParamId(req.params.id),
+        (req.user as any).id,
+        { action: "accept" }
+      );
       res.json(summary);
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: "Validation failed", errors: err.errors });
       res.status(400).json({ message: err.message });
     }
   });
 
   app.post(api.bookings.walkAway.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
+    res.setHeader('X-Deprecated', 'Use POST /api/bookings/:id/negotiation/action instead');
     try {
       const payload = api.bookings.walkAway.input.parse(req.body);
-      await negotiationService.walkAway(getParamId(req.params.id), (req.user as any).id, payload.reason);
+      await negotiationService.handleNegotiationAction(
+        getParamId(req.params.id),
+        (req.user as any).id,
+        { action: "walkaway", reason: payload.reason }
+      );
       res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ message: err.message });
@@ -814,6 +852,10 @@ export async function registerRoutes(
             negotiation: {
               source: 'application',
               status: 'negotiating',
+              currentStep: 0,
+              stepState: 'applied',
+              stepDeadlineAt: deadline.toISOString(),
+              stepHistory: [],
               latestProposalVersion: 1,
               currentProposalSnapshot: normalizedProposalSnapshot,
               acceptance: {
@@ -836,6 +878,9 @@ export async function registerRoutes(
           proposedTerms: normalizedProposalSnapshot,
           note: artistMessage,
           status: 'active',
+          submittedByRole: 'artist',
+          stepNumber: 0,
+          responseAction: 'edit',
         }).returning();
 
         await tx.insert(auditLogs).values({

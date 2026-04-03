@@ -39,7 +39,7 @@ import { NegotiationFlow } from "@/components/booking/NegotiationFlow";
 import { ContractViewer } from "@/components/booking/ContractViewer";
 import { ArtistProfileModal } from "@/components/ArtistProfileModal";
 
-type BookingTab = "all" | "pending" | "confirmed" | "completed" | "cancelled";
+type BookingTab = "all" | "pending" | "negotiating" | "confirmed" | "completed" | "cancelled";
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: string; icon: any }> = {
     inquiry: { label: "Inquiry", color: "text-blue-500", bgColor: "bg-blue-500/10", icon: Eye },
@@ -93,7 +93,9 @@ export default function OrganizerBookings() {
 
         switch (activeTab) {
             case "pending":
-                return ["inquiry", "offered", "negotiating", "contracting"].includes(status);
+                return status === "inquiry";
+            case "negotiating":
+                return ["offered", "negotiating", "contracting"].includes(status);
             case "confirmed":
                 return ["confirmed", "paid_deposit", "scheduled"].includes(status);
             case "completed":
@@ -109,7 +111,8 @@ export default function OrganizerBookings() {
         return new Date(dateB).getTime() - new Date(dateA).getTime();
     }) || [];
 
-    const pendingCount = bookings?.filter(b => ["inquiry", "offered", "negotiating", "contracting"].includes(b.status || "")).length || 0;
+    const pendingCount = bookings?.filter(b => b.status === "inquiry").length || 0;
+    const negotiatingCount = bookings?.filter(b => ["offered", "negotiating", "contracting"].includes(b.status || "")).length || 0;
     const confirmedCount = bookings?.filter(b => ["confirmed", "paid_deposit", "scheduled"].includes(b.status || "")).length || 0;
     const completedCount = bookings?.filter(b => b.status === "completed").length || 0;
 
@@ -163,6 +166,12 @@ export default function OrganizerBookings() {
                         Pending
                         {pendingCount > 0 && (
                             <Badge className="ml-1 bg-yellow-500/20 text-yellow-500">{pendingCount}</Badge>
+                        )}
+                    </TabsTrigger>
+                    <TabsTrigger value="negotiating" className="gap-2">
+                        Negotiating
+                        {negotiatingCount > 0 && (
+                            <Badge className="ml-1 bg-orange-500/20 text-orange-500">{negotiatingCount}</Badge>
                         )}
                     </TabsTrigger>
                     <TabsTrigger value="confirmed">Confirmed</TabsTrigger>
@@ -438,6 +447,7 @@ function EmptyState({ tab }: { tab: BookingTab }) {
     const messages: Record<BookingTab, { title: string; description: string }> = {
         all: { title: "No bookings yet", description: "Discover artists and start booking!" },
         pending: { title: "No pending bookings", description: "You're all caught up!" },
+        negotiating: { title: "No active negotiations", description: "Negotiations in progress will appear here" },
         confirmed: { title: "No confirmed bookings", description: "Accept negotiations to see them here" },
         completed: { title: "No completed bookings", description: "Your event history will appear here" },
         cancelled: { title: "No cancellations", description: "That's great! No cancelled bookings" },
