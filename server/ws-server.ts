@@ -1,15 +1,19 @@
 /**
- * WebSocket server for real-time chat in negotiation workspaces and messaging.
+ * WebSocket server for real-time chat and notifications.
  *
- * Architecture: room-based pub/sub keyed by conversationId.
- * Each client subscribes to one room and receives messages broadcast to that room.
+ * Architecture:
+ *   - Room-based pub/sub keyed by conversationId (chat messages)
+ *   - User-based pub/sub keyed by userId (notifications)
  *
  * Protocol (client → server):
  *   { type: 'subscribe', conversationId: number }
+ *   { type: 'auth', userId: number }
  *
  * Protocol (server → client):
  *   { type: 'connected', conversationId: number }
+ *   { type: 'auth_ok', userId: number }
  *   { type: 'message', data: MessageObject }
+ *   { type: 'notification', data: NotificationObject }
  */
 
 import { WebSocketServer, WebSocket } from 'ws';
@@ -18,16 +22,21 @@ import type { Server } from 'http';
 /** Map: conversationId → set of connected WebSocket clients */
 const rooms = new Map<number, Set<WebSocket>>();
 
+/** Map: userId → set of connected WebSocket clients */
+const userConnections = new Map<number, Set<WebSocket>>();
+
 export function initWebSocketServer(httpServer: Server): WebSocketServer {
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
   wss.on('connection', (ws) => {
     let subscribedRoomId: number | null = null;
+    let authenticatedUserId: number | null = null;
 
     ws.on('message', (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
 
+        // Conversation room subscription (existing chat functionality)
         if (msg.type === 'subscribe' && typeof msg.conversationId === 'number') {
           const roomId: number = msg.conversationId;
           // Leave previous room if switching
@@ -43,6 +52,16 @@ export function initWebSocketServer(httpServer: Server): WebSocketServer {
 
           ws.send(JSON.stringify({ type: 'connected', conversationId: roomId }));
         }
+
+        // User-level authentication for notifications
+        if (msg.type === 'auth' && typeof msg.userId === 'number') {
+          authenticatedUserId = msg.userId;
+          if (!userConnections.has(msg.userId)) {
+            userConnections.set(msg.userId, new Set());
+          }
+          userConnections.get(msg.userId)!.add(ws);
+          ws.send(JSON.stringify({ type: 'auth_ok', userId: msg.userId }));
+        }
       } catch {
         // Ignore malformed messages
       }
@@ -51,9 +70,14 @@ export function initWebSocketServer(httpServer: Server): WebSocketServer {
     ws.on('close', () => {
       if (subscribedRoomId !== null) {
         rooms.get(subscribedRoomId)?.delete(ws);
-        // Clean up empty rooms
         if (rooms.get(subscribedRoomId)?.size === 0) {
           rooms.delete(subscribedRoomId);
+        }
+      }
+      if (authenticatedUserId !== null) {
+        userConnections.get(authenticatedUserId)?.delete(ws);
+        if (userConnections.get(authenticatedUserId)?.size === 0) {
+          userConnections.delete(authenticatedUserId);
         }
       }
     });
@@ -61,6 +85,9 @@ export function initWebSocketServer(httpServer: Server): WebSocketServer {
     ws.on('error', () => {
       if (subscribedRoomId !== null) {
         rooms.get(subscribedRoomId)?.delete(ws);
+      }
+      if (authenticatedUserId !== null) {
+        userConnections.get(authenticatedUserId)?.delete(ws);
       }
     });
   });
@@ -71,6 +98,19 @@ export function initWebSocketServer(httpServer: Server): WebSocketServer {
 /** Broadcast a payload to all clients subscribed to a conversation room. */
 export function broadcastToRoom(conversationId: number, payload: object): void {
   const clients = rooms.get(conversationId);
+  if (!clients || clients.size === 0) return;
+
+  const msg = JSON.stringify(payload);
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(msg);
+    }
+  });
+}
+
+/** Broadcast a payload to all connections for a specific user (notifications). */
+export function broadcastToUser(userId: number, payload: object): void {
+  const clients = userConnections.get(userId);
   if (!clients || clients.size === 0) return;
 
   const msg = JSON.stringify(payload);

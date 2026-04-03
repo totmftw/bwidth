@@ -261,7 +261,18 @@ export async function registerRoutes(
     try {
       const user = req.user as any;
       const artist = await storage.getArtistByUserId(user.id);
-      const isComplete = (artist?.metadata as any)?.profileComplete === true;
+      const meta = (artist?.metadata as any) ?? {};
+      // Primary check: explicit flag set by the profile completion wizard.
+      // Fallback: if key profile fields are populated the profile is effectively
+      // complete even if the flag was never written (e.g. legacy / seeded data).
+      const flagComplete = meta.profileComplete === true;
+      const fieldsComplete = !!(
+        artist &&
+        artist.bio &&
+        artist.priceFrom &&
+        (meta.primaryGenre || artist.name)
+      );
+      const isComplete = flagComplete || fieldsComplete;
       res.json({ isComplete });
     } catch (error) {
       res.status(500).json({ message: "Failed to check profile status" });

@@ -43,6 +43,13 @@
       "when": 1775213613960,
       "tag": "0005_powerful_scream",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1775215264329,
+      "tag": "0006_strange_wendigo",
+      "breakpoints": true
     }
   ]
 }

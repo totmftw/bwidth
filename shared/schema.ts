@@ -108,6 +108,11 @@ export const notificationChannelEnum = pgEnum("notification_channel", [
   "push",
 ]);
 
+export const notificationPriorityEnum = pgEnum("notification_priority", [
+  "normal",
+  "urgent",
+]);
+
 export const paymentStatusEnum = pgEnum("payment_status", [
   "initiated",
   "authorized",
@@ -650,15 +655,46 @@ export const media = pgTable("media", {
 // NOTIFICATIONS & MESSAGES
 // ============================================================================
 
+export const notificationTypes = pgTable("notification_types", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  category: text("category").notNull(),
+  label: text("label").notNull(),
+  description: text("description"),
+  titleTemplate: text("title_template").notNull(),
+  bodyTemplate: text("body_template").notNull(),
+  targetRoles: jsonb("target_roles").notNull(),
+  channels: jsonb("channels").notNull().default(["in_app"]),
+  enabled: boolean("enabled").notNull().default(true),
+  priority: notificationPriorityEnum("priority").notNull().default("normal"),
+  metadata: jsonb("metadata").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const notificationChannels = pgTable("notification_channels", {
+  id: serial("id").primaryKey(),
+  channel: notificationChannelEnum("channel").notNull().unique(),
+  enabled: boolean("enabled").notNull().default(true),
+  config: jsonb("config").default({}),
+  rateLimit: jsonb("rate_limit").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").references(() => users.id),
-  channel: notificationChannelEnum("channel"),
-  title: text("title"),
-  body: text("body"),
+  userId: integer("user_id").notNull().references(() => users.id),
+  notificationTypeKey: text("notification_type_key").notNull(),
+  channel: notificationChannelEnum("channel").notNull().default("in_app"),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
   entityType: text("entity_type"),
   entityId: integer("entity_id"),
+  actionUrl: text("action_url"),
   data: jsonb("data"),
+  read: boolean("read").notNull().default(false),
+  readAt: timestamp("read_at"),
   delivered: boolean("delivered").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   deliveredAt: timestamp("delivered_at"),
@@ -775,6 +811,10 @@ export const appSettings = pgTable("app_settings", {
 // ============================================================================
 // RELATIONS
 // ============================================================================
+
+export const notificationsRelations = relations(notifications, ({ one }: any) => ({
+  user: one(users, { fields: [notifications.userId], references: [users.id] }),
+}));
 
 export const usersRelations = relations(users, ({ many, one }: any) => ({
   roles: many(userRoles),
@@ -908,6 +948,12 @@ export type CommissionPolicy = typeof commissionPolicies.$inferSelect;
 export type InsertCommissionPolicy = typeof commissionPolicies.$inferInsert;
 export type AppSetting = typeof appSettings.$inferSelect;
 export type InsertAppSetting = typeof appSettings.$inferInsert;
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = typeof notifications.$inferInsert;
+export type NotificationType = typeof notificationTypes.$inferSelect;
+export type InsertNotificationType = typeof notificationTypes.$inferInsert;
+export type NotificationChannel = typeof notificationChannels.$inferSelect;
+export type InsertNotificationChannel = typeof notificationChannels.$inferInsert;
 
 // Aliases for compatibility with existing code
 export { promoters as organizers };
@@ -927,6 +973,9 @@ export const insertBookingSchema = createInsertSchema(bookings);
 export const selectBookingSchema = createSelectSchema(bookings);
 export const insertEventSchema = createInsertSchema(events);
 export const selectEventSchema = createSelectSchema(events);
+export const insertNotificationTypeSchema = createInsertSchema(notificationTypes);
+export const insertNotificationChannelSchema = createInsertSchema(notificationChannels);
+export const insertNotificationSchema = createInsertSchema(notifications);
 export const insertTemporaryVenueSchema = createInsertSchema(temporaryVenues);
 export const selectTemporaryVenueSchema = createSelectSchema(temporaryVenues);
 export const insertAuditLogSchema = createInsertSchema(auditLogs);

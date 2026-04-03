@@ -11,6 +11,8 @@ import {
     users,
     userRoles,
     systemSettings,
+    notificationTypes,
+    notificationChannels,
 } from "../shared/schema";
 import { sql } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
@@ -351,6 +353,57 @@ async function seed() {
         console.log("✓ System settings seeded");
 
         console.log("\n✅ Database seeding completed successfully!\n");
+
+    // ========================================================================
+    // NOTIFICATION CHANNELS & TYPES
+    // ========================================================================
+    console.log("\n📣 Seeding notification channels & types...");
+
+    const existingChannels = await db.select().from(notificationChannels);
+    if (existingChannels.length === 0) {
+        await db.insert(notificationChannels).values([
+            { channel: "in_app", enabled: true, config: { soundEnabled: true } },
+            { channel: "email", enabled: false, config: {} },
+            { channel: "sms", enabled: false, config: {} },
+            { channel: "push", enabled: false, config: {} },
+        ]);
+        console.log("✓ Notification channels seeded");
+    } else {
+        console.log("⏭️  Notification channels already exist");
+    }
+
+    const existingTypes = await db.select().from(notificationTypes);
+    if (existingTypes.length === 0) {
+        const defaultTypes = [
+            { key: "booking.application_received", category: "booking", label: "Artist Application Received", description: "Sent to organizer when an artist applies", titleTemplate: "New application from {{artistName}}", bodyTemplate: "{{artistName}} has applied to perform at {{eventTitle}}.", targetRoles: ["organizer"], channels: ["in_app"], priority: "normal" as const },
+            { key: "booking.offer_sent", category: "booking", label: "Booking Offer Sent", description: "Sent to artist when organizer sends an offer", titleTemplate: "New offer for {{eventTitle}}", bodyTemplate: "You've received an offer to perform at {{eventTitle}}.", targetRoles: ["artist"], channels: ["in_app"], priority: "normal" as const },
+            { key: "booking.status_changed", category: "booking", label: "Booking Status Changed", description: "Sent when booking status transitions", titleTemplate: "Booking updated: {{eventTitle}}", bodyTemplate: "Your booking for {{eventTitle}} has been updated to {{newStatus}}.", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "normal" as const },
+            { key: "booking.confirmed", category: "booking", label: "Booking Confirmed", description: "Sent when a booking is confirmed", titleTemplate: "Booking confirmed: {{eventTitle}}", bodyTemplate: "The booking for {{eventTitle}} has been confirmed.", targetRoles: ["artist", "organizer", "venue_manager"], channels: ["in_app"], priority: "urgent" as const },
+            { key: "booking.cancelled", category: "booking", label: "Booking Cancelled", description: "Sent when a booking is cancelled", titleTemplate: "Booking cancelled: {{eventTitle}}", bodyTemplate: "The booking for {{eventTitle}} has been cancelled.", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "urgent" as const },
+            { key: "booking.deadline_approaching", category: "booking", label: "Deadline Approaching", description: "Sent when booking deadline nears", titleTemplate: "Action needed: {{eventTitle}}", bodyTemplate: "The deadline for {{eventTitle}} is approaching.", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "urgent" as const },
+            { key: "negotiation.proposal_received", category: "negotiation", label: "Proposal Received", description: "Sent when other party submits proposal", titleTemplate: "New proposal for {{eventTitle}}", bodyTemplate: "{{actorName}} has submitted a proposal for {{eventTitle}}.", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "normal" as const },
+            { key: "negotiation.accepted", category: "negotiation", label: "Negotiation Accepted", description: "Sent when proposal is accepted", titleTemplate: "Proposal accepted: {{eventTitle}}", bodyTemplate: "{{actorName}} accepted the proposal for {{eventTitle}}.", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "urgent" as const },
+            { key: "negotiation.declined", category: "negotiation", label: "Negotiation Declined", description: "Sent when a party walks away", titleTemplate: "Negotiation ended: {{eventTitle}}", bodyTemplate: "{{actorName}} walked away from negotiation for {{eventTitle}}.", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "urgent" as const },
+            { key: "negotiation.deadline_warning", category: "negotiation", label: "Negotiation Deadline Warning", description: "Sent when negotiation deadline nears", titleTemplate: "Respond soon: {{eventTitle}}", bodyTemplate: "The negotiation for {{eventTitle}} needs your response.", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "urgent" as const },
+            { key: "contract.generated", category: "contract", label: "Contract Generated", description: "Sent when contract is auto-generated", titleTemplate: "Contract ready: {{eventTitle}}", bodyTemplate: "The contract for {{eventTitle}} is ready for review.", targetRoles: ["organizer"], channels: ["in_app"], priority: "normal" as const },
+            { key: "contract.edit_submitted", category: "contract", label: "Contract Edit Submitted", description: "Sent when other party submits edits", titleTemplate: "Contract edited: {{eventTitle}}", bodyTemplate: "{{actorName}} submitted edits to the contract for {{eventTitle}}.", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "normal" as const },
+            { key: "contract.ready_to_sign", category: "contract", label: "Contract Ready to Sign", description: "Sent when contract is ready for signing", titleTemplate: "Sign contract: {{eventTitle}}", bodyTemplate: "The contract for {{eventTitle}} is ready for your signature.", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "urgent" as const },
+            { key: "contract.signed", category: "contract", label: "Contract Signed", description: "Sent when one party signs", titleTemplate: "Contract signed: {{eventTitle}}", bodyTemplate: "{{actorName}} has signed the contract for {{eventTitle}}.", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "normal" as const },
+            { key: "contract.fully_signed", category: "contract", label: "Contract Fully Signed", description: "Sent to admin when both parties sign", titleTemplate: "Contract awaiting review: {{eventTitle}}", bodyTemplate: "Both parties signed the contract for {{eventTitle}}. Admin review required.", targetRoles: ["admin"], channels: ["in_app"], priority: "urgent" as const },
+            { key: "contract.admin_approved", category: "contract", label: "Contract Approved", description: "Sent when admin approves contract", titleTemplate: "Contract approved: {{eventTitle}}", bodyTemplate: "The contract for {{eventTitle}} has been approved!", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "urgent" as const },
+            { key: "contract.voided", category: "contract", label: "Contract Voided", description: "Sent when contract is voided", titleTemplate: "Contract voided: {{eventTitle}}", bodyTemplate: "The contract for {{eventTitle}} has been voided.", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "urgent" as const },
+            { key: "payment.received", category: "payment", label: "Payment Received", description: "Sent when payment is received", titleTemplate: "Payment received: {{amount}}", bodyTemplate: "A payment of {{amount}} received for {{eventTitle}}.", targetRoles: ["artist", "organizer"], channels: ["in_app"], priority: "normal" as const },
+            { key: "payment.deposit_due", category: "payment", label: "Deposit Due", description: "Sent when deposit is due", titleTemplate: "Deposit due: {{eventTitle}}", bodyTemplate: "A deposit payment is due for {{eventTitle}}.", targetRoles: ["organizer"], channels: ["in_app"], priority: "urgent" as const },
+            { key: "payout.processed", category: "payment", label: "Payout Processed", description: "Sent when payout is processed", titleTemplate: "Payout processed: {{amount}}", bodyTemplate: "Your payout of {{amount}} for {{eventTitle}} has been processed.", targetRoles: ["artist"], channels: ["in_app"], priority: "normal" as const },
+            { key: "system.announcement", category: "system", label: "Platform Announcement", description: "Admin broadcast to users", titleTemplate: "{{title}}", bodyTemplate: "{{message}}", targetRoles: ["artist", "organizer", "venue_manager"], channels: ["in_app"], priority: "normal" as const },
+            { key: "profile.reminder", category: "system", label: "Profile Reminder", description: "Incomplete profile reminder", titleTemplate: "Complete your profile", bodyTemplate: "Your profile is incomplete. Complete it to discover opportunities.", targetRoles: ["artist", "organizer", "venue_manager"], channels: ["in_app"], priority: "normal" as const },
+            { key: "system.welcome", category: "system", label: "Welcome", description: "Sent to new users", titleTemplate: "Welcome to BANDWIDTH!", bodyTemplate: "Welcome to BANDWIDTH! Complete your profile to get started.", targetRoles: ["artist", "organizer", "venue_manager"], channels: ["in_app"], priority: "normal" as const },
+        ];
+        await db.insert(notificationTypes).values(defaultTypes);
+        console.log(`✓ ${defaultTypes.length} notification types seeded`);
+    } else {
+        console.log("⏭️  Notification types already exist");
+    }
 
     } catch (error) {
         console.error("\n❌ Error seeding database:", error);

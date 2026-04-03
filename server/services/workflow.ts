@@ -430,7 +430,7 @@ class WorkflowEngine {
                     locked: isTerminal,
                     context: updatedContext,
                     updatedAt: new Date(),
-                    deadlineAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+                    deadlineAt: new Date(Date.now() + 72 * 60 * 60 * 1000)
                 })
                 .where(eq(conversationWorkflowInstances.conversationId, conversationId));
 

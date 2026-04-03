@@ -2,6 +2,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useOrganizerDashboardStats, useOrganizerActivity } from "@/hooks/use-organizer-stats";
 import { useOrganizerProfileStatus } from "@/hooks/use-organizer";
 import { useOrganizerEvents } from "@/hooks/use-organizer-events";
+import { useOrganizerBookings } from "@/hooks/use-organizer-bookings";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,7 @@ export default function OrganizerDashboard() {
   const { data: profileStatus } = useOrganizerProfileStatus();
   const { data: events, isLoading: eventsLoading } = useOrganizerEvents();
   const { data: activity, isLoading: activityLoading } = useOrganizerActivity(10);
+  const { data: allBookings } = useOrganizerBookings();
 
   if (!user) return null;
 
@@ -49,14 +51,42 @@ export default function OrganizerDashboard() {
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
     .slice(0, 5) || [];
 
-  // Mock pending actions - in real implementation, these would come from API
+  // Derive pending actions from real booking data.
+  // - New applications (status "inquiry"): organizer needs to respond.
+  // - Active negotiations (status "negotiating") where the negotiation stepState
+  //   is "awaiting_org" or "applied": it is the organizer's turn.
   const pendingActions: Array<{
     title: string;
     description: string;
-    type: string;
-  }> = [
-    // These would be derived from bookings, contracts, etc.
-  ];
+    type: "application" | "negotiation";
+    bookingId: number;
+  }> = (allBookings ?? []).reduce(
+    (acc: Array<{ title: string; description: string; type: "application" | "negotiation"; bookingId: number }>, booking: any) => {
+      const artistName = booking.artist?.name || booking.artist?.user?.name || "An artist";
+      const eventTitle = booking.event?.title || "your event";
+
+      if (booking.status === "inquiry") {
+        acc.push({
+          title: `${artistName} applied for ${eventTitle}`,
+          description: "New application waiting for your response.",
+          type: "application",
+          bookingId: booking.id,
+        });
+      } else if (booking.status === "negotiating") {
+        const stepState = (booking.meta as any)?.negotiation?.stepState;
+        if (stepState === "awaiting_org" || stepState === "applied") {
+          acc.push({
+            title: `Respond to ${artistName} for ${eventTitle}`,
+            description: "Negotiation in progress — your turn to respond.",
+            type: "negotiation",
+            bookingId: booking.id,
+          });
+        }
+      }
+      return acc;
+    },
+    [],
+  );
 
   return (
     <div className="space-y-8">
@@ -286,21 +316,24 @@ export default function OrganizerDashboard() {
             <CardContent>
               {pendingActions.length > 0 ? (
                 <div className="space-y-3">
-                  {pendingActions.slice(0, 5).map((action: any, index: number) => (
-                    <div
+                  {pendingActions.slice(0, 5).map((action, index) => (
+                    <Link
                       key={index}
-                      className="p-3 rounded-lg bg-yellow-500/5 border border-yellow-500/20 cursor-pointer hover:bg-yellow-500/10 transition-colors"
+                      href={`/organizer/bookings?bookingId=${action.bookingId}`}
                     >
-                      <div className="flex items-start gap-3">
-                        <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5" />
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{action.title}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {action.description}
-                          </p>
+                      <div className="p-3 rounded-lg bg-yellow-500/5 border border-yellow-500/20 cursor-pointer hover:bg-yellow-500/10 transition-colors">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{action.title}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {action.description}
+                            </p>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                         </div>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               ) : (

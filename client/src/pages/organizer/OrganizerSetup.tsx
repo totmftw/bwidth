@@ -44,7 +44,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ImageUpload } from "@/components/ImageUpload";
-import { Loader2, ArrowRight, ArrowLeft } from "lucide-react";
+import { Loader2, ArrowRight, ArrowLeft, CheckCircle2 } from "lucide-react";
 
 /**
  * Type definition for the onboarding form data.
@@ -58,7 +58,8 @@ export default function OrganizerSetup() {
   const { user } = useAuth();
   const organizerId = (user as any)?.organizer?.id || 0;
 
-  // Track which step (1-3) the user is currently viewing
+  // Track which step (1-4) the user is currently viewing.
+  // Step 4 is a read-only completion confirmation screen shown after server success.
   const [currentStep, setCurrentStep] = useState(1);
 
   // TanStack Query mutation hook for submitting onboarding data to the server
@@ -99,11 +100,11 @@ export default function OrganizerSetup() {
     },
   });
 
-  // Total number of steps in the wizard (used for progress calculation)
+  // Total form-entry steps (steps 1–3). Step 4 is the completion screen.
   const totalSteps = 3;
-  
-  // Calculate progress percentage for the progress bar (0-100)
-  const progress = (currentStep / totalSteps) * 100;
+
+  // Progress bar reflects the 3 data-entry steps; clamp at 100 on the completion screen.
+  const progress = Math.min((currentStep / totalSteps) * 100, 100);
 
   /**
    * Handle "Skip for now" button click.
@@ -215,9 +216,9 @@ export default function OrganizerSetup() {
     // Trigger the mutation to submit data to the server
     completeMutation.mutate(payload, {
       onSuccess: () => {
-        // Redirect to dashboard on successful completion
-        // User now has full platform access with profileComplete = true
-        setLocation("/dashboard");
+        // Advance to the completion confirmation screen (step 4) instead of
+        // immediately redirecting, so the user sees a success state.
+        setCurrentStep(4);
       },
       // onError is handled by the useCompleteOnboarding hook (shows toast)
     });
@@ -235,7 +236,7 @@ export default function OrganizerSetup() {
             Complete Your Organizer Profile
           </CardTitle>
           <CardDescription>
-            Step {currentStep} of {totalSteps}
+            {currentStep <= totalSteps ? `Step ${currentStep} of ${totalSteps}` : "Setup Complete"}
           </CardDescription>
           <Progress value={progress} className="mt-4" />
         </CardHeader>
@@ -386,47 +387,87 @@ export default function OrganizerSetup() {
               </div>
             )}
 
+            {/* Step 4: Completion confirmation screen (shown after successful server submission) */}
+            {currentStep === 4 && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 text-center py-4">
+                <div className="flex justify-center">
+                  <div className="w-20 h-20 rounded-full bg-green-500/10 flex items-center justify-center">
+                    <CheckCircle2 className="w-10 h-10 text-green-500" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-semibold">Profile Complete!</h3>
+                  <p className="text-muted-foreground text-sm max-w-sm mx-auto">
+                    Your organizer profile has been saved. You now have full access to create events, discover artists, and manage bookings.
+                  </p>
+                </div>
+                <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg px-4 py-3 text-left space-y-1">
+                  <p className="font-medium text-foreground">What's next?</p>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    <li>Create your first event</li>
+                    <li>Discover and invite artists</li>
+                    <li>Manage bookings and contracts</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
             {/* Navigation Buttons */}
             <div className="flex justify-between items-center pt-4 border-t">
-              <div className="flex gap-2">
-                {currentStep > 1 && (
+              {currentStep < 4 ? (
+                <>
+                  <div className="flex gap-2">
+                    {currentStep > 1 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleBack}
+                      >
+                        <ArrowLeft className="mr-2 h-4 w-4" />
+                        Back
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={handleSkip}
+                    >
+                      Skip for now
+                    </Button>
+                  </div>
+
+                  {currentStep < totalSteps ? (
+                    <Button
+                      type="button"
+                      onClick={handleNext}
+                    >
+                      Next
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  ) : (
+                    <Button
+                      type="submit"
+                      disabled={completeMutation.isPending}
+                      className="bg-primary"
+                    >
+                      {completeMutation.isPending && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      Complete Setup
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <div className="w-full flex justify-center">
                   <Button
                     type="button"
-                    variant="outline"
-                    onClick={handleBack}
+                    className="bg-primary px-8"
+                    onClick={() => setLocation("/dashboard")}
                   >
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Back
+                    Go to Dashboard
+                    <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={handleSkip}
-                >
-                  Skip for now
-                </Button>
-              </div>
-
-              {currentStep < totalSteps ? (
-                <Button
-                  type="button"
-                  onClick={handleNext}
-                >
-                  Next
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  disabled={completeMutation.isPending}
-                  className="bg-primary"
-                >
-                  {completeMutation.isPending && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  Complete Setup
-                </Button>
+                </div>
               )}
             </div>
           </form>

@@ -227,6 +227,21 @@ export function setupAuth(app: Express) {
     });
   });
 
+  // Check username availability (public, used during registration)
+  app.get("/api/auth/check-username", async (req, res) => {
+    const username = req.query.username as string;
+    if (!username || username.trim().length === 0) {
+      return res.json({ available: true });
+    }
+    try {
+      const existing = await storage.getUserByUsername(username.trim());
+      res.json({ available: !existing });
+    } catch (error) {
+      console.error("Error checking username:", error);
+      res.status(500).json({ available: false });
+    }
+  });
+
   app.get("/api/user", (req, res) => {
     if (!req.isAuthenticated()) return res.status(200).json(null);
     res.status(200).json(req.user);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { z } from "zod";
@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, CheckCircle2, XCircle, User as UserIcon } from "lucide-react";
 
 // Schemas for the forms
 const loginSchema = z.object({
@@ -40,6 +41,24 @@ export default function AuthPage() {
   const [mode, setMode] = useState<"login" | "register">(initialMode);
 
   if (user) {
+    const roleLabelMap: Record<string, string> = {
+      artist: "Artist",
+      organizer: "Organizer",
+      venue_manager: "Venue Manager",
+      venue: "Venue Manager",
+      admin: "Admin",
+      platform_admin: "Platform Admin",
+      curator: "Curator",
+    };
+    const roleLabel = roleLabelMap[user.role || ""] || user.role || "User";
+    const dashboardPath =
+      user.role === "artist" ? "/dashboard" :
+      user.role === "organizer" ? "/organizer/dashboard" :
+      (user.role === "venue_manager" || user.role === "venue") ? "/venue/dashboard" :
+      (user.role === "admin" || user.role === "platform_admin") ? "/admin" :
+      "/dashboard";
+    const initials = (user.name || user.username || "U").charAt(0).toUpperCase();
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
         <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] rounded-full bg-primary/20 blur-[128px]" />
@@ -47,14 +66,20 @@ export default function AuthPage() {
 
         <Card className="w-full max-w-lg glass-card border-white/10 relative z-10">
           <CardHeader className="text-center pb-2">
+            <div className="flex justify-center mb-3">
+              <div className="w-16 h-16 rounded-full bg-primary/20 border-2 border-primary/40 flex items-center justify-center text-2xl font-bold text-primary">
+                {initials}
+              </div>
+            </div>
             <CardTitle className="text-3xl font-display font-bold">Already signed in</CardTitle>
-            <CardDescription>
-              You are logged in as {user.name || user.username} ({user.role}).
+            <CardDescription className="flex flex-col items-center gap-2 mt-1">
+              <span>You are logged in as <strong>{user.name || user.username}</strong></span>
+              <Badge variant="secondary" className="capitalize">{roleLabel}</Badge>
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            <Button className="w-full bg-primary" onClick={() => setLocation("/dashboard")}>
-              Go to Dashboard
+            <Button className="w-full bg-primary" onClick={() => setLocation(dashboardPath)}>
+              Go to {roleLabel} Dashboard
             </Button>
             <Button variant="ghost" className="w-full" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}>
               {logoutMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -146,6 +171,10 @@ function RegisterForm({ initialRole }: { initialRole: string }) {
   const { registerMutation } = useAuth();
   const [role, setRole] = useState(initialRole);
 
+  // --- Username availability state ---
+  const [usernameStatus, setUsernameStatus] = useState<"idle" | "checking" | "available" | "taken">("idle");
+  const usernameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Combine base user schema with role-specific schema
   const form = useForm({
     defaultValues: {
@@ -167,6 +196,53 @@ function RegisterForm({ initialRole }: { initialRole: string }) {
       capacity: 0,
     }
   });
+
+  // --- Debounced username availability check ---
+  const watchedUsername = form.watch("username");
+
+  useEffect(() => {
+    if (usernameTimerRef.current) {
+      clearTimeout(usernameTimerRef.current);
+    }
+
+    const trimmed = watchedUsername?.trim();
+    if (!trimmed || trimmed.length < 2) {
+      setUsernameStatus("idle");
+      return;
+    }
+
+    setUsernameStatus("checking");
+    usernameTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/auth/check-username?username=${encodeURIComponent(trimmed)}`);
+        const data = await res.json();
+        setUsernameStatus(data.available ? "available" : "taken");
+      } catch {
+        setUsernameStatus("idle");
+      }
+    }, 500);
+
+    return () => {
+      if (usernameTimerRef.current) {
+        clearTimeout(usernameTimerRef.current);
+      }
+    };
+  }, [watchedUsername]);
+
+  // --- Role switch: preserve common fields ---
+  const handleRoleSwitch = useCallback((newRole: string) => {
+    const currentValues = form.getValues();
+    setRole(newRole);
+    // Re-set common fields after role switch so React Hook Form state is not lost
+    setTimeout(() => {
+      form.setValue("name", currentValues.name);
+      form.setValue("username", currentValues.username);
+      form.setValue("email", currentValues.email);
+      form.setValue("password", currentValues.password);
+      form.setValue("confirmPassword", currentValues.confirmPassword);
+      form.setValue("phone", currentValues.phone);
+    }, 0);
+  }, [form]);
 
   const onSubmit = (data: any) => {
     // Transform flat form data into nested structure expected by API
@@ -232,7 +308,7 @@ function RegisterForm({ initialRole }: { initialRole: string }) {
             <button
               key={opt.value}
               type="button"
-              onClick={() => setRole(opt.value)}
+              onClick={() => handleRoleSwitch(opt.value)}
               className={`flex flex-col items-center gap-1 p-3 rounded-xl border-2 transition-all text-center ${
                 role === opt.value
                   ? "border-primary bg-primary/10 text-primary"
@@ -254,7 +330,24 @@ function RegisterForm({ initialRole }: { initialRole: string }) {
         </div>
         <div className="space-y-2">
           <Label>Username</Label>
-          <Input {...form.register("username")} required className="bg-background/50" />
+          <div className="relative">
+            <Input {...form.register("username")} required className="bg-background/50 pr-8" />
+            {usernameStatus === "checking" && (
+              <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+            )}
+            {usernameStatus === "available" && (
+              <CheckCircle2 className="absolute right-2.5 top-2.5 h-4 w-4 text-green-500" />
+            )}
+            {usernameStatus === "taken" && (
+              <XCircle className="absolute right-2.5 top-2.5 h-4 w-4 text-destructive" />
+            )}
+          </div>
+          {usernameStatus === "taken" && (
+            <p className="text-xs text-destructive">This username is already taken</p>
+          )}
+          {usernameStatus === "available" && (
+            <p className="text-xs text-green-500">Username is available</p>
+          )}
         </div>
       </div>
 
@@ -318,9 +411,11 @@ function RegisterForm({ initialRole }: { initialRole: string }) {
         )}
       </div>
 
-      <Button type="submit" className="w-full mt-4 bg-primary" disabled={registerMutation.isPending}>
-        {registerMutation.isPending ? "Creating Account..." : "Create Account"}
-      </Button>
+      <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm pt-2 pb-1 -mx-1 px-1 border-t border-white/10 md:static md:bg-transparent md:backdrop-blur-none md:border-0">
+        <Button type="submit" className="w-full bg-primary" disabled={registerMutation.isPending}>
+          {registerMutation.isPending ? "Creating Account..." : "Create Account"}
+        </Button>
+      </div>
     </form>
   );
 }

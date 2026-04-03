@@ -6,6 +6,7 @@ import {
   userRoles,
   payments,
   bookingProposals,
+  notifications, notificationTypes, notificationChannels,
   type User, type Artist, type Organizer, type Venue, type Booking, type Event, type Contract, type AuditLog, type TemporaryVenue,
   type InsertUser, type InsertArtist, type InsertOrganizer, type InsertVenue, type InsertBooking, type InsertContract, type InsertAuditLog, type InsertEvent, type InsertTemporaryVenue,
   type ContractVersion, type InsertContractVersion,
@@ -13,7 +14,10 @@ import {
   type ContractSignature, type InsertContractSignature,
   type Message,
   type Payment,
-  type BookingProposal, type InsertBookingProposal
+  type BookingProposal, type InsertBookingProposal,
+  type Notification, type InsertNotification,
+  type NotificationType, type InsertNotificationType,
+  type NotificationChannel, type InsertNotificationChannel,
 } from "@shared/schema";
 
 export interface OrganizerDashboardStats {
@@ -170,6 +174,28 @@ export interface IStorage {
   getMediaByEntity(entityType: string, entityId: number): Promise<any[]>;
   getMediaCountByEntity(entityType: string, entityId: number): Promise<number>;
   deleteMedia(id: number): Promise<void>;
+
+  // Notifications
+  createNotification(data: InsertNotification): Promise<Notification>;
+  getNotificationsByUser(userId: number, opts?: { limit?: number; offset?: number; unreadOnly?: boolean }): Promise<Notification[]>;
+  getUnreadNotificationCount(userId: number): Promise<number>;
+  getNotificationCountByUser(userId: number, opts?: { unreadOnly?: boolean }): Promise<number>;
+  markNotificationRead(id: number, userId: number): Promise<Notification | undefined>;
+  markAllNotificationsRead(userId: number): Promise<number>;
+
+  // Notification Types (admin)
+  getNotificationTypes(): Promise<NotificationType[]>;
+  getNotificationType(id: number): Promise<NotificationType | undefined>;
+  getNotificationTypeByKey(key: string): Promise<NotificationType | undefined>;
+  createNotificationType(data: InsertNotificationType): Promise<NotificationType>;
+  updateNotificationType(id: number, data: Partial<InsertNotificationType>): Promise<NotificationType>;
+
+  // Notification Channels (admin)
+  getNotificationChannels(): Promise<NotificationChannel[]>;
+  updateNotificationChannel(id: number, data: Partial<InsertNotificationChannel>): Promise<NotificationChannel>;
+
+  // Admin helpers
+  getAdminUserIds(): Promise<number[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1561,6 +1587,126 @@ export class DatabaseStorage implements IStorage {
 
   async deleteMedia(id: number): Promise<void> {
     await db.delete(media).where(eq(media.id, id));
+  }
+
+  // ==========================================================================
+  // NOTIFICATIONS
+  // ==========================================================================
+
+  async createNotification(data: InsertNotification): Promise<Notification> {
+    const [notification] = await db.insert(notifications).values(data).returning();
+    return notification;
+  }
+
+  async getNotificationsByUser(userId: number, opts?: { limit?: number; offset?: number; unreadOnly?: boolean }): Promise<Notification[]> {
+    const limit = opts?.limit ?? 20;
+    const offset = opts?.offset ?? 0;
+
+    const conditions = [eq(notifications.userId, userId)];
+    if (opts?.unreadOnly) {
+      conditions.push(eq(notifications.read, false));
+    }
+
+    return await db
+      .select()
+      .from(notifications)
+      .where(and(...conditions))
+      .orderBy(desc(notifications.createdAt))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  async getUnreadNotificationCount(userId: number): Promise<number> {
+    const [result] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(notifications)
+      .where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
+    return Number(result.count);
+  }
+
+  async getNotificationCountByUser(userId: number, opts?: { unreadOnly?: boolean }): Promise<number> {
+    const conditions = [eq(notifications.userId, userId)];
+    if (opts?.unreadOnly) {
+      conditions.push(eq(notifications.read, false));
+    }
+    const [result] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(notifications)
+      .where(and(...conditions));
+    return Number(result.count);
+  }
+
+  async markNotificationRead(id: number, userId: number): Promise<Notification | undefined> {
+    const [notification] = await db
+      .update(notifications)
+      .set({ read: true, readAt: new Date() })
+      .where(and(eq(notifications.id, id), eq(notifications.userId, userId)))
+      .returning();
+    return notification;
+  }
+
+  async markAllNotificationsRead(userId: number): Promise<number> {
+    const result = await db
+      .update(notifications)
+      .set({ read: true, readAt: new Date() })
+      .where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
+    return result.rowCount ?? 0;
+  }
+
+  // Notification Types (admin)
+
+  async getNotificationTypes(): Promise<NotificationType[]> {
+    return await db.select().from(notificationTypes).orderBy(asc(notificationTypes.category), asc(notificationTypes.key));
+  }
+
+  async getNotificationType(id: number): Promise<NotificationType | undefined> {
+    const [type] = await db.select().from(notificationTypes).where(eq(notificationTypes.id, id));
+    return type;
+  }
+
+  async getNotificationTypeByKey(key: string): Promise<NotificationType | undefined> {
+    const [type] = await db.select().from(notificationTypes).where(eq(notificationTypes.key, key));
+    return type;
+  }
+
+  async createNotificationType(data: InsertNotificationType): Promise<NotificationType> {
+    const [type] = await db.insert(notificationTypes).values(data).returning();
+    return type;
+  }
+
+  async updateNotificationType(id: number, data: Partial<InsertNotificationType>): Promise<NotificationType> {
+    const [type] = await db
+      .update(notificationTypes)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(notificationTypes.id, id))
+      .returning();
+    return type;
+  }
+
+  // Notification Channels (admin)
+
+  async getNotificationChannels(): Promise<NotificationChannel[]> {
+    return await db.select().from(notificationChannels);
+  }
+
+  async updateNotificationChannel(id: number, data: Partial<InsertNotificationChannel>): Promise<NotificationChannel> {
+    const [channel] = await db
+      .update(notificationChannels)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(notificationChannels.id, id))
+      .returning();
+    return channel;
+  }
+
+  // Admin helpers
+
+  async getAdminUserIds(): Promise<number[]> {
+    const adminRoles = await db
+      .select({ userId: userRoles.userId })
+      .from(userRoles)
+      .innerJoin(roles, eq(roles.id, userRoles.roleId))
+      .where(or(eq(roles.name, "admin"), eq(roles.name, "platform_admin")));
+    return adminRoles.map((r) => r.userId);
   }
 }
 

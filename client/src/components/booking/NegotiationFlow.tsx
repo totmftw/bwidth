@@ -403,18 +403,22 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
                 <Label className="text-xs text-muted-foreground">Tech Rider Requirements</Label>
                 <div className="p-3 bg-muted/40 rounded-md text-sm space-y-1">
                   {displaySnapshot.techRider?.artistRequirements?.length ? (
-                    displaySnapshot.techRider?.artistRequirements?.map((req, i) => (
-                      <div key={i} className="flex justify-between items-center">
-                        <span>
-                          {req.quantity}x {req.item}
-                        </span>
-                        <Badge
-                          variant={req.status === "confirmed" ? "default" : "secondary"}
-                        >
-                          {req.status}
-                        </Badge>
-                      </div>
-                    ))
+                    displaySnapshot.techRider?.artistRequirements?.map((req, i) => {
+                      // When negotiation is locked, all rider items are implicitly confirmed.
+                      const effectiveStatus = isLocked ? "confirmed" : (req.status ?? "pending");
+                      return (
+                        <div key={i} className="flex justify-between items-center">
+                          <span>
+                            {req.quantity}x {req.item}
+                          </span>
+                          <Badge
+                            variant={effectiveStatus === "confirmed" ? "default" : "secondary"}
+                          >
+                            {effectiveStatus}
+                          </Badge>
+                        </div>
+                      );
+                    })
                   ) : (
                     <span className="text-muted-foreground">None</span>
                   )}

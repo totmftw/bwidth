@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
     Loader2, FileText, CheckCircle, PenTool, Clock, AlertTriangle,
-    Shield, Edit3, Send, X, ChevronRight, Eye, Check, Download,
+    Shield, Edit3, Send, X, ChevronRight, ChevronDown, Eye, Check, Download,
     Plane, Hotel, Mic2, Users, Camera, Megaphone, XCircle, DollarSign
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -990,16 +990,26 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                         {/* STEP: REVIEW */}
                         {activeStep === "review" && !pendingEditRequest && (
                             <div className="flex items-center gap-3">
-                                <Button
-                                    className="flex-1 bg-green-600 hover:bg-green-700"
-                                    onClick={() => reviewAction({ action: "ACCEPT_AS_IS" })}
-                                    disabled={isReviewing || deadlineExpired || !hasReadContract}
-                                    title={!hasReadContract ? "Scroll to read the full contract first" : undefined}
-                                >
-                                    {isReviewing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                                    <CheckCircle className="w-4 h-4 mr-2" />
-                                    {hasReadContract ? "Accept As-Is" : "Read Contract First ↓"}
-                                </Button>
+                                {!hasReadContract ? (
+                                    <Button
+                                        variant="outline"
+                                        className="flex-1"
+                                        onClick={() => contractRef.current?.scrollTo({ top: contractRef.current.scrollHeight, behavior: 'smooth' })}
+                                    >
+                                        <ChevronDown className="w-4 h-4 mr-2" />
+                                        Scroll to Read
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        className="flex-1 bg-green-600 hover:bg-green-700"
+                                        onClick={() => reviewAction({ action: "ACCEPT_AS_IS" })}
+                                        disabled={isReviewing || deadlineExpired}
+                                    >
+                                        {isReviewing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                                        <CheckCircle className="w-4 h-4 mr-2" />
+                                        Accept As-Is
+                                    </Button>
+                                )}
                                 {!myEditUsed && (
                                     <Button
                                         variant="outline"

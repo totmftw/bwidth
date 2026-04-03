@@ -67,14 +67,15 @@ export default function FindGigs() {
         }
     };
 
-    // Normalize data structure to ensure { event, venue, organizer } format
+    // Normalize data structure to ensure { event, venue, organizer, temporaryVenue } format
     const normalizedOpportunities = opportunities?.map((op: any) => {
         if (op.event) return op;
-        const { venue, organizer, stages, ...eventData } = op;
+        const { venue, organizer, stages, temporaryVenue, ...eventData } = op;
         return {
             event: { ...eventData, stages },
             venue,
-            organizer
+            organizer,
+            temporaryVenue: temporaryVenue ?? null,
         };
     });
 
@@ -82,11 +83,17 @@ export default function FindGigs() {
     const filteredOpportunities = normalizedOpportunities?.filter((op: any) => {
         if (!search) return true;
         const term = search.toLowerCase();
+        const addrObj = op.venue?.address;
+        const addrStr = addrObj && typeof addrObj === "object"
+            ? Object.values(addrObj as Record<string, any>).filter((v) => v && typeof v === "string").join(" ")
+            : "";
         return (
             op.event?.title?.toLowerCase().includes(term) ||
             op.event?.description?.toLowerCase().includes(term) ||
             op.venue?.name?.toLowerCase().includes(term) ||
-            op.venue?.location?.toLowerCase().includes(term) ||
+            addrStr.toLowerCase().includes(term) ||
+            op.temporaryVenue?.name?.toLowerCase().includes(term) ||
+            op.temporaryVenue?.location?.toLowerCase().includes(term) ||
             false
         );
     });
@@ -122,8 +129,16 @@ export default function FindGigs() {
             ) : filteredOpportunities?.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {filteredOpportunities.map((op: any) => {
-                        const { event, venue, organizer } = op;
-                        const venueAddress = venue?.address ? Object.values(venue.address).filter(Boolean).join(", ") : venue?.location || "TBA";
+                        const { event, venue, organizer, temporaryVenue } = op;
+                        const venueAddress = (() => {
+                            if (venue?.address && typeof venue.address === "object") {
+                                const addr = venue.address as Record<string, any>;
+                                return addr.city || addr.full || addr.street || Object.values(addr).filter((v) => v && typeof v === "string").join(", ") || "TBA";
+                            }
+                            if (venue?.location) return venue.location;
+                            if (temporaryVenue?.location) return temporaryVenue.location;
+                            return "TBA";
+                        })();
                         
                         return (
                         <Card key={event.id} className="group overflow-hidden border-white/5 bg-card/40 hover:bg-card/60 transition-all hover:border-primary/30 flex flex-col">
@@ -135,7 +150,7 @@ export default function FindGigs() {
                                 </div>
                                 <h3 className="text-xl font-bold font-display text-white">{event.title}</h3>
                                 <p className="text-sm text-gray-300 flex items-center gap-1 truncate pb-1">
-                                    <MapPin className="w-3 h-3 flex-shrink-0" /> {venue?.name || "TBD"}
+                                    <MapPin className="w-3 h-3 flex-shrink-0" /> {venue?.name || temporaryVenue?.name || "TBD"}{venueAddress && venueAddress !== "TBA" ? `, ${venueAddress}` : ""}
                                 </p>
                             </div>
 
