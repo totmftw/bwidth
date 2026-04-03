@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { useConversationMessages } from "@/hooks/use-conversation";
 import { cn } from "@/lib/utils";
 import { format, differenceInHours, differenceInMinutes } from "date-fns";
 import {
@@ -39,6 +40,8 @@ import {
   Check,
   LogOut,
   Clock,
+  Send,
+  MessageSquare,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -55,6 +58,8 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const [mode, setMode] = useState<"view" | "propose">("view");
+  const [chatMessage, setChatMessage] = useState("");
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Track last dispatched action for toast message in onSuccess
   const lastActionRef = useRef<NegotiationActionInput["action"]>("edit");
@@ -92,6 +97,35 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
     },
     refetchInterval: 5000,
   });
+
+  // Chat: real-time messages via WebSocket
+  const conversationId = summary?.conversation?.id ?? null;
+  const { data: chatMessages = [] } = useConversationMessages(conversationId);
+
+  // Auto-scroll to newest chat message
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages.length]);
+
+  const sendChatMutation = useMutation({
+    mutationFn: async (body: string) => {
+      if (!conversationId) throw new Error("No conversation");
+      const res = await apiRequest("POST", `/api/conversations/${conversationId}/messages`, { body });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to send");
+      }
+      return res.json();
+    },
+    onSuccess: () => setChatMessage(""),
+    onError: (err: any) => toast({ title: "Chat error", description: err.message, variant: "destructive" }),
+  });
+
+  const handleSendChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatMessage.trim() || sendChatMutation.isPending) return;
+    sendChatMutation.mutate(chatMessage.trim());
+  };
 
   // Single unified mutation replacing all previous propose/accept/walkaway/rider mutations
   const actionMutation = useMutation({
@@ -411,7 +445,7 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
 
         {/* Right: Activity & Actions */}
         <div className="w-full lg:w-96 flex flex-col bg-muted/10 shrink-0">
-          <ScrollArea className="flex-1 p-4 lg:p-6">
+          <ScrollArea className="flex-1 min-h-0 p-4 lg:p-6">
             <h3 className="font-semibold mb-4 text-sm uppercase tracking-wider text-muted-foreground">
               Activity
             </h3>
@@ -440,6 +474,53 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
           </ScrollArea>
 
           <Separator />
+
+          {/* Chat Panel */}
+          {conversationId && (
+            <>
+              <div className="px-4 pt-3 pb-1 shrink-0">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <MessageSquare className="w-3 h-3" />
+                  Chat
+                </h3>
+              </div>
+              <div className="h-36 overflow-y-auto px-4 pb-2 space-y-2 shrink-0">
+                {chatMessages.filter((m: any) => m.messageType === "text").map((msg: any) => {
+                  const isMe = msg.senderId === user?.id;
+                  return (
+                    <div key={msg.id} className={cn("flex flex-col", isMe ? "items-end" : "items-start")}>
+                      <span className="text-[10px] text-muted-foreground mb-0.5">
+                        {msg.sender?.displayName || msg.sender?.username || "—"}{" "}
+                        {format(new Date(msg.createdAt), "h:mm a")}
+                      </span>
+                      <div className={cn("max-w-[80%] rounded-lg px-3 py-1.5 text-xs", isMe ? "bg-primary text-primary-foreground" : "bg-muted")}>
+                        {msg.body}
+                      </div>
+                    </div>
+                  );
+                })}
+                {chatMessages.filter((m: any) => m.messageType === "text").length === 0 && (
+                  <p className="text-[11px] text-muted-foreground text-center pt-2">No messages yet</p>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+              <div className="px-4 pb-3 shrink-0">
+                <form onSubmit={handleSendChat} className="flex gap-2">
+                  <Input
+                    value={chatMessage}
+                    onChange={(e) => setChatMessage(e.target.value)}
+                    placeholder={userRole === "artist" ? "Message the organizer..." : "Message the artist..."}
+                    className="flex-1 h-8 text-xs"
+                    disabled={sendChatMutation.isPending}
+                  />
+                  <Button type="submit" size="sm" className="h-8 w-8 p-0" disabled={!chatMessage.trim() || sendChatMutation.isPending}>
+                    {sendChatMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                  </Button>
+                </form>
+              </div>
+              <Separator />
+            </>
+          )}
 
           <div className="p-4 lg:p-6 space-y-2 shrink-0 bg-background border-t">
             {/* ── Terminal: locked / agreed ── */}

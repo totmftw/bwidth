@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -39,6 +39,15 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
     const [editNote, setEditNote] = useState("");
     const [editChanges, setEditChanges] = useState<Record<string, any>>({});
     const [signatureText, setSignatureText] = useState(() => user?.name || (user as any)?.displayName || user?.username || "");
+    const [hasReadContract, setHasReadContract] = useState(false);
+    const contractRef = useRef<HTMLDivElement>(null);
+
+    const handleContractScroll = () => {
+        const el = contractRef.current;
+        if (!el || hasReadContract) return;
+        const pct = (el.scrollTop + el.clientHeight) / el.scrollHeight;
+        if (pct >= 0.9) setHasReadContract(true);
+    };
 
     const role = user?.role === "artist" ? "artist" : (user?.role === "admin" || user?.role === "platform_admin") ? "admin" : "promoter";
     const isAdmin = role === "admin";
@@ -502,15 +511,36 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                         </div>
                     )}
 
+                    {/* ─── Warning: unfilled legal placeholders ─── */}
+                    {contract.contractText?.includes('[') && (
+                        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-start gap-3">
+                            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                            <div className="text-sm">
+                                <span className="font-semibold text-amber-500">Legal details incomplete.</span>
+                                {" "}The contract contains placeholder text (missing PAN/GSTIN/address).{" "}
+                                <a href="/profile" className="text-primary underline">Complete Legal & Bank profile →</a>
+                            </div>
+                        </div>
+                    )}
+
                     {/* ─── Contract Text ─── */}
                     <div className="rounded-xl border border-white/10 overflow-hidden">
                         <div className="px-4 py-2 bg-white/5 border-b border-white/10 flex items-center justify-between">
                             <span className="text-xs font-medium text-muted-foreground">Contract Document</span>
                             <Badge variant="outline" className="text-[10px]">v{contract.currentVersion || 1}</Badge>
                         </div>
-                        <div className="p-5 bg-white/[0.02] font-mono text-xs leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+                        <div
+                            ref={contractRef}
+                            onScroll={handleContractScroll}
+                            className="p-5 bg-white/[0.02] font-mono text-xs leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto"
+                        >
                             {contract.contractText}
                         </div>
+                        {!hasReadContract && (
+                            <div className="px-4 py-1.5 bg-white/5 border-t border-white/10 text-[10px] text-muted-foreground text-center">
+                                ↓ Scroll to read full contract before accepting
+                            </div>
+                        )}
                     </div>
 
                     {/* ═══ Comprehensive Edit Form ═══ */}
@@ -963,11 +993,12 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                 <Button
                                     className="flex-1 bg-green-600 hover:bg-green-700"
                                     onClick={() => reviewAction({ action: "ACCEPT_AS_IS" })}
-                                    disabled={isReviewing || deadlineExpired}
+                                    disabled={isReviewing || deadlineExpired || !hasReadContract}
+                                    title={!hasReadContract ? "Scroll to read the full contract first" : undefined}
                                 >
                                     {isReviewing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
                                     <CheckCircle className="w-4 h-4 mr-2" />
-                                    Accept As-Is
+                                    {hasReadContract ? "Accept As-Is" : "Read Contract First ↓"}
                                 </Button>
                                 {!myEditUsed && (
                                     <Button

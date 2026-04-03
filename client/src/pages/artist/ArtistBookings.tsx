@@ -157,9 +157,10 @@ export default function ArtistBookings() {
             </div>
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <StatsCard label="Total Bookings" value={bookings?.length || 0} icon={Calendar} />
                 <StatsCard label="Pending" value={pendingCount} icon={Clock} highlight={pendingCount > 0} />
+                <StatsCard label="Negotiating" value={negotiatingCount} icon={MessageSquare} color="text-orange-500" highlight={negotiatingCount > 0} />
                 <StatsCard label="Confirmed" value={confirmedCount} icon={CheckCircle} color="text-green-500" />
                 <StatsCard label="Completed" value={completedCount} icon={Check} color="text-violet-500" />
             </div>

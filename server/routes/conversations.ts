@@ -36,6 +36,7 @@ import {
 } from "@shared/schema";
 import { workflow } from "../services/workflow";
 import { negotiationService } from "../services/negotiation.service";
+import { broadcastToRoom } from "../ws-server";
 
 const router = Router();
 
@@ -358,16 +359,6 @@ router.post("/conversations/:id/messages", async (req, res) => {
     const { body, clientMsgId } = req.body;
 
     try {
-        // Check conversation type — negotiation conversations are
-        // flowchart-driven and reject free-text messages.
-        const convo = await db.query.conversations.findFirst({
-            where: eq(conversations.id, conversationId)
-        });
-
-        if (convo?.conversationType === 'negotiation') {
-            return res.status(400).json({ message: "Free text not allowed in this mode. Use actions." });
-        }
-
         // Insert the text message
         const [msg] = await db.insert(messages).values({
             conversationId,
@@ -381,6 +372,9 @@ router.post("/conversations/:id/messages", async (req, res) => {
         await db.update(conversations)
             .set({ lastMessageAt: new Date() })
             .where(eq(conversations.id, conversationId));
+
+        // Broadcast to all WebSocket clients subscribed to this conversation
+        broadcastToRoom(conversationId, { type: 'message', data: msg });
 
         res.json(msg);
     } catch (error) {

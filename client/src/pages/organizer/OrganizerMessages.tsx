@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { useConversationMessages } from "@/hooks/use-conversation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -105,17 +106,7 @@ export default function OrganizerMessages() {
    * Performance note: 5-second polling is a simple real-time solution.
    * Consider WebSocket integration for production to reduce server load.
    */
-  const { data: messages = [], isLoading: messagesLoading } = useQuery({
-    queryKey: ["/api/conversations", selectedConversationId, "messages"],
-    queryFn: async () => {
-      if (!selectedConversationId) return [];
-      const res = await apiRequest("GET", `/api/conversations/${selectedConversationId}/messages`);
-      if (!res.ok) throw new Error("Failed to fetch messages");
-      return await res.json();
-    },
-    enabled: !!selectedConversationId,
-    refetchInterval: POLLING_INTERVAL_MS,
-  });
+  const { data: messages = [], isLoading: messagesLoading } = useConversationMessages(selectedConversationId);
 
   /**
    * Fetch detailed information for the selected conversation.
@@ -447,33 +438,24 @@ export default function OrganizerMessages() {
 
             {/* Message input form */}
             <div className="p-4 border-t">
-              {selectedConversation?.conversationType === "negotiation" ? (
-                // Negotiation conversations: read-only with notice
-                // Prevents free-form messaging in structured negotiation flows
-                <div className="text-center text-sm text-muted-foreground py-2">
-                  This is a negotiation conversation. Use the booking page to send offers.
-                </div>
-              ) : (
-                // General conversations: message input form
-                <form onSubmit={handleSendMessage} className="flex gap-2">
-                  <Input
-                    value={messageBody}
-                    onChange={(e) => setMessageBody(e.target.value)}
-                    placeholder="Type your message..."
-                    disabled={sendMessageMutation.isPending}
-                  />
-                  <Button
-                    type="submit"
-                    disabled={!messageBody.trim() || sendMessageMutation.isPending}
-                  >
-                    {sendMessageMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                  </Button>
-                </form>
-              )}
+              <form onSubmit={handleSendMessage} className="flex gap-2">
+                <Input
+                  value={messageBody}
+                  onChange={(e) => setMessageBody(e.target.value)}
+                  placeholder="Type your message..."
+                  disabled={sendMessageMutation.isPending}
+                />
+                <Button
+                  type="submit"
+                  disabled={!messageBody.trim() || sendMessageMutation.isPending}
+                >
+                  {sendMessageMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+              </form>
             </div>
           </>
         )}
