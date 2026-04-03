@@ -3,7 +3,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
-import { Sidebar, MobileHeader } from "@/components/Navigation";
+import { Sidebar, MobileHeader, MobileBottomNav } from "@/components/Navigation";
 import { Loader2, X } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -266,11 +266,12 @@ function PrivateRoute({ component: Component }: { component: React.ComponentType
       <div className="flex-1 flex flex-col md:pl-64">
         <MobileHeader />
         <ProfileReminderBanner user={user} isComplete={isProfileComplete} />
-        <main className="flex-1 p-6 md:p-8 lg:p-10 overflow-y-auto">
+        <main className="flex-1 p-6 md:p-8 lg:p-10 overflow-y-auto pb-16 md:pb-0">
           <div className="max-w-7xl mx-auto w-full">
             <Component />
           </div>
         </main>
+        <MobileBottomNav />
       </div>
     </div>
   );
@@ -438,6 +439,9 @@ function Router() {
       </Route>
       <Route path="/bookings">
         <PrivateRoute component={RoleBasedBookings} />
+      </Route>
+      <Route path="/bookings/:id">
+        {(params) => <Redirect to={`/bookings?bookingId=${params.id}`} />}
       </Route>
       <Route path="/find-gigs">
         <PrivateRoute component={FindGigs} />

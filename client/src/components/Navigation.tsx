@@ -111,6 +111,12 @@ export function Sidebar() {
         show: true
       },
       {
+        label: "Find Gigs",
+        href: "/find-gigs",
+        icon: Search,
+        show: true
+      },
+      {
         label: "Bookings",
         href: "/bookings",
         icon: Calendar,
@@ -193,7 +199,52 @@ export function MobileHeader() {
   return (
     <div className="md:hidden flex items-center justify-between p-4 border-b border-border/50 bg-background/80 backdrop-blur-md sticky top-0 z-50">
       <span className="font-bold font-display text-primary">BANDWIDTH</span>
-      {/* Mobile menu trigger would go here - simplified for this output */}
+    </div>
+  );
+}
+
+export function MobileBottomNav() {
+  const [location] = useLocation();
+  const { user } = useAuth();
+
+  if (!user) return null;
+
+  const role = user.role;
+
+  let tabs: { label: string; href: string; icon: React.ComponentType<{ className?: string }> }[];
+
+  if (role === "organizer" || role === "promoter") {
+    tabs = [
+      { label: "Home", href: "/dashboard", icon: LayoutDashboard },
+      { label: "Events", href: "/organizer/events", icon: CalendarDays },
+      { label: "Bookings", href: "/bookings", icon: Calendar },
+      { label: "Profile", href: "/profile", icon: Users },
+    ];
+  } else if (role === "venue_manager" || role === "venue") {
+    tabs = [
+      { label: "Home", href: "/dashboard", icon: LayoutDashboard },
+      { label: "Bookings", href: "/bookings", icon: Calendar },
+      { label: "Profile", href: "/profile", icon: Users },
+    ];
+  } else {
+    tabs = [
+      { label: "Home", href: "/dashboard", icon: LayoutDashboard },
+      { label: "Gigs", href: "/find-gigs", icon: Search },
+      { label: "Bookings", href: "/bookings", icon: Calendar },
+      { label: "Profile", href: "/profile", icon: Users },
+    ];
+  }
+
+  return (
+    <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex bg-card/95 backdrop-blur-md border-t border-border/50">
+      {tabs.map((tab) => (
+        <Link key={tab.href} href={tab.href} className="flex-1">
+          <div className={`flex flex-col items-center justify-center py-3 gap-1 text-xs ${location === tab.href ? "text-primary" : "text-muted-foreground"}`}>
+            <tab.icon className="w-5 h-5" />
+            <span>{tab.label}</span>
+          </div>
+        </Link>
+      ))}
     </div>
   );
 }

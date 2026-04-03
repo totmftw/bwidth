@@ -27,6 +27,8 @@ export default function Dashboard() {
     ?.filter(b => ['confirmed', 'paid_deposit', 'scheduled', 'completed'].includes(b.status || ''))
     .reduce((acc, b) => acc + (Number(b.offerAmount) || 0), 0) || 0;
 
+  const trustScore = (user as any)?.artist?.trustScore ?? (user as any)?.artist?.metadata?.trustScore ?? 50;
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
@@ -45,7 +47,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
           title={isArtist ? "Total Earnings" : "Total Spend"}
-          value={`$${totalValue.toLocaleString()}`}
+          value={`₹${totalValue.toLocaleString('en-IN')}`}
           icon={DollarSign}
           trend="+12% from last month"
         />
@@ -62,7 +64,7 @@ export default function Dashboard() {
         />
         <StatCard
           title="Trust Score"
-          value="98"
+          value={trustScore.toString()}
           icon={TrendingUp}
         />
       </div>
@@ -84,11 +86,11 @@ export default function Dashboard() {
                   <div key={booking.id} className="flex items-center justify-between p-4 rounded-xl bg-background/40 border border-white/5 hover:border-primary/20 transition-colors">
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
-                        {isArtist ? (booking.organizer.user.displayName || booking.organizer.user.username || 'U')[0] : (booking.artist.user.displayName || booking.artist.user.username || 'U')[0]}
+                        {isArtist ? (booking.organizer?.user?.displayName || booking.organizer?.user?.username || 'U')[0] : (booking.artist?.user?.displayName || booking.artist?.user?.username || 'U')[0]}
                       </div>
                       <div>
                         <p className="font-medium">
-                          {isArtist ? booking.organizer.organizationName || booking.organizer.user.displayName || booking.organizer.user.username : booking.artist.user.displayName || booking.artist.user.username}
+                          {isArtist ? booking.organizer?.organizationName || booking.organizer?.user?.displayName || booking.organizer?.user?.username : booking.artist?.user?.displayName || booking.artist?.user?.username}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {format(new Date(booking.eventDate), "PPP")} • {booking.slotTime || "TBD"}
@@ -104,7 +106,7 @@ export default function Dashboard() {
                       `}>
                         {booking.status}
                       </div>
-                      <p className="text-sm font-semibold mt-1">${booking.offerAmount}</p>
+                      <p className="text-sm font-semibold mt-1">₹{Number(booking.offerAmount || 0).toLocaleString('en-IN')}</p>
                     </div>
                   </div>
                 ))}

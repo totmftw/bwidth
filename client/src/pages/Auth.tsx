@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { z } from "zod";
@@ -30,8 +30,8 @@ const registerBaseSchema = insertUserSchema.extend({
 
 
 export default function AuthPage() {
-  const [location, setLocation] = useLocation();
-  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const { user, logoutMutation } = useAuth();
 
   // Extract query params manually since wouter doesn't provide them nicely in hook
   const searchParams = new URLSearchParams(window.location.search);
@@ -40,10 +40,32 @@ export default function AuthPage() {
 
   const [mode, setMode] = useState<"login" | "register">(initialMode);
 
-  // Redirect already-logged-in users (e.g., landing on /auth while session is active)
-  useEffect(() => {
-    if (user) setLocation("/dashboard");
-  }, [user, setLocation]);
+  if (user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
+        <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] rounded-full bg-primary/20 blur-[128px]" />
+        <div className="absolute bottom-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-blue-600/10 blur-[128px]" />
+
+        <Card className="w-full max-w-lg glass-card border-white/10 relative z-10">
+          <CardHeader className="text-center pb-2">
+            <CardTitle className="text-3xl font-display font-bold">Already signed in</CardTitle>
+            <CardDescription>
+              You are logged in as {user.name || user.username} ({user.role}).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Button className="w-full bg-primary" onClick={() => setLocation("/dashboard")}>
+              Go to Dashboard
+            </Button>
+            <Button variant="ghost" className="w-full" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}>
+              {logoutMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Sign out
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
@@ -100,14 +122,14 @@ function LoginForm() {
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
         <Label>Username</Label>
-        <Input {...form.register("username")} className="bg-background/50" />
+        <Input {...form.register("username")} autoComplete="username" className="bg-background/50" />
         {form.formState.errors.username && (
           <p className="text-xs text-destructive">{form.formState.errors.username.message}</p>
         )}
       </div>
       <div className="space-y-2">
         <Label>Password</Label>
-        <Input type="password" {...form.register("password")} className="bg-background/50" />
+        <Input type="password" {...form.register("password")} autoComplete="current-password" className="bg-background/50" />
         {form.formState.errors.password && (
           <p className="text-xs text-destructive">{form.formState.errors.password.message}</p>
         )}
@@ -233,11 +255,11 @@ function RegisterForm({ initialRole }: { initialRole: string }) {
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>Password</Label>
-          <Input type="password" {...form.register("password")} required className="bg-background/50" />
+          <Input type="password" {...form.register("password")} autoComplete="new-password" required className="bg-background/50" />
         </div>
         <div className="space-y-2">
           <Label>Confirm</Label>
-          <Input type="password" {...form.register("confirmPassword")} required className="bg-background/50" />
+          <Input type="password" {...form.register("confirmPassword")} autoComplete="new-password" required className="bg-background/50" />
         </div>
       </div>
 

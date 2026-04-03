@@ -83,8 +83,8 @@ export default function FindGigs() {
         if (!search) return true;
         const term = search.toLowerCase();
         return (
-            op.event.title?.toLowerCase().includes(term) ||
-            op.event.description?.toLowerCase().includes(term) ||
+            op.event?.title?.toLowerCase().includes(term) ||
+            op.event?.description?.toLowerCase().includes(term) ||
             op.venue?.name?.toLowerCase().includes(term) ||
             op.venue?.location?.toLowerCase().includes(term) ||
             false
@@ -178,12 +178,12 @@ export default function FindGigs() {
                                                         </span>
                                                     </div>
                                                     {hasApplied ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <Button size="sm" variant="destructive" className="h-7 text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30" onClick={() => handleWithdraw(hasApplied.id)}>
-                                                                Withdraw
-                                                            </Button>
-                                                            <Button size="sm" variant="default" className="h-7 text-xs bg-primary/20 hover:bg-primary/30 text-primary-foreground border border-primary/30" onClick={() => setLocation(`/bookings?bookingId=${hasApplied.id}`)}>
+                                                        <div className="flex items-center gap-1">
+                                                            <Button size="sm" variant="default" className="h-7 text-xs" onClick={() => setLocation(`/bookings?bookingId=${hasApplied.id}`)}>
                                                                 Go to chat
+                                                            </Button>
+                                                            <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 px-2" onClick={() => handleWithdraw(hasApplied.id)}>
+                                                                Withdraw
                                                             </Button>
                                                         </div>
                                                     ) : (
@@ -215,12 +215,12 @@ export default function FindGigs() {
                                         const hasApplied = bookings?.find((b: any) => b.eventId === event.id && !b.stageId && b.status !== 'cancelled' && b.status !== 'rejected');
                                         return hasApplied ? (
                                             <div className="flex items-center gap-2">
-                                                <Button className="gap-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30" variant="outline" onClick={() => handleWithdraw(hasApplied.id)}>
-                                                    Withdraw
-                                                </Button>
                                                 <Button className="gap-2 group-hover:bg-primary/90" onClick={() => setLocation(`/bookings?bookingId=${hasApplied.id}`)}>
                                                     Go to chat
                                                     <ArrowUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                                                </Button>
+                                                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-xs" onClick={() => handleWithdraw(hasApplied.id)}>
+                                                    Withdraw
                                                 </Button>
                                             </div>
                                         ) : (
