@@ -40,7 +40,7 @@ A **curator-led booking system** that manages who plays where, when, under what 
 - **Routing**: Wouter
 - **State Management**: TanStack Query (React Query)
 - **UI Components**: Radix UI + shadcn/ui
-- **Styling**: Tailwind CSS v4
+- **Styling**: Tailwind CSS v3
 - **Animations**: Framer Motion
 - **Form Handling**: React Hook Form with Zod validation
 
@@ -88,49 +88,65 @@ A **curator-led booking system** that manages who plays where, when, under what 
 
 ### 1. User Management
 - **Multi-role system**: Artist, Organizer, Venue Manager, Admin, Curator
-- **Profile Types**: Each role has specific profile requirements
-- **Trust Scoring**: Reputation system for all parties
-- **KYC Verification**: Document verification for artists and organizers
+- **Profile Types**: Each role has specific profile requirements and setup wizards
+- **Trust Scoring**: Reputation system for all parties (stored in profile metadata)
+- **KYC Verification**: PAN, GSTIN, and bank account fields on user records
+- **Profile Completion Tracking**: Progress bar with section-level checklist guiding users through setup
+- **Real-time Username Check**: Debounced server-side availability validation during registration
+- **Role-aware Auth UI**: Registration role switch preserves common fields; "Already signed in" page shows role badge and avatar
 
 ### 2. Booking System
 
-#### Mode A: Single Booking Mode
+#### Mode A: Single Booking Mode (Implemented)
 - One-off gigs or tour-based events
-- Curated discovery with filters
-- Intent verification
-- Structured negotiation (max 2-3 rounds)
-- Auto-contract generation
+- Curated discovery with genre filter pills and location-aware search
+- Artist application with fee guidance hints (suggested range based on event budget)
+- 4-step structured negotiation with 72-hour per-step deadlines (max 3 rounds)
+- Auto-contract generation from agreed negotiation snapshot
+- Booking status flow: inquiry -> offered -> negotiating -> contracting -> confirmed -> paid_deposit -> scheduled -> completed
 
-#### Mode B: Programming Mode
+#### Mode B: Programming Mode (Planned)
 - 3-6 month venue calendars
 - Curator-led selections
 - Monthly retainers
 - Consistent programming
 
-### 3. Contract Management
-- Automated contract generation (90% pre-filled templates)
-- Four contract types based on:
-  - Artist/Organizer trust scores
-  - Booking type (local/interstate/international)
-- Digital signature workflow
-- Slot time protection clauses
-- Cancellation policies with penalties
+### 3. Contract Management (Sequential Edit Workflow)
+- Automated contract generation (90% pre-filled from negotiation snapshot)
+- **Sequential edit workflow**:
+  1. Contract auto-generated from agreed terms
+  2. Organizer reviews and optionally edits (one time only)
+  3. Artist reviews and optionally edits (one time only)
+  4. If artist edited: returns to organizer who can only Accept or Walk Away
+  5. Both parties sign digitally
+  6. Admin review step (togglable via app_settings)
+  7. PDF generated with "Digitally Signed" watermark
+- Contract scroll enforcement: users must read the full document before accepting
+- PAN/GSTIN warning banner for tax compliance awareness
+- IT Act 2000 compliance: IP address and user-agent captured at signing
+- Version history with immutable audit trail
+- Four contract types based on artist/organizer trust scores and booking type
+- Slot time protection clauses and cancellation policies with penalties
 
 ### 4. Payment System
 - Milestone-based payments (20-50% deposit, staged releases)
 - Platform escrow protection
-- Automated payment schedules
-- Commission tracking (2-5%)
+- Commission tracking (2-5%) with category-based commission policies
+- Financial breakdown per booking: gross value, artist fee, organizer fee, platform revenue
 - Multi-currency support (primary: INR)
+- Automated payment schedules (planned)
 
-### 5. Negotiation Engine
-- Limited round negotiation (max 3 rounds)
-- Time-bound responses (24-48 hours)
-- Pre-defined negotiable parameters:
-  - Slot time (opening/mid/closing)
+### 5. Negotiation Engine (Overhauled)
+- **4-step proposal system** with versioned `bookingProposals` table
+- 72-hour per-step deadlines (enforced via `booking.flowDeadlineAt`)
+- Negotiable parameters per round:
+  - Artist fee / offer amount
+  - Time slot (opening / mid / closing)
   - Performance duration
-  - Budget (±20% from original)
-- Automatic mediation offers
+  - Tech rider (artist requirements and organizer commitments)
+- Proposal snapshot stored in `booking.meta.negotiation.currentProposalSnapshot`
+- Both parties must accept and tech rider must be confirmed before moving to contracting
+- Walk-away option with confirmation dialog at any step
 
 ### 6. Trust Score System
 
@@ -151,20 +167,50 @@ A **curator-led booking system** that manages who plays where, when, under what 
 **Impact:**
 - Low score = harder contract terms (100% advance payment)
 - High score = preferential treatment and flexible terms
+- Trust tier snapshot frozen on each booking for audit purposes
 
-### 7. Event Execution Workflow
+### 7. Image Upload System
+- Drag-and-drop file upload
+- File browser selection
+- URL input for external images
+- Multi-image upload support
+- Centralized media table with polymorphic entity association (artist, venue, event)
+- Supports image, audio, video, and document media types
+
+### 8. Communication System
+- **WebSocket real-time chat** replacing HTTP polling for negotiation conversations
+- Flowchart-based structured chat driven by `conversationWorkflowInstances` state machine
+- Message types: text, system, proposal, action
+- Read receipts via `message_reads` table
+- Document and file sharing via attachments
+
+### 9. Notification System
+- Event bus infrastructure for dispatching notifications
+- Template-based notification types with Mustache/Handlebars rendering
+- Multiple channels: in-app, email, SMS, push (configurable per type)
+- User-level WebSocket authentication for secure real-time push
+- Role-targeted delivery (each notification type specifies which roles receive it)
+- Rate limiting per channel
+- Admin can enable/disable individual notification types
+
+### 10. Dashboard and Analytics
+- **Artist Dashboard**: KPI strip with 5 cards (including negotiating stats), upcoming gigs, profile completion
+- **Organizer Dashboard**: Pending actions panel with real booking data, event stats, booking pipeline
+- **Venue Dashboard**: Shows hosted, artists booked, monthly budget utilization, trust score
+- **Admin Dashboard**: Full system oversight at `/admin`
+
+### 11. Event Execution Workflow
 - Pre-event checklist management
 - Travel and accommodation tracking
-- Technical rider management
+- Technical rider management (integrated into negotiation flow)
 - Day-of coordination
 - Sound check scheduling
 - Guest list management
 
-### 8. Communication System
-- Flowchart-based chat (structured, not free-form)
-- Document sharing
-- Notification system (email, SMS, in-app, push)
-- Automated reminders
+### 12. Mobile-Responsive UI
+- Mobile navigation with role-aware sidebar
+- Responsive layouts across all dashboards and forms
+- Touch-friendly interaction patterns
 
 ## Revenue Model
 
@@ -328,13 +374,32 @@ A **curator-led booking system** that manages who plays where, when, under what 
 
 ## Project Status
 
-**Current Phase**: Development & Testing  
-**Target Launch**: Q1 2026 (Bangalore)  
-**Database**: Migration to comprehensive schema in progress  
-**Documentation**: In development
+**Current Phase**: Development and Testing
+**Target Launch**: Q1 2026 (Bangalore)
+**Database**: Comprehensive schema implemented with 30+ tables across all domains
+**Documentation**: Actively maintained
+
+### Recently Completed (April 2026)
+- Negotiation system overhaul with 4-step proposal versioning and 72-hour deadlines
+- Image upload module (drag-drop, browse, URL input, multi-image)
+- WebSocket real-time chat replacing HTTP polling
+- Genre filter pills on Find Gigs page
+- Fee guidance hints in application modal
+- Profile completion progress bar with section checklist
+- Contract scroll enforcement and PAN/GSTIN warning banner
+- Sequential contract edit workflow (organizer first, then artist)
+- Notification system infrastructure (event bus, templates, WebSocket auth)
+- Organizer dashboard with real booking data in pending actions
+- Comprehensive UI/UX improvements from E2E test report
+
+### Active Work / Needs Attention
+- Contract page and routes need redesign to fully match sequential edit workflow
+- Contract status transitions need server-side enforcement
+- Admin review step in contract flow needs completion
+- Payment gateway integration (Razorpay)
 
 ---
 
-**Last Updated**: April 2, 2026  
-**Version**: 1.0.0  
+**Last Updated**: April 3, 2026
+**Version**: 1.1.0
 **Maintained By**: Development Team

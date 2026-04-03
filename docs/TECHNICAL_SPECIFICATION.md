@@ -1,4 +1,4 @@
-# 🔧 Technical Specification - Music Artist Management Platform
+# Technical Specification - BANDWIDTH Music Booking Platform
 
 ## Table of Contents
 1. [System Architecture](#system-architecture)
@@ -9,8 +9,11 @@
 6. [Performance Optimization](#performance-optimization)
 7. [Error Handling](#error-handling)
 8. [Data Flow](#data-flow)
-9. [Third-Party Integrations](#third-party-integrations)
-10. [Deployment Architecture](#deployment-architecture)
+9. [WebSocket Architecture](#websocket-architecture)
+10. [Notification System](#notification-system)
+11. [Media & Image Storage](#media--image-storage)
+12. [Third-Party Integrations](#third-party-integrations)
+13. [Deployment Architecture](#deployment-architecture)
 
 ---
 
@@ -19,36 +22,39 @@
 ### 1.1 High-Level Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                         CLIENT LAYER                          │
-├──────────────────────────────────────────────────────────────┤
-│  React SPA (Vite + TypeScript)                               │
-│  - Component Library: Radix UI + shadcn/ui                   │
-│  - State Management: TanStack Query                          │
-│  - Form Validation: React Hook Form + Zod                   │
-│  - Routing: Wouter                                           │
-│  - Styling: Tailwind CSS v4                                  │
-└──────────────────────────────────────────────────────────────┘
-                            ↕ HTTPS
-┌──────────────────────────────────────────────────────────────┐
-│                        SERVER LAYER                           │
-├──────────────────────────────────────────────────────────────┤
-│  Express.js v5 (Node.js + TypeScript)                       │
-│  - Session Management: express-session                       │
-│  - Authentication: Passport.js (local strategy)              │
-│  - ORM: Drizzle                                              │
-│  - Schema Validation: Zod                                    │
-│  - WebSocket: ws                                             │
-└──────────────────────────────────────────────────────────────┘
-                            ↕ TCP
-┌──────────────────────────────────────────────────────────────┐
-│                      PERSISTENCE LAYER                        │
-├──────────────────────────────────────────────────────────────┤
-│  PostgreSQL 14+                                              │
-│  - Session Store: connect-pg-simple                          │
-│  - Connection Pooling: pg                                    │
-│  - Migrations: Drizzle Kit                                   │
-└──────────────────────────────────────────────────────────────┘
++--------------------------------------------------------------+
+|                         CLIENT LAYER                          |
++--------------------------------------------------------------+
+|  React SPA (Vite + TypeScript)                               |
+|  - Component Library: Radix UI + shadcn/ui                   |
+|  - State Management: TanStack Query                          |
+|  - Form Validation: React Hook Form + Zod                   |
+|  - Routing: Wouter                                           |
+|  - Styling: Tailwind CSS v3                                  |
+|  - Real-time: WebSocket singleton (client/src/lib/ws.ts)     |
++--------------------------------------------------------------+
+                       | HTTPS + WSS |
++--------------------------------------------------------------+
+|                        SERVER LAYER                           |
++--------------------------------------------------------------+
+|  Express.js v5 (Node.js + TypeScript)                       |
+|  - Session Management: express-session                       |
+|  - Authentication: Passport.js (local strategy)              |
+|  - ORM: Drizzle                                              |
+|  - Schema Validation: Zod                                    |
+|  - WebSocket: ws (room-based + user-level pub/sub)           |
+|  - Event Bus: In-process EventEmitter (domain events)        |
++--------------------------------------------------------------+
+                         | TCP |
++--------------------------------------------------------------+
+|                      PERSISTENCE LAYER                        |
++--------------------------------------------------------------+
+|  PostgreSQL 14+                                              |
+|  - Session Store: connect-pg-simple                          |
+|  - Connection Pooling: pg                                    |
+|  - Migrations: Drizzle Kit                                   |
+|  - Media: base64 data URLs stored in `media.data` column     |
++--------------------------------------------------------------+
 ```
 
 ### 1.2 Tech Stack Details
@@ -65,7 +71,7 @@
   "validation": "Zod 3.24.2",
   "ui": {
     "components": "Radix UI",
-    "styling": "Tailwind CSS 4.x",
+    "styling": "Tailwind CSS v3",
     "animations": "Framer Motion 11.18.2",
     "icons": "Lucide React 0.453.0"
   }
@@ -87,37 +93,68 @@
     "sessionStore": "connect-pg-simple 10.0.0"
   },
   "validation": "Zod 3.24.2 + drizzle-zod 0.7.0",
-  "realtime": "ws 8.18.0"
+  "realtime": "ws 8.18.0",
+  "pdf": "pdfkit"
 }
 ```
 
 ### 1.3 Module Structure
 
 ```
-src/
-├── server/                 # Backend code
-│   ├── auth.ts            # Authentication logic
-│   ├── db.ts              # Database connection
-│   ├── index.ts           # Server entry point
-│   ├── routes.ts          # API route handlers
-│   ├── storage.ts         # File storage utilities
-│   ├── static.ts          # Static file serving
-│   └── vite.ts            # Vite integration
-│
-├── client/                # Frontend code
-│   ├── src/
-│   │   ├── components/    # React components
-│   │   ├── hooks/         # Custom React hooks
-│   │   ├── lib/           # Utilities
-│   │   ├── pages/         # Page components
-│   │   └── types/         # TypeScript types
-│   └── public/            # Static assets
-│
-├── shared/                # Shared code (types, utils)
-│   └── schema/            # Drizzle schema definitions
-│
-└── script/                # Build scripts
-    └── build.ts           # Production build script
+shared/
+  schema.ts                    # Drizzle DB schema (ALL tables, enums, relations)
+  routes.ts                    # API contracts (all endpoint definitions + Zod schemas)
+  negotiation-application.ts   # Negotiation types and snapshot helpers
+
+server/
+  index.ts                     # Entry point
+  db.ts                        # Drizzle DB connection
+  auth.ts                      # Passport.js setup
+  storage.ts                   # IStorage interface + DatabaseStorage class (ALL DB queries)
+  routes.ts                    # Route registration (imports sub-routers)
+  ws-server.ts                 # WebSocket server (room-based + user-level pub/sub)
+  routes/
+    organizer.ts               # Organizer-specific routes
+    contracts.ts               # Contract routes
+    conversations.ts           # Conversations/messaging routes
+    opportunities.ts           # Artist opportunity/gig routes
+    media.ts                   # Image upload/serve/delete routes
+    notifications.ts           # Notification list/read routes
+    admin.ts                   # Admin routes
+  services/
+    negotiation.service.ts     # Negotiation business logic
+    contract.service.ts        # Contract generation + management
+    booking.service.ts         # Booking state machine
+    workflow.ts                # Workflow engine (action dispatch, turn-taking)
+    notification.service.ts    # Notification rendering + delivery
+    notification-resolvers.ts  # Target user resolution for notifications
+    event-bus.ts               # In-process domain event bus
+    commissionPolicy.service.ts
+    artistCategory.service.ts
+  *-utils.ts                   # Profile builders, helpers
+
+client/src/
+  pages/
+    artist/                    # ArtistDashboard, FindGigs, ArtistBookings, ProfileSetup
+    organizer/                 # OrganizerDashboard, OrganizerEvents, OrganizerBookings, etc.
+    venue/                     # VenueDashboard, VenueBookings, VenueProfile, etc.
+    admin/                     # AdminDashboard, AdminUsers, AdminBookings, etc.
+    contract/                  # ContractPage (full-page contract viewer/editor)
+  components/
+    booking/
+      NegotiationFlow.tsx      # Main negotiation UI component
+      CounterOfferForm.tsx     # Counter-offer form
+      ContractViewer.tsx       # Contract viewer
+      OfferComparison.tsx      # Side-by-side offer comparison
+    ImageUpload.tsx            # Reusable image upload (drag-drop, URL, compact mode)
+    ImageGallery.tsx           # Responsive image gallery with lightbox
+  hooks/
+    use-auth.tsx               # Auth hook
+    use-conversation.ts        # HTTP history + WS live updates for chat
+    use-notifications.ts       # Notification polling + WS push
+  lib/
+    ws.ts                      # Singleton WebSocket connection + typed dispatcher
+    queryClient.ts             # TanStack Query client + apiRequest helper
 ```
 
 ---
@@ -126,309 +163,192 @@ src/
 
 ### 2.1 Schema Overview
 
-The database is designed with PostgreSQL and follows a relational model with strong data integrity. We use Drizzle ORM for type-safe database access.
+The database is designed with PostgreSQL and follows a relational model with strong data integrity. All tables and enums are defined in `shared/schema.ts` using Drizzle ORM. Type exports and Zod validation schemas are generated from the Drizzle definitions.
 
-### 2.2 Core Tables
+### 2.2 Enums
 
-#### Users Table
-```sql
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    username TEXT UNIQUE,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT,
-    phone TEXT,
-    display_name TEXT,
-    first_name TEXT,
-    last_name TEXT,
-    gender gender,
-    date_of_birth DATE,
-    status user_status DEFAULT 'pending_verification',
-    locale CHAR(5),
-    currency CHAR(3) DEFAULT 'INR',
-    timezone TEXT DEFAULT 'Asia/Kolkata',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    metadata JSONB DEFAULT '{}'
-);
+The schema defines the following PostgreSQL enums:
+
+| Enum | Values |
+|------|--------|
+| `artist_category` | `budding`, `mid_scale`, `international`, `custom` |
+| `artist_category_source` | `auto`, `manual`, `override` |
+| `user_status` | `active`, `suspended`, `deleted`, `pending_verification` |
+| `role_name` | `artist`, `band_manager`, `promoter`, `organizer`, `venue_manager`, `admin`, `platform_admin`, `staff` |
+| `booking_status` | `inquiry`, `offered`, `negotiating`, `contracting`, `confirmed`, `paid_deposit`, `scheduled`, `completed`, `cancelled`, `disputed`, `refunded` |
+| `contract_status` | `draft`, `sent`, `signed_by_promoter`, `signed_by_artist`, `admin_review`, `signed`, `voided`, `completed` |
+| `contract_edit_status` | `pending`, `approved`, `rejected`, `applied` |
+| `proposal_status` | `active`, `accepted`, `rejected`, `expired`, `withdrawn` |
+| `dispute_status` | `open`, `investigating`, `resolved_refund`, `resolved_no_refund`, `escalated` |
+| `gender` | `male`, `female`, `other`, `prefer_not_say` |
+| `gst_registration_type` | `registered`, `unregistered`, `composition`, `none` |
+| `invoice_status` | `draft`, `issued`, `paid`, `overdue`, `cancelled`, `refunded` |
+| `media_type` | `image`, `audio`, `video`, `document`, `other` |
+| `notification_channel` | `in_app`, `email`, `sms`, `push` |
+| `notification_priority` | `normal`, `urgent` |
+| `payment_status` | `initiated`, `authorized`, `captured`, `failed`, `refunded`, `cancelled` |
+| `payout_status` | `queued`, `processing`, `paid`, `failed`, `cancelled` |
+| `search_entity` | `artist`, `venue`, `event`, `promoter`, `organizer` |
+| `ticket_type` | `general`, `vip`, `reserved`, `earlybird`, `guestlist` |
+| `visibility` | `public`, `private` |
+
+### 2.3 Tables by Domain
+
+#### Auth and Users
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `session` | `sid` (PK, text), `sess` (JSONB), `expire` (timestamp) | Session store for `connect-pg-simple`. |
+| `users` | `id` (serial PK), `username` (unique), `email` (unique), `passwordHash`, `phone`, `displayName`, `firstName`, `lastName`, `legalName`, `panNumber`, `gstin`, `bankAccountNumber`, `bankIfsc`, `gender`, `dateOfBirth`, `status` (user_status), `locale`, `currency`, `timezone`, `metadata` (JSONB) | Core user table. `metadata.role` stores the primary role. Financial/legal fields for KYC. |
+| `roles` | `id` (serial PK), `name` (role_name, unique), `description` | Role lookup table. |
+| `user_roles` | `userId` + `roleId` (composite PK), `assignedAt` | Many-to-many user-role assignments. |
+| `auth_providers` | `id` (serial PK), `userId`, `provider`, `providerUserId`, `data` (JSONB) | OAuth/social login provider records. |
+
+#### Geography and Lookups
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `currencies` | `currencyCode` (char(3) PK), `name`, `symbol`, `precision` | Currency reference table. |
+| `locales` | `localeCode` (char(5) PK), `displayName` | Locale reference table. |
+| `timezones` | `tzName` (text PK) | Timezone reference table. |
+| `countries` | `countryId` (serial PK), `name`, `iso2`, `iso3`, `currencyCode` (FK) | Country reference. |
+| `states` | `stateId` (serial PK), `countryId` (FK), `name` | State/province reference. |
+| `cities` | `cityId` (serial PK), `stateId` (FK), `name`, `lat`, `lon` | City reference with coordinates. |
+
+#### Organizations and Genres
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `organizations` | `id` (serial PK), `name`, `slug` (unique), `description`, `website`, `createdBy` (FK users), `metadata` (JSONB) | Organization entity (label, agency, etc.). |
+| `organization_members` | `orgId` + `userId` (composite PK), `role`, `joinedAt` | Organization membership. |
+| `genres` | `id` (serial PK), `name` (unique), `slug` (unique), `parentId` (self-referencing FK) | Hierarchical genre taxonomy. |
+
+#### Profiles: Artists
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `artists` | `id` (serial PK), `userId` (FK), `organizationId` (FK), `name`, `isBand`, `members` (JSONB), `bio`, `originCityId` (FK), `baseLocation` (JSONB), `priceFrom`, `priceTo`, `currency`, `ratingAvg`, `ratingCount`, `artistCategory`, `artistCategorySource`, `artistCategoryLocked`, `commissionOverrideArtistPct`, `commissionOverrideOrganizerPct`, `minimumGuaranteedEarnings`, `metadata` (JSONB) | Artist profile with pricing, category, and commission overrides. |
+| `artist_genres` | `artistId` + `genreId` (composite PK) | Many-to-many artist-genre association. |
+| `artist_category_history` | `id` (serial PK), `artistId` (FK), `oldCategory`, `newCategory`, `reason`, `changedBy` (FK), `changedAt` | Audit trail for artist category changes. |
+| `commission_policies` | `id` (serial PK), `artistCategory` (unique), `artistPct`, `organizerPct`, `platformPctTotal`, `minArtistGuarantee`, `active`, `effectiveFrom`, `effectiveTo` | Commission rates by artist category. |
+
+#### Profiles: Promoters/Organizers
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `promoters` | `id` (serial PK), `userId` (FK), `organizationId` (FK), `name`, `description`, `contactPerson` (JSONB), `metadata` (JSONB) | Promoter/organizer profile. Aliased as `organizers` in schema exports. |
+
+#### Profiles: Venues
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `venues` | `id` (serial PK), `userId` (FK), `organizationId` (FK), `name`, `slug` (unique), `description`, `address` (JSONB), `cityId` (FK), `capacity`, `capacitySeated`, `capacityStanding`, `spaceDimensions` (JSONB), `amenities` (JSONB), `timezone`, `ratingAvg`, `ratingCount`, `metadata` (JSONB) | Venue profile with capacity and technical specifications. |
+
+#### Events
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `events` | `id` (serial PK), `organizerId` (FK promoters), `venueId` (FK venues), `title`, `slug` (unique), `description`, `startTime`, `doorTime`, `endTime`, `timezone`, `capacityTotal`, `capacitySeated`, `currency`, `status`, `visibility` (public/private), `metadata` (JSONB) | Event definition. |
+| `event_stages` | `id` (serial PK), `eventId` (FK), `name`, `orderIndex`, `startTime`, `endTime`, `stagePlot` (text), `capacity` | Stages within a multi-stage event. |
+| `temporary_venues` | `id` (serial PK), `eventId` (FK), `name`, `location`, `mapsLink`, `directions`, `landmark`, `contactName`, `contactPhone`, `metadata` (JSONB) | Ad-hoc venue for a specific event (festival, outdoor, etc.). |
+
+#### Bookings and Proposals
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `bookings` | `id` (serial PK), `eventId` (FK), `artistId` (FK), `stageId` (FK), `status` (booking_status), `offerAmount`, `offerCurrency`, `depositPercent`, `depositAmount`, `finalAmount`, `grossBookingValue`, `artistFee`, `organizerFee`, `artistCommissionPct`, `organizerCommissionPct`, `platformRevenue`, `artistCategorySnapshot`, `trustTierSnapshot`, `contractId`, `flowStartedAt`, `flowDeadlineAt`, `flowExpiredAt`, `flowExpiredReason`, `meta` (JSONB) | Core booking record. `meta` stores negotiation state including `currentProposalSnapshot`. Financial fields track fee breakdown. Flow timestamps enforce 72-hour negotiation deadline. |
+| `booking_proposals` | `id` (serial PK), `bookingId` (FK), `createdBy` (FK users), `round`, `proposedTerms` (JSONB), `reasonCode`, `note`, `status` (proposal_status), `submittedByRole`, `stepNumber`, `responseAction` | Versioned proposal history for negotiations. `proposedTerms` contains `{offerAmount, currency, slotId, duration}`. |
+
+#### Contracts
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `contracts` | `id` (serial PK), `bookingId` (FK), `version`, `status` (contract_status), `contractPdf`, `contractText`, `signerSequence` (JSONB), `signedByPromoter`, `signedByArtist`, `editPhase` (text, default `"organizer_review"`), `artistEditUsed`, `promoterEditUsed`, `artistReviewDoneAt`, `promoterReviewDoneAt`, `artistAcceptedAt`, `promoterAcceptedAt`, `artistSignedAt`, `promoterSignedAt`, `artistSignatureIp`, `promoterSignatureIp`, `pdfUrl`, `pdfGeneratedAt`, `adminReviewedBy` (FK), `adminReviewedAt`, `adminReviewNote`, `adminReviewStatus`, `artistCategorySnapshot`, `trustScoreSnapshot`, `commissionBreakdownJson` (JSONB), `negotiatedTermsJson` (JSONB), `metadata` (JSONB) | Full contract record with sequential edit workflow tracking, IT Act 2000 compliance logging (IP addresses), admin review fields, and negotiation snapshot. |
+| `contract_versions` | `id` (serial PK), `contractId` (FK), `version`, `contractText`, `terms` (JSONB), `createdBy` (FK), `changeSummary` | Immutable version history. Each edit creates a new row. |
+| `contract_edit_requests` | `id` (serial PK), `contractId` (FK), `requestedBy` (FK), `requestedByRole`, `changes` (JSONB), `note`, `status` (contract_edit_status), `respondedBy` (FK), `respondedAt`, `responseNote`, `resultingVersion` | One edit request per party max. Tracks organizer-first, artist-second edit workflow. |
+| `contract_signatures` | `id` (serial PK), `contractId` (FK), `userId` (FK), `role`, `signatureData` (text), `signatureType` (`drawn`/`typed`/`uploaded`), `ipAddress`, `userAgent`, `signedAt` | Captures actual signature data and metadata for legal compliance. |
+
+#### Payments
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `payments` | `id` (serial PK), `bookingId` (FK), `payerId` (FK users), `payeeId` (FK users), `amount`, `currency`, `paymentType` (`deposit`/`milestone`/`final`), `status` (payment_status), `gateway`, `gatewayTransactionId`, `gatewayResponse` (JSONB), `initiatedAt`, `completedAt`, `metadata` (JSONB) | Payment records with gateway integration fields. |
+| `payouts` | `id` (serial PK), `toUserId` (FK), `amount`, `currency`, `status` (payout_status), `providerResponse` (JSONB), `initiatedAt`, `paidAt`, `metadata` (JSONB) | Artist/organizer payout records. |
+
+#### Messaging and Conversations
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `conversations` | `id` (serial PK), `subject`, `entityType` (e.g. `"booking"`), `entityId`, `conversationType` (`negotiation`/`direct`), `status`, `lastMessageAt`, `metadata` (JSONB) | Conversation threads, bound to domain entities. Idempotent creation via (entityType, entityId, conversationType) triple. |
+| `conversation_workflow_instances` | `conversationId` (PK, FK), `workflowKey` (default `"booking_negotiation_v1"`), `currentNodeKey`, `awaitingUserId` (FK), `awaitingRole`, `round`, `maxRounds` (default 3), `deadlineAt`, `locked`, `context` (JSONB) | State machine for negotiation conversations. One-to-one with conversation. Enforces turn-taking and round limits. |
+| `conversation_participants` | `conversationId` + `userId` (composite PK), `joinedAt` | Many-to-many conversation membership. |
+| `messages` | `id` (serial PK), `conversationId` (FK), `senderId` (FK), `body`, `messageType` (default `"text"`), `payload` (JSONB), `clientMsgId`, `workflowNodeKey`, `actionKey`, `round`, `attachments` (JSONB) | Chat messages. Workflow messages carry `actionKey` and `round` for negotiation tracking. `clientMsgId` supports deduplication. |
+| `booking_proposals` | (see Bookings section above) | Versioned negotiation proposals linked to bookings. |
+| `message_reads` | `messageId` + `userId` (composite PK), `readAt` | Read receipts per message per user. |
+
+#### Media
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `media` | `id` (serial PK), `ownerUserId` (FK), `entityType`, `entityId`, `mediaType` (media_type), `filename`, `mimeType`, `fileSize`, `data` (text -- base64 data URL or external URL), `sourceUrl`, `altText`, `metadata` (JSONB), `uploadedAt` | Image and file storage. Images stored as base64 data URLs in the `data` column. See [Media & Image Storage](#media--image-storage) for details. |
+
+#### Notifications
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `notification_types` | `id` (serial PK), `key` (unique), `category`, `label`, `description`, `titleTemplate`, `bodyTemplate`, `targetRoles` (JSONB), `channels` (JSONB, default `["in_app"]`), `enabled`, `priority` (notification_priority), `metadata` (JSONB) | Notification type definitions with template strings (supports `{{variable}}` interpolation). Admin-configurable. |
+| `notification_channels` | `id` (serial PK), `channel` (notification_channel, unique), `enabled`, `config` (JSONB), `rateLimit` (JSONB) | Channel-level enable/disable and rate limiting configuration. |
+| `notifications` | `id` (serial PK), `userId` (FK), `notificationTypeKey`, `channel` (notification_channel), `title`, `body`, `entityType`, `entityId`, `actionUrl`, `data` (JSONB), `read`, `readAt`, `delivered`, `deliveredAt` | Per-user notification delivery records. |
+
+#### Audit and System
+
+| Table | Key Columns | Description |
+|-------|-------------|-------------|
+| `audit_logs` | `id` (bigserial PK), `occurredAt`, `who` (FK users), `action`, `entityType`, `entityId`, `diff` (JSONB), `context` (JSONB) | System-wide audit trail. Logged via triggers or application code. |
+| `system_settings` | `key` (text PK), `value` (JSONB), `description`, `updatedAt` | Key-value system configuration. |
+| `app_settings` | `id` (serial PK), `key` (unique), `value` (JSONB), `updatedAt`, `updatedBy` (FK users) | Admin-managed application toggles (e.g. approval step flags). |
+
+### 2.4 Key Relations
+
+The schema defines the following Drizzle ORM relations:
+
+- **users** -> has many `userRoles`, one `artist`, many `notifications`
+- **artists** -> belongs to `users`, has many `artistGenres`, has many `bookings`
+- **bookings** -> belongs to `artists`, belongs to `events`, has one `contract`
+- **contracts** -> belongs to `bookings`, has many `contractVersions`, `contractEditRequests`, `contractSignatures`
+- **events** -> belongs to `venues`, belongs to `promoters` (organizer), has many `bookings`, has many `eventStages`
+- **conversations** -> has many `conversationParticipants`, has many `messages`, has one `conversationWorkflowInstance`
+- **messages** -> belongs to `conversations`, belongs to `users` (sender), has many `messageReads`
+- **bookingProposals** -> belongs to `bookings`, belongs to `users` (creator)
+
+### 2.5 Type Exports
+
+All table types are exported from `shared/schema.ts` using Drizzle's inference:
+
+```typescript
+export type User = typeof users.$inferSelect;
+export type InsertUser = typeof users.$inferInsert;
+// ... same pattern for Artist, Venue, Event, Booking, Contract,
+//     ContractVersion, ContractEditRequest, ContractSignature,
+//     Payment, Promoter, Organization, AuditLog, Conversation,
+//     Message, ConversationWorkflowInstance, BookingProposal,
+//     MessageRead, ArtistCategoryHistory, CommissionPolicy,
+//     AppSetting, Notification, NotificationType, NotificationChannel
 ```
 
-#### Roles & Permissions
-```sql
-CREATE TYPE role_name AS ENUM (
-    'artist',
-    'band_manager',
-    'promoter',
-    'organizer',
-    'venue_manager',
-    'admin',
-    'staff'
-);
+Zod schemas are generated using `drizzle-zod`:
 
-CREATE TABLE roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name role_name NOT NULL UNIQUE,
-    description TEXT
-);
-
-CREATE TABLE user_roles (
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    role_id UUID REFERENCES roles(id) ON DELETE CASCADE,
-    assigned_by UUID REFERENCES users(id),
-    assigned_at TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (user_id, role_id)
-);
+```typescript
+export const insertUserSchema = createInsertSchema(users);
+export const selectUserSchema = createSelectSchema(users);
+// ... same for all major tables
 ```
 
-#### Artists Table
-```sql
-CREATE TABLE artists (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    artist_name TEXT NOT NULL,
-    bio TEXT,
-    years_experience INT,
-    budget_min NUMERIC(12, 2),
-    budget_standard NUMERIC(12, 2),
-    budget_premium NUMERIC(12, 2),
-    trust_score NUMERIC(5, 2) DEFAULT 50.00,
-    profile_photo_url TEXT,
-    is_verified BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    metadata JSONB DEFAULT '{}'
-);
-```
+The `promoters` table is also exported under the alias `organizers` for code readability:
 
-#### Venues Table
-```sql
-CREATE TABLE venues (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id),
-    name TEXT NOT NULL,
-    description TEXT,
-    capacity INT,
-    venue_type TEXT,
-    city_id INT REFERENCES cities(city_id),
-    address JSONB,
-    amenities JSONB,
-    technical_specs JSONB,
-    photos JSONB,
-    trust_score NUMERIC(5, 2) DEFAULT 50.00,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-#### Bookings Table
-```sql
-CREATE TYPE booking_status AS ENUM (
-    'inquiry',
-    'offered',
-    'negotiating',
-    'confirmed',
-    'paid_deposit',
-    'scheduled',
-    'completed',
-    'cancelled',
-    'disputed',
-    'refunded'
-);
-
-CREATE TABLE bookings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    artist_id UUID REFERENCES artists(id),
-    organizer_id UUID REFERENCES promoters(id),
-    venue_id UUID REFERENCES venues(id),
-    event_date DATE NOT NULL,
-    slot_time TEXT,
-    performance_duration INT, -- minutes
-    status booking_status DEFAULT 'inquiry',
-    budget NUMERIC(14, 2),
-    currency CHAR(3) DEFAULT 'INR',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    metadata JSONB DEFAULT '{}'
-);
-```
-
-#### Contracts Table
-```sql
-CREATE TYPE contract_status AS ENUM (
-    'draft',
-    'sent',
-    'signed_by_promoter',
-    'signed_by_artist',
-    'signed',
-    'voided',
-    'completed'
-);
-
-CREATE TABLE contracts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    booking_id UUID REFERENCES bookings(id),
-    contract_type TEXT NOT NULL,
-    terms JSONB NOT NULL,
-    status contract_status DEFAULT 'draft',
-    artist_signature JSONB,
-    artist_signed_at TIMESTAMPTZ,
-    promoter_signature JSONB,
-    promoter_signed_at TIMESTAMPTZ,
-    contract_pdf_url TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-#### Payments Table
-```sql
-CREATE TYPE payment_status AS ENUM (
-    'initiated',
-    'authorized',
-    'captured',
-    'failed',
-    'refunded',
-    'cancelled'
-);
-
-CREATE TABLE payments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    booking_id UUID REFERENCES bookings(id),
-    payer_id UUID REFERENCES users(id),
-    payee_id UUID REFERENCES users(id),
-    amount NUMERIC(14, 2) NOT NULL,
-    currency CHAR(3) DEFAULT 'INR',
-    payment_type TEXT, -- 'deposit', 'milestone', 'final'
-    status payment_status DEFAULT 'initiated',
-    gateway TEXT,
-    gateway_transaction_id TEXT,
-    gateway_response JSONB,
-    initiated_at TIMESTAMPTZ DEFAULT NOW(),
-    completed_at TIMESTAMPTZ,
-    metadata JSONB DEFAULT '{}'
-);
-```
-
-### 2.3 Supporting Tables
-
-#### Trust Scores
-```sql
-CREATE TABLE trust_score_history (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    entity_type TEXT NOT NULL, -- 'artist', 'organizer', 'venue'
-    entity_id UUID NOT NULL,
-    old_score NUMERIC(5, 2),
-    new_score NUMERIC(5, 2),
-    change_reason TEXT,
-    changed_by UUID REFERENCES users(id),
-    changed_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-#### Geography
-```sql
-CREATE TABLE countries (
-    country_id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    iso2 CHAR(2),
-    iso3 CHAR(3),
-    currency_code CHAR(3)
-);
-
-CREATE TABLE states (
-    state_id SERIAL PRIMARY KEY,
-    country_id INT REFERENCES countries(country_id),
-    name TEXT NOT NULL
-);
-
-CREATE TABLE cities (
-    city_id SERIAL PRIMARY KEY,
-    state_id INT REFERENCES states(state_id),
-    name TEXT NOT NULL,
-    lat FLOAT8,
-    lon FLOAT8
-);
-```
-
-### 2.4 Indexes
-
-```sql
--- User lookups
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_username ON users(username);
-CREATE INDEX idx_users_phone ON users(phone);
-CREATE INDEX idx_users_status ON users(status);
-
--- Artist searches
-CREATE INDEX idx_artists_user_id ON artists(user_id);
-CREATE INDEX idx_artists_trust_score ON artists(trust_score);
-CREATE INDEX idx_artists_budget ON artists(budget_min, budget_standard, budget_premium);
-
--- Booking queries
-CREATE INDEX idx_bookings_artist_id ON bookings(artist_id);
-CREATE INDEX idx_bookings_organizer_id ON bookings(organizer_id);
-CREATE INDEX idx_bookings_venue_id ON bookings(venue_id);
-CREATE INDEX idx_bookings_event_date ON bookings(event_date);
-CREATE INDEX idx_bookings_status ON bookings(status);
-
--- Payment tracking
-CREATE INDEX idx_payments_booking_id ON payments(booking_id);
-CREATE INDEX idx_payments_payer_id ON payments(payer_id);
-CREATE INDEX idx_payments_payee_id ON payments(payee_id);
-CREATE INDEX idx_payments_status ON payments(status);
-
--- Full-text search
-CREATE INDEX idx_search_index_tsv ON search_index USING gin(tsv);
-```
-
-### 2.5 Triggers & Functions
-
-```sql
--- Audit trigger function
-CREATE OR REPLACE FUNCTION audit_trigger_fn()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF (TG_OP = 'UPDATE') THEN
-        INSERT INTO audit_logs (who, action, entity_type, entity_id, diff, context)
-        VALUES (
-            current_setting('app.current_user_id', TRUE)::UUID,
-            'UPDATE',
-            TG_TABLE_NAME,
-            NEW.id,
-            jsonb_build_object('old', to_jsonb(OLD), 'new', to_jsonb(NEW)),
-            jsonb_build_object('ip', current_setting('app.client_ip', TRUE))
-        );
-    ELSIF (TG_OP = 'INSERT') THEN
-        INSERT INTO audit_logs (who, action, entity_type, entity_id, diff, context)
-        VALUES (
-            current_setting('app.current_user_id', TRUE)::UUID,
-            'INSERT',
-            TG_TABLE_NAME,
-            NEW.id,
-            to_jsonb(NEW),
-            jsonb_build_object('ip', current_setting('app.client_ip', TRUE))
-        );
-    ELSIF (TG_OP = 'DELETE') THEN
-        INSERT INTO audit_logs (who, action, entity_type, entity_id, diff, context)
-        VALUES (
-            current_setting('app.current_user_id', TRUE)::UUID,
-            'DELETE',
-            TG_TABLE_NAME,
-            OLD.id,
-            to_jsonb(OLD),
-            jsonb_build_object('ip', current_setting('app.client_ip', TRUE))
-        );
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Apply audit triggers
-CREATE TRIGGER audit_users AFTER INSERT OR UPDATE OR DELETE ON users
-    FOR EACH ROW EXECUTE FUNCTION audit_trigger_fn();
-
-CREATE TRIGGER audit_bookings AFTER INSERT OR UPDATE OR DELETE ON bookings
-    FOR EACH ROW EXECUTE FUNCTION audit_trigger_fn();
+```typescript
+export { promoters as organizers };
+export type Organizer = Promoter;
 ```
 
 ---
@@ -437,48 +357,30 @@ CREATE TRIGGER audit_bookings AFTER INSERT OR UPDATE OR DELETE ON bookings
 
 ### 3.1 API Architecture
 
-**Style**: RESTful API with JSON  
-**Base URL**: `/api/v1`  
-**Authentication**: Session-based with cookies  
+**Style**: RESTful API with JSON
+**Base URL**: `/api`
+**Authentication**: Session-based with cookies
+**Contract Source**: All endpoints are defined in `shared/routes.ts` as typed contracts
 
 ### 3.2 API Endpoints
 
 #### Authentication Endpoints
 
 ```typescript
-POST   /api/auth/register        // Register new user
-POST   /api/auth/login           // Login
-POST   /api/auth/logout          // Logout
-GET    /api/auth/me              // Get current user
-POST   /api/auth/refresh-token   // Refresh session
-POST   /api/auth/forgot-password // Request password reset
-POST   /api/auth/reset-password  // Reset password
-POST   /api/auth/verify-email    // Verify email
-```
-
-#### User Management
-
-```typescript
-GET    /api/users                // List users (admin only)
-GET    /api/users/:id            // Get user by ID
-PATCH  /api/users/:id            // Update user
-DELETE /api/users/:id            // Delete user (soft delete)
-POST   /api/users/:id/roles      // Assign role
-DELETE /api/users/:id/roles/:roleId // Remove role
+POST   /api/register             // Register new user
+POST   /api/login                // Login
+POST   /api/logout               // Logout
+GET    /api/user                 // Get current user
 ```
 
 #### Artist Profile
 
 ```typescript
 GET    /api/artists              // List artists (with filters)
-POST   /api/artists              // Create artist profile
+POST   /api/artists/profile/complete  // Complete artist profile setup
 GET    /api/artists/:id          // Get artist profile
 PATCH  /api/artists/:id          // Update artist profile
-DELETE /api/artists/:id          // Delete artist profile
-GET    /api/artists/:id/portfolio // Get portfolio
-POST   /api/artists/:id/portfolio // Upload portfolio item
-GET    /api/artists/:id/bookings  // Get artist bookings
-GET    /api/artists/:id/earnings  // Get earnings stats
+GET    /api/artists/:id/bookings // Get artist bookings
 ```
 
 #### Venue Management
@@ -488,9 +390,6 @@ GET    /api/venues               // List venues
 POST   /api/venues               // Create venue
 GET    /api/venues/:id           // Get venue details
 PATCH  /api/venues/:id           // Update venue
-DELETE /api/venues/:id           // Delete venue
-GET    /api/venues/:id/events    // Get venue events
-POST   /api/venues/:id/programming // Request programming
 ```
 
 #### Booking Workflow
@@ -499,29 +398,17 @@ POST   /api/venues/:id/programming // Request programming
 GET    /api/opportunities        // Browse available opportunities
 POST   /api/opportunities        // Create opportunity (organizer)
 GET    /api/opportunities/:id    // Get opportunity details
-PATCH  /api/opportunities/:id    // Update opportunity
-DELETE /api/opportunities/:id    // Delete opportunity
-
-POST   /api/applications         // Apply to opportunity
-GET    /api/applications/:id     // Get application details
-PATCH  /api/applications/:id     // Update application
-DELETE /api/applications/:id     // Withdraw application
-
 POST   /api/bookings             // Create booking
 GET    /api/bookings/:id         // Get booking details
 PATCH  /api/bookings/:id         // Update booking
-DELETE /api/bookings/:id         // Cancel booking
-GET    /api/bookings/:id/timeline // Get booking timeline
 ```
 
 #### Negotiation
 
 ```typescript
-POST   /api/negotiations         // Start negotiation
-GET    /api/negotiations/:id     // Get negotiation thread
-POST   /api/negotiations/:id/offer // Make counter-offer
-POST   /api/negotiations/:id/accept // Accept offer
-POST   /api/negotiations/:id/decline // Decline offer
+POST   /api/entities/:entityType/:entityId/conversation/:conversationType/open  // Open/retrieve negotiation
+POST   /api/conversations/:id/actions   // Dispatch workflow action
+POST   /api/conversations/:id/messages  // Send free-text message (non-negotiation only)
 ```
 
 #### Contracts
@@ -534,23 +421,31 @@ GET    /api/contracts/:id/pdf    // Download PDF
 POST   /api/contracts/:id/void   // Void contract
 ```
 
-#### Payments
+#### Media
 
 ```typescript
-POST   /api/payments             // Initiate payment
-GET    /api/payments/:id         // Get payment status
-POST   /api/payments/:id/confirm  // Confirm payment
-POST   /api/payments/:id/refund   // Request refund
-GET    /api/payments/webhooks    // Payment gateway webhook
+POST   /api/media/upload                        // Upload images (multipart)
+POST   /api/media/url                           // Upload image from URL
+GET    /api/media/:id/file                      // Serve image binary
+GET    /api/media/entity/:entityType/:entityId  // List images for entity
+DELETE /api/media/:id                           // Delete media record
 ```
 
-#### Search & Discovery
+#### Notifications
 
 ```typescript
-GET    /api/search               // Global search
-GET    /api/search/artists       // Search artists
-GET    /api/search/venues        // Search venues
-GET    /api/search/events        // Search events
+GET    /api/notifications            // List notifications (paginated)
+GET    /api/notifications/unread-count // Get unread badge count
+POST   /api/notifications/:id/read   // Mark single notification as read
+POST   /api/notifications/read-all   // Mark all as read
+```
+
+#### Conversations
+
+```typescript
+GET    /api/conversations            // List user's conversations
+GET    /api/conversations/:id        // Get conversation with workflow + participants
+GET    /api/conversations/:id/messages // Get messages (newest 50, chronological)
 ```
 
 ### 3.3 Request/Response Format
@@ -559,43 +454,21 @@ GET    /api/search/events        // Search events
 ```json
 {
   "success": true,
-  "data": { /* response data */ },
-  "message": "Operation successful",
-  "timestamp": "2026-02-03T13:56:47+05:30"
+  "data": {},
+  "message": "Operation successful"
 }
 ```
 
 #### Standard Error Response
 ```json
 {
-  "success": false,
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Invalid input data",
-    "details": [
-      {
-        "field": "email",
-        "message": "Invalid email format"
-      }
-    ]
-  },
-  "timestamp": "2026-02-03T13:56:47+05:30"
-}
-```
-
-#### Pagination
-```json
-{
-  "success": true,
-  "data": [ /* items */ ],
-  "pagination": {
-    "page": 1,
-    "pageSize": 20,
-    "totalItems": 150,
-    "totalPages": 8,
-    "hasNext": true,
-    "hasPrevious": false
-  }
+  "message": "Validation failed",
+  "errors": [
+    {
+      "field": "email",
+      "message": "Invalid email format"
+    }
+  ]
 }
 ```
 
@@ -604,16 +477,11 @@ GET    /api/search/events        // Search events
 ```
 200 - OK                    // Success
 201 - Created               // Resource created
-204 - No Content            // Success with no response body
-400 - Bad Request           // Invalid input
+400 - Bad Request           // Invalid input / workflow error
 401 - Unauthorized          // Not authenticated
-403 - Forbidden             // Not authorized
-404 - Not Found             // Resource doesn't exist
-409 - Conflict              // Duplicate or state conflict
-422 - Unprocessable Entity  // Validation error
-429 - Too Many Requests     // Rate limit exceeded
+403 - Forbidden             // Not authorized (e.g. not a conversation participant)
+404 - Not Found             // Resource does not exist
 500 - Internal Server Error // Server error
-503 - Service Unavailable   // Temporary outage
 ```
 
 ---
@@ -622,38 +490,31 @@ GET    /api/search/events        // Search events
 
 ### 4.1 Authentication Strategy
 
-**Method**: Session-based authentication using Passport.js  
-**Session Store**: PostgreSQL via connect-pg-simple  
-**Password Hashing**: Node.js crypto.scrypt (64-byte key, random 16-byte salt)
+**Method**: Session-based authentication using Passport.js
+**Session Store**: PostgreSQL via connect-pg-simple
+**Password Hashing**: Node.js `crypto.scrypt` (64-byte key, random 16-byte salt)
 
 ### 4.2 Authentication Flow
 
-```typescript
-// Registration
+```
+Registration:
 1. User submits email, password, phone, role
 2. Server validates input (Zod schema)
 3. Check if email/phone already exists
-4. Hash password with bcrypt
+4. Hash password with crypto.scrypt
 5. Create user record with status='pending_verification'
-6. Send verification email/SMS
-7. Return success (no auto-login)
+6. normalizeRegistrationRole() ensures valid role_name enum value
+7. Return success
 
-// Email/Phone Verification
-1. User clicks link or enters OTP
-2. Server validates token/OTP
-3. Update user status to 'active'
-4. Send welcome email
-5. Redirect to login
-
-// Login
+Login:
 1. User submits email/username and password
 2. Passport.js local strategy authenticates
-3. Check password hash with bcrypt.compare()
+3. Check password hash with crypto.timingSafeEqual
 4. Create session in PostgreSQL
 5. Set session cookie (httpOnly, secure, sameSite)
-6. Return user profile
+6. Return user profile with role data
 
-// Logout
+Logout:
 1. Client sends logout request
 2. Destroy session from PostgreSQL
 3. Clear session cookie
@@ -691,92 +552,30 @@ enum Role {
   ORGANIZER = 'organizer',
   VENUE_MANAGER = 'venue_manager',
   ADMIN = 'admin',
+  PLATFORM_ADMIN = 'platform_admin',
   STAFF = 'staff'
 }
-
-// Middleware example
-function requireRole(roles: Role[]) {
-  return (req, res, next) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    
-    const userRoles = req.user.roles.map(r => r.name);
-    const hasRequiredRole = roles.some(role => userRoles.includes(role));
-    
-    if (!hasRequiredRole) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-    
-    next();
-  };
-}
-
-// Usage
-router.get('/admin/users', requireRole([Role.ADMIN]), async (req, res) => {
-  // Only admins can access
-});
 ```
 
 ### 4.5 Role Normalisation & Resolution
 
-Roles are stored in `users.metadata.role` as a JSON field. Because the registration
-UI uses simplified labels (e.g. `"venue"`) while the database enum uses canonical
-values (e.g. `"venue_manager"`), a normalisation layer exists on both server and client.
+Roles are stored in `users.metadata.role` as a JSON field. The registration UI uses simplified labels (e.g. `"venue"`) while the database enum uses canonical values (e.g. `"venue_manager"`), so a normalisation layer exists on both server and client.
 
-#### Server-side (`server/role-utils.ts`)
+**Server-side** (`server/role-utils.ts`):
 
 | Input | Output | Side-effect |
 |---|---|---|
-| `"venue"` | `"venue_manager"` | — |
+| `"venue"` | `"venue_manager"` | -- |
 | `"organizer"` | `"organizer"` | Creates a `promoters` record |
-| `undefined` / `null` / `""` | `"artist"` | — |
-| Any other valid role | Pass-through | — |
+| `undefined` / `null` / `""` | `"artist"` | -- |
+| Any other valid role | Pass-through | -- |
 
-`normalizeRegistrationRole()` is called during `/api/register` before the user
-record is persisted, ensuring the stored metadata always contains a valid
-`role_name` enum value.
+**Client-side** (`client/src/App.tsx`): Mirrors the same normalisation when reading the user object, using a fallback chain: `user.metadata.role` -> profile entities -> `"artist"` default.
 
-#### Client-side (`client/src/App.tsx → getUserRole()`)
-
-The client mirrors the same normalisation when reading the user object:
-
-1. **`user.metadata.role`** — preferred source; legacy `"venue"` values are
-   mapped to `"venue_manager"`.
-2. **Profile entities** (`user.venue`, `user.organizer`, `user.artist`) — used
-   as a fallback when metadata is absent.
-3. **Default** — `"artist"`.
-
-This resolved role drives routing (`RoleBasedDashboard`, `RoleBasedBookings`,
-`RoleBasedProfile`) and profile-completion redirects.
-
-#### Route-handler role checks
-
-Protected endpoints that are role-gated (e.g. `POST /api/artists/profile/complete`)
-must also apply the fallback chain when reading the current user's role:
-
+**Route-handler role checks**: Protected endpoints read the role with the fallback chain:
 ```typescript
 const userRole = user.role || (user.metadata as any)?.role || 'artist';
 ```
-
-This is necessary because `user.role` is a convenience property set during
-login / deserialisation. Sessions that were serialised before the role-hydration
-patch may not carry it, so the handler falls back to `metadata.role` and
-ultimately to `"artist"` (the platform default).
-
-#### Why both layers normalise
-
-The server populates `metadata.role` at registration, but older accounts or
-accounts created via seed scripts may have inconsistent values. The client-side
-fallback chain ensures every authenticated user resolves to a valid role
-regardless of data quality.
-
-### 4.5 API Authentication
-
-All API requests (except public endpoints) require:
-1. Valid session cookie
-2. User must be authenticated (`req.isAuthenticated()`)
-3. User must have required role(s) for endpoint
 
 ---
 
@@ -787,108 +586,82 @@ All API requests (except public endpoints) require:
 - **Storage format**: `<salt>.<hex-hash>` in `users.passwordHash`
 - **Comparison**: `crypto.timingSafeEqual` to prevent timing attacks
 - **Minimum length**: 8 characters
-- **Requirements**: At least one uppercase, lowercase, number
-- **No password reuse**: Check against previous 5 passwords
-- **Password reset tokens**: UUID v4, expires in 1 hour
 
 ### 5.2 Session Security
 - **HttpOnly cookies**: Prevent XSS access to cookies
 - **Secure flag**: HTTPS only in production
 - **SameSite=lax**: CSRF protection
-- **Session rotation**: New session ID after login
 - **Absolute timeout**: 7 days
-- **Idle timeout**: 30 minutes of inactivity
 
 ### 5.3 Input Validation
-- **All inputs validated**: Using Zod schemas
+- **All inputs validated**: Using Zod schemas from `shared/routes.ts`
 - **SQL injection prevention**: Parameterized queries via Drizzle ORM
-- **XSS prevention**: Input sanitization, Content Security Policy
-- **File upload validation**: Type, size, virus scanning
+- **File upload validation**: MIME type whitelist, 20 MB size limit
 
-### 5.4 Rate Limiting
-```typescript
-// Login endpoint: 5 attempts per 15 minutes per IP
-// API endpoints: 100 requests per 15 minutes per user
-// Public endpoints: 1000 requests per hour per IP
-```
-
-### 5.5 CORS Configuration
-```typescript
-{
-  origin: process.env.FRONTEND_URL,
-  credentials: true,
-  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}
-```
-
-### 5.6 Content Security Policy
-```typescript
-{
-  defaultSrc: ["'self'"],
-  scriptSrc: ["'self'", "'unsafe-inline'"],
-  styleSrc: ["'self'", "'unsafe-inline'"],
-  imgSrc: ["'self'", 'data:', 'https:'],
-  connectSrc: ["'self'"]
-}
-```
-
-### 5.7 Data Encryption
-- **In transit**: TLS 1.3
-- **At rest**: Database-level encryption (PostgreSQL pgcrypto)
-- **Sensitive fields**: PAN, Aadhar, bank details encrypted
-- **Encryption key**: Stored in environment variables, rotated quarterly
+### 5.4 Contract Compliance
+- **IT Act 2000**: Contract signatures record IP address and user agent
+- **Signature types**: Drawn (base64 canvas data), typed (name string), uploaded (image)
+- **Audit trail**: `contract_signatures` table with `signedAt` timestamp
 
 ---
 
 ## 6. Performance Optimization
 
 ### 6.1 Database Optimization
-- **Connection pooling**: pg pool with max 20 connections
+- **Connection pooling**: pg pool with configurable connection limits
 - **Indexes**: Strategic indexes on frequently queried fields
-- **Query optimization**: Use EXPLAIN ANALYZE for slow queries
-- **Caching**: Redis for session store (optional upgrade from PostgreSQL)
+- **Query optimization**: Drizzle query builder with relation loading
 
 ### 6.2 Frontend Optimization
 - **Code splitting**: Lazy loading with React.lazy()
-- **Bundle size**: Tree shaking, minification
-- **Asset optimization**: Image optimization, lazy loading images
-- **Caching strategy**: Service workers, cache-first for assets
+- **Bundle size**: Tree shaking via Vite, minification
+- **Image serving**: Base64 images served with `Cache-Control: public, max-age=86400` (24 hours)
+- **Real-time**: WebSocket replaces polling for chat and notifications
 
 ### 6.3 API Response Optimization
-- **Pagination**: Default 20 items per page, max 100
-- **Field filtering**: Client can specify which fields to return
-- **Response compression**: gzip/brotli
-- **ETags**: Conditional requests for unchanged resources
+- **Media responses**: `toPublicRecord()` strips base64 data from list responses, replacing with serve URLs
+- **Message pagination**: Latest 50 messages fetched in DESC order, reversed for chronological display
 
 ---
 
 ## 7. Error Handling
 
-### 7.1 Error Categories
+### 7.1 Server-Side Pattern
 
 ```typescript
-enum ErrorCode {
-  // Client errors (4xx)
-  VALIDATION_ERROR = 'VALIDATION_ERROR',
-  UNAUTHORIZED = 'UNAUTHORIZED',
-  FORBIDDEN = 'FORBIDDEN',
-  NOT_FOUND = 'NOT_FOUND',
-  CONFLICT = 'CONFLICT',
-  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
-  
-  // Server errors (5xx)
-  INTERNAL_ERROR = 'INTERNAL_ERROR',
-  DATABASE_ERROR = 'DATABASE_ERROR',
-  EXTERNAL_SERVICE_ERROR = 'EXTERNAL_SERVICE_ERROR'
+// Zod validation
+const parsed = schema.safeParse(req.body);
+if (!parsed.success) {
+  return res.status(400).json({
+    message: "Validation failed",
+    errors: parsed.error.errors,
+  });
+}
+
+// Business logic in try/catch
+try {
+  const result = await someOperation();
+  res.json(result);
+} catch (error) {
+  console.error("Context:", error);
+  res.status(500).json({ message: "Operation failed" });
 }
 ```
 
-### 7.2 Error Logging
-- **Winston logger**: Structured JSON logging
-- **Log levels**: error, warn, info, debug
-- **Error tracking**: Sentry integration (optional)
-- **Log retention**: 30 days
+### 7.2 Workflow Errors
+
+Negotiation and contract workflow errors (wrong turn, locked conversation, max rounds exceeded) are returned as 400 status with descriptive messages:
+
+```typescript
+router.post("/conversations/:id/actions", async (req, res) => {
+  try {
+    const msg = await workflow.handleAction(conversationId, userId, actionKey, inputs);
+    res.json(msg);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message || "Action failed" });
+  }
+});
+```
 
 ---
 
@@ -896,108 +669,256 @@ enum ErrorCode {
 
 ### 8.1 Booking Workflow Data Flow
 
-```mermaid
-sequenceDiagram
-    Artist->>Frontend: Browse opportunities
-    Frontend->>API: GET /api/opportunities?filters
-    API->>Database: Query opportunities
-    Database-->>API: Return results
-    API-->>Frontend: Paginated opportunities
-    Frontend-->>Artist: Display list
-    
-    Artist->>Frontend: Apply to opportunity
-    Frontend->>API: POST /api/applications
-    API->>Database: Create application
-    Database-->>API: Confirm creation
-    API->>Notification: Send notification to organizer
-    API-->>Frontend: Success response
-    Frontend-->>Artist: Confirmation message
-    
-    Organizer->>Frontend: Review applications
-    Frontend->>API: GET /api/applications?opportunityId
-    API->>Database: Fetch applications
-    Database-->>API: Return applications
-    API-->>Frontend: Application list
-    Frontend-->>Organizer: Display applications
-    
-    Organizer->>Frontend: Accept application
-    Frontend->>API: POST /api/negotiations
-    API->>Database: Create negotiation
-    Database-->>API: Confirm
-    API->>ContractService: Generate contract
-    ContractService-->>API: Contract created
-    API-->>Frontend: Contract ready
-    Frontend-->>Organizer: Show contract
+```
+1. Organizer creates Event with venue and stage details
+2. Event published -> appears in artist opportunity feed
+3. Artist browses /api/opportunities, applies to event
+4. Application creates a Booking (status: "inquiry")
+5. NegotiationService opens a conversation (type: "negotiation")
+6. Workflow instance initialized (WAITING_FIRST_MOVE, round 0)
+7. Parties exchange proposals via /conversations/:id/actions
+8. Proposals tracked in booking_proposals, snapshot in booking.meta
+9. Both accept + tech rider confirmed -> booking status: "contracting"
+10. Contract auto-generated from negotiation snapshot
+11. Sequential edit: organizer edits -> artist edits -> final review
+12. Both sign -> admin review -> PDF generated
+13. Booking status: "confirmed" -> "paid_deposit" -> "scheduled" -> "completed"
 ```
 
 ---
 
-## 9. Third-Party Integrations
+## 9. WebSocket Architecture
 
-### 9.1 Payment Gateway Integration
-- **Provider**: Razorpay (primary), Stripe (international)
-- **Webhooks**: Listen for payment events
-- **Reconciliation**: Daily automated reconciliation
-- **Refunds**: Automated refund processing
+### 9.1 Overview
 
-### 9.2 Email Service
-- **Provider**: SendGrid or AWS SES
-- **Templates**: HTML email templates
-- **Tracking**: Open rates, click rates
-- **Bounce handling**: Automatic email validation
+The platform uses a WebSocket server for real-time communication, supporting two pub/sub patterns:
 
-### 9.3 SMS Service
-- **Provider**: Twilio or AWS SNS
-- **OTP delivery**: 6-digit codes, 10-minute expiry
-- **Delivery tracking**: Success/failure logging
+- **Room-based**: Keyed by `conversationId` for chat message delivery
+- **User-based**: Keyed by `userId` for notification delivery
 
-### 9.4 File Storage
-- **Provider**: AWS S3 or Cloudinary
-- **Assets**: Profile photos, portfolio images, contracts
-- **CDN**: CloudFront for fast delivery
-- **Access control**: Signed URLs for private files
+### 9.2 Server (`server/ws-server.ts`)
+
+The WebSocket server is initialized alongside the HTTP server on the `/ws` path:
+
+```typescript
+const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+```
+
+**State management**:
+- `rooms: Map<number, Set<WebSocket>>` -- conversation rooms
+- `userConnections: Map<number, Set<WebSocket>>` -- user-level connections
+
+**Protocol (client -> server)**:
+
+| Message | Purpose |
+|---------|---------|
+| `{ type: "subscribe", conversationId: number }` | Join a conversation room. Leaves previous room if switching. |
+| `{ type: "auth", userId: number }` | Authenticate for user-level notifications. |
+
+**Protocol (server -> client)**:
+
+| Message | Purpose |
+|---------|---------|
+| `{ type: "connected", conversationId: number }` | Acknowledgment of room subscription. |
+| `{ type: "auth_ok", userId: number }` | Acknowledgment of user authentication. |
+| `{ type: "message", data: MessageObject }` | New chat message in subscribed room. |
+| `{ type: "notification", data: NotificationObject }` | User notification pushed in real time. |
+
+**Exported broadcast functions**:
+- `broadcastToRoom(conversationId, payload)` -- sends to all clients in a conversation room
+- `broadcastToUser(userId, payload)` -- sends to all connections for a specific user
+
+**Cleanup**: On `close` or `error`, the client is removed from its room and user connection set. Empty rooms and user entries are garbage-collected.
+
+### 9.3 Client (`client/src/lib/ws.ts`)
+
+A singleton WebSocket connection that auto-reconnects:
+
+- `getWebSocket()` -- returns (or creates) the singleton connection
+- `onWsMessage(type, listener)` -- subscribe to a message type; returns an unsubscribe function
+- `authenticateWs(userId)` -- sends the `auth` message for notification delivery
+
+The module maintains a typed dispatcher: incoming messages are parsed as JSON, and listeners registered for `msg.type` are called with `msg.data` (or the full message if `data` is absent).
+
+### 9.4 React Hook (`client/src/hooks/use-conversation.ts`)
+
+`useConversationMessages(conversationId)` combines HTTP and WebSocket:
+
+1. Fetches initial message history via `GET /api/conversations/:id/messages`
+2. Opens a WebSocket subscription to the conversation room
+3. Incoming WS messages are appended directly into the TanStack Query cache
+4. No `refetchInterval` -- WebSocket handles all live updates
+
+### 9.5 Integration Points
+
+| Consumer | Usage |
+|----------|-------|
+| `NegotiationFlow.tsx` | Chat panel uses `useConversationMessages` for real-time negotiation messages. |
+| `OrganizerMessages.tsx` | Conversation list + message view uses `useConversationMessages`. |
+| `use-notifications.ts` | Calls `authenticateWs(userId)` on mount; subscribes to `"notification"` type via `onWsMessage` to update the TanStack Query cache for unread counts. |
+| `conversations.ts` (server) | Calls `broadcastToRoom()` after inserting a new message. |
+| `notification.service.ts` (server) | Calls `broadcastToUser()` after persisting an in-app notification. |
 
 ---
 
-## 10. Deployment Architecture
+## 10. Notification System
 
-### 10.1 Hosting Infrastructure
-- **Application server**: Replit (development), AWS EC2/ECS (production)
-- **Database**: AWS RDS PostgreSQL or managed PostgreSQL
-- **File storage**: AWS S3
-- **CDN**: CloudFront
+### 10.1 Overview
 
-### 10.2 Environment Configuration
+The notification system uses an event-driven architecture with three components:
+
+1. **Domain Event Bus** (`server/services/event-bus.ts`) -- in-process event emitter
+2. **Notification Service** (`server/services/notification.service.ts`) -- event handler that renders and delivers notifications
+3. **Target Resolvers** (`server/services/notification-resolvers.ts`) -- determines which users receive each notification
+
+### 10.2 Domain Event Bus
+
+An extended `EventEmitter` that emits events on both the specific type channel and a `"*"` wildcard channel:
+
+```typescript
+interface DomainEvent {
+  type: string;
+  payload: Record<string, any>;
+  actorUserId: number | null;
+  timestamp: string;
+}
+
+// Usage in business services:
+emitDomainEvent("booking.status_changed", { bookingId: 123, ... }, userId);
+```
+
+Business services call `emitDomainEvent()` after successful operations. The event bus is purely in-process; for horizontal scaling, it can be swapped to Redis pub/sub without changing call sites.
+
+### 10.3 Notification Service Lifecycle
+
+1. **`init()`** -- loads notification type definitions from `notification_types` table into an in-memory cache, subscribes to the `"*"` wildcard on the event bus
+2. **`handleEvent(event)`** -- for each incoming domain event:
+   - Looks up the notification type by `event.type` key
+   - If type is not found or disabled, the event is silently ignored
+   - Resolves target users via the resolver
+   - Renders title and body templates using `{{variable}}` interpolation against the event payload
+   - Filters channels against the channel-enabled cache
+   - For each target user (excluding the actor), persists an in-app notification and pushes it via WebSocket
+3. **`refreshTypeCache()`** -- reloads type definitions after admin updates
+
+### 10.4 Target User Resolution
+
+The resolver (`notification-resolvers.ts`) determines notification recipients based on the event payload and the notification type's `targetRoles` configuration:
+
+| Resolution Strategy | Trigger | How Users Are Found |
+|---------------------|---------|---------------------|
+| Booking-based | `payload.bookingId` present | Loads booking with details; maps `targetRoles` to `artist.userId`, `organizer.userId`, `venue.userId` |
+| Contract-based | `payload.contractId` present (no bookingId) | Loads contract -> booking -> details chain |
+| Direct targeting | `payload.targetUserId` present | Adds the specific user ID |
+| Admin targeting | `targetRoles` includes `"admin"` or `"platform_admin"` | Loads all admin user IDs from storage |
+
+Results are deduplicated. The actor who triggered the event is always excluded from notification delivery.
+
+### 10.5 Notification API Routes
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/notifications` | List notifications (paginated, optional `unreadOnly` filter) |
+| `GET /api/notifications/unread-count` | Lightweight badge count |
+| `POST /api/notifications/:id/read` | Mark single notification as read |
+| `POST /api/notifications/read-all` | Mark all notifications as read |
+
+### 10.6 Real-Time Delivery
+
+Notifications are pushed to connected clients via WebSocket (`broadcastToUser`). The client-side `use-notifications.ts` hook:
+
+1. Calls `authenticateWs(userId)` when the user logs in
+2. Subscribes to `"notification"` WS message type via `onWsMessage`
+3. Appends incoming notifications to the TanStack Query cache
+4. Updates the unread badge count in real time
+
+---
+
+## 11. Media & Image Storage
+
+### 11.1 Overview
+
+Images are stored as **base64 data URLs** directly in the PostgreSQL `media` table's `data` column. There is no external file storage (S3, Cloudinary, etc.) in the current implementation. This simplifies deployment but means the database grows with media uploads.
+
+### 11.2 Storage Strategy
+
+- **Device uploads**: File buffer is converted to `data:<mimeType>;base64,<encoded>` and stored in the `data` column
+- **URL uploads**: The server attempts to fetch the image (10-second timeout, 20 MB cap). If successful, the image is stored as base64. If the fetch fails, only the URL string is stored as a fallback
+- **Serving**: `GET /api/media/:id/file` decodes base64 and serves raw binary with appropriate `Content-Type`, or redirects to external URL. Responses include `Cache-Control: public, max-age=86400`
+
+### 11.3 Per-Entity Limits
+
+| Entity Type | Maximum Images |
+|-------------|----------------|
+| `user_avatar` | 1 |
+| `artist_profile` | 1 |
+| `artist_portfolio` | 20 |
+| `venue_cover` | 1 |
+| `venue_gallery` | 20 |
+| `organizer_logo` | 1 |
+| `event_cover` | 3 |
+| (other) | 10 (default) |
+
+### 11.4 Allowed MIME Types
+
+- `image/jpeg`
+- `image/png`
+- `image/gif`
+- `image/webp`
+- `image/svg+xml`
+
+Maximum file size: **20 MB** per file.
+
+For full API and component documentation, see [IMAGE_UPLOAD.md](./IMAGE_UPLOAD.md).
+
+---
+
+## 12. Third-Party Integrations
+
+### 12.1 Payment Gateway Integration
+- **Provider**: Razorpay (primary), Stripe (international) -- planned
+- **Webhooks**: Listen for payment events
+- **Reconciliation**: Daily automated reconciliation
+
+### 12.2 Email Service
+- **Provider**: SendGrid or AWS SES -- planned
+- **Templates**: HTML email templates
+
+### 12.3 File Storage
+- **Current**: Base64 data URLs in PostgreSQL (no external storage)
+- **Planned**: AWS S3 or Cloudinary for production at scale
+
+---
+
+## 13. Deployment Architecture
+
+### 13.1 Environment Configuration
 ```bash
 NODE_ENV=production
 DATABASE_URL=postgresql://user:pass@host:5432/db
 SESSION_SECRET=<secure-random-string>
-FRONTEND_URL=https://app.musicplatform.com
-RAZORPAY_KEY_ID=<key>
-RAZORPAY_KEY_SECRET=<secret>
-AWS_ACCESS_KEY_ID=<key>
-AWS_SECRET_ACCESS_KEY=<secret>
-AWS_S3_BUCKET=<bucket-name>
 ```
 
-### 10.3 CI/CD Pipeline
-1. **Code push**: Git push to main branch
-2. **Tests**: Run unit tests, integration tests
-3. **Build**: TypeScript compilation, Vite build
-4. **Deploy**: Deploy to staging environment
-5. **Smoke tests**: Automated smoke tests
-6. **Production deploy**: Manual approval, then deploy
-7. **Health check**: Verify application is running
+### 13.2 Dev Commands
+```bash
+npm run dev          # Start dev server (tsx server/index.ts with .env)
+npm run build        # Production build
+npm run check        # TypeScript check
+npm run db:push      # Push schema to DB
+npm run db:generate  # Generate migrations
+npm run seed         # Seed database
+```
 
-### 10.4 Monitoring
-- **Application monitoring**: PM2 or AWS CloudWatch
-- **Database monitoring**: PostgreSQL logs, slow query log
-- **Error tracking**: Sentry
-- **Uptime monitoring**: UptimeRobot or Pingdom
-- **Performance**: New Relic or DataDog
+### 13.3 CI/CD Pipeline
+1. Code push to main branch
+2. Run unit tests and integration tests
+3. TypeScript compilation + Vite build
+4. Deploy to staging environment
+5. Smoke tests
+6. Production deploy (manual approval)
 
 ---
 
-**Last Updated**: February 3, 2026  
-**Document Version**: 1.0.0  
+**Last Updated**: April 3, 2026
+**Document Version**: 2.0.0
 **Author**: Development Team

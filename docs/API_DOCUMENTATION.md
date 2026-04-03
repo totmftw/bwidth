@@ -1,1751 +1,873 @@
-# 📡 API Documentation - Music Artist Management Platform
+# BANDWIDTH API Documentation
 
-## Overview
+Complete REST API reference for the BANDWIDTH music booking platform.
 
-This document provides comprehensive API documentation for the Music Artist Management Platform. All APIs follow REST principles and return JSON responses.
+## Base URL
 
-**Base URL**: `https://api.musicplatform.com/api/v1`  
-**Authentication**: Session-based (cookie)  
-**Content-Type**: `application/json`
+All endpoints are prefixed with `/api` unless otherwise noted. In local development the server runs at `http://localhost:5000`.
 
----
+## Authentication
 
-## Table of Contents
+Session-based authentication via Passport.js. All protected endpoints require an active session cookie (`connect.sid`). Sessions are stored in PostgreSQL using `connect-pg-simple` with a 24-hour TTL.
 
-1. [Authentication](#1-authentication)
-2. [User Management](#2-user-management)
-3. [Artist Profiles](#3-artist-profiles)
-4. [Venue Management](#4-venue-management)
-5. [Opportunities & Applications](#5-opportunities--applications)
-6. [Bookings](#6-bookings)
-7. [Negotiations](#7-negotiations)
-8. [Contracts](#8-contracts)
-9. [Payments](#9-payments)
-10. [Search & Discovery](#10-search--discovery)
-11. [Notifications](#11-notifications)
-12. [Analytics](#12-analytics)
+Unauthenticated requests to protected endpoints receive `401 Unauthorized`.
 
 ---
 
-## 1. Authentication
+## Auth Endpoints
 
-### 1.1 Register User
+### POST /api/register
 
-Register a new user account.
+Register a new user account and establish a session.
 
-**Endpoint**: `POST /api/auth/register`  
-**Auth Required**: No
+- **Auth required**: No
+- **Request body**:
+  - `username` (string, required) -- unique username
+  - `password` (string, required)
+  - `email` (string, optional) -- defaults to `<username>@example.com`
+  - `name` (string, optional) -- display name
+  - `phone` (string, optional)
+  - `role` (string, optional) -- `"artist"`, `"organizer"`, `"venue"` (normalized to `"venue_manager"`); defaults to `"artist"`
+  - `roleData` (object, optional) -- role-specific profile fields created alongside the user
+- **Response** (201): User object with role-specific profile data (`artist`, `organizer`, `venue` fields when applicable). Session cookie is set.
+- **Errors**: `409` if username already exists.
 
-**Request Body**:
-```json
-{
-  "email": "artist@example.com",
-  "password": "SecurePass123!",
-  "phone": "+919876543210",
-  "role": "artist",
-  "firstName": "John",
-  "lastName": "Doe",
-  "agreeToTerms": true
-}
-```
+### POST /api/login
 
-**Response** (201 Created):
-```json
-{
-  "success": true,
-  "message": "User registered successfully. Please verify your email.",
-  "data": {
-    "userId": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "artist@example.com",
-    "status": "pending_verification"
-  }
-}
-```
+Authenticate an existing user and create a session.
 
-**Error Responses**:
-- `400 Bad Request`: Invalid input data
-- `409 Conflict`: Email or phone already exists
+- **Auth required**: No
+- **Request body**:
+  - `username` (string, required)
+  - `password` (string, required)
+- **Response** (200): User object with hydrated profiles (`artist`, `organizer`, `venue`).
+- **Errors**: `401` invalid credentials.
 
----
+### POST /api/logout
 
-### 1.2 Login
+Destroy the current session.
 
-Authenticate user and create session.
+- **Auth required**: Yes
+- **Response**: `200 OK`
 
-**Endpoint**: `POST /api/auth/login`  
-**Auth Required**: No
+### GET /api/user
 
-**Request Body**:
-```json
-{
-  "email": "artist@example.com",
-  "password": "SecurePass123!"
-}
-```
+Return the currently authenticated user, or `null` if not logged in.
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Login successful",
-  "data": {
-    "user": {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "email": "artist@example.com",
-      "displayName": "John Doe",
-      "roles": ["artist"],
-      "status": "active"
-    },
-    "session": {
-      "expiresAt": "2026-02-10T13:56:47+05:30"
-    }
-  }
-}
-```
+- **Auth required**: No (returns `null` for unauthenticated requests)
+- **Response** (200): User object with hydrated role profiles, or `null`.
 
-**Error Responses**:
-- `400 Bad Request`: Missing credentials
-- `401 Unauthorized`: Invalid credentials
-- `403 Forbidden`: Email not verified
+### GET /api/auth/check-username
+
+Check whether a username is available for registration.
+
+- **Auth required**: No
+- **Query params**:
+  - `username` (string, required)
+- **Response** (200): `{ "available": true | false }`
 
 ---
 
-### 1.3 Get Current User
+## User Endpoints
 
-Retrieve currently authenticated user.
+### PATCH /api/users/me
 
-**Endpoint**: `GET /api/auth/me`  
-**Auth Required**: Yes
+Update the current user's legal and financial details.
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "artist@example.com",
-    "displayName": "John Doe",
-    "roles": ["artist"],
-    "status": "active",
-    "profile": {
-      "artistId": "660e8400-e29b-41d4-a716-446655440000",
-      "artistName": "DJ Shadow",
-      "trustScore": 75.5,
-      "isVerified": true
-    }
-  }
-}
-```
+- **Auth required**: Yes
+- **Allowed fields**: `legalName`, `permanentAddress`, `panNumber`, `gstin`, `bankAccountNumber`, `bankIfsc`, `bankBranch`, `bankAccountHolderName`, `emergencyContactName`, `emergencyContactPhone`
+- **Response** (200): Updated user object.
+- **Errors**: `400` validation error, `401` not authenticated.
 
 ---
 
-### 1.4 Logout
+## Artist Endpoints
 
-End user session.
+### GET /api/artists
 
-**Endpoint**: `POST /api/auth/logout`  
-**Auth Required**: Yes
+List all artist profiles.
 
-**Response** (204 No Content)
+- **Auth required**: No
+- **Response** (200): Array of artist objects.
 
----
+### GET /api/artists/:id
 
-### 1.5 Verify Email
+Get a single artist profile by ID.
 
-Verify user email address.
+- **Auth required**: No
+- **Response** (200): Artist object.
+- **Errors**: `400` invalid ID, `404` not found.
 
-**Endpoint**: `POST /api/auth/verify-email`  
-**Auth Required**: No
+### PUT /api/artists/:id
 
-**Request Body**:
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
+Update an artist profile. Only the owning user can update.
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Email verified successfully",
-  "data": {
-    "redirectUrl": "/login"
-  }
-}
-```
+- **Auth required**: Yes
+- **Request body**: Any combination of `stageName`, `feeMin`, `feeMax`, `location`, `bio`, `name`, `isBand`, `members`, `priceFrom`, `priceTo`, `currency`, `metadata`, plus arbitrary metadata keys.
+- **Response** (200): Updated artist object.
+- **Errors**: `403` not the owner.
 
----
+### POST /api/artists/profile/complete
 
-### 1.6 Request Password Reset
+Complete (or update) the artist profile onboarding wizard.
 
-Request password reset email.
+- **Auth required**: Yes (artist role only)
+- **Request body**: Validated against `artistProfileCompleteSchema` -- includes `stageName`, `bio`, `primaryGenre`, `priceFrom`, `priceTo`, and other onboarding fields.
+- **Response** (200): `{ "message": "Profile completed successfully", "artist": {...} }`
+- **Errors**: `403` non-artist role, `400` validation failure.
 
-**Endpoint**: `POST /api/auth/forgot-password`  
-**Auth Required**: No
+### GET /api/artists/profile/status
 
-**Request Body**:
-```json
-{
-  "email": "artist@example.com"
-}
-```
+Check whether the current user's artist profile is complete.
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Password reset email sent if account exists"
-}
-```
+- **Auth required**: Yes
+- **Response** (200): `{ "isComplete": true | false }`
 
 ---
 
-### 1.7 Reset Password
+## Organizer Endpoints
 
-Reset user password with token.
+All organizer routes require an active session with `organizer` or `promoter` role.
 
-**Endpoint**: `POST /api/auth/reset-password`  
-**Auth Required**: No
+### GET /api/organizer/profile
 
-**Request Body**:
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "newPassword": "NewSecurePass123!"
-}
-```
+Return the current user's organizer profile with user data.
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Password reset successfully. Please login with new password."
-}
-```
+- **Auth required**: Yes (organizer/promoter)
+- **Response** (200): Organizer object.
 
----
+### PUT /api/organizer/profile
 
-## 2. User Management
+Update the organizer profile.
 
-### 2.1 List Users
+- **Auth required**: Yes (organizer/promoter)
+- **Request body**: Validated against `organizerProfileUpdateSchema` -- `name`, `description`, `contactPerson`, `website`, `socialLinks`.
+- **Response** (200): Updated organizer object.
 
-List all users (admin only).
+### POST /api/organizer/profile/complete
 
-**Endpoint**: `GET /api/users`  
-**Auth Required**: Yes (Admin only)
+Complete organizer onboarding.
 
-**Query Parameters**:
-- `page` (number): Page number (default: 1)
-- `pageSize` (number): Items per page (default: 20, max: 100)
-- `status` (string): Filter by user status
-- `role` (string): Filter by role
-- `search` (string): Search by name or email
+- **Auth required**: Yes (organizer/promoter)
+- **Request body**: Validated against `organizerOnboardingSchema` -- `organizationName`, `description`, `contactPerson`, `website`, `pastEventReferences`.
+- **Response** (200): Updated organizer object.
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "email": "artist@example.com",
-      "displayName": "John Doe",
-      "roles": ["artist"],
-      "status": "active",
-      "createdAt": "2026-01-15T10:30:00Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "pageSize": 20,
-    "totalItems": 150,
-    "totalPages": 8,
-    "hasNext": true,
-    "hasPrevious": false
-  }
-}
-```
+### GET /api/organizer/profile/status
 
----
+Check organizer profile completion status.
 
-### 2.2 Get User by ID
+- **Auth required**: Yes (organizer/promoter)
+- **Response** (200): `{ "isComplete": true | false }`
 
-Get specific user details.
+### GET /api/organizer/dashboard
 
-**Endpoint**: `GET /api/users/:id`  
-**Auth Required**: Yes (Self or Admin)
+Get organizer dashboard data (pending actions, stats).
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "artist@example.com",
-    "displayName": "John Doe",
-    "firstName": "John",
-    "lastName": "Doe",
-    "phone": "+919876543210",
-    "roles": ["artist"],
-    "status": "active",
-    "locale": "en-IN",
-    "currency": "INR",
-    "timezone": "Asia/Kolkata",
-    "createdAt": "2026-01-15T10:30:00Z",
-    "updatedAt": "2026-02-01T14:20:00Z"
-  }
-}
-```
+- **Auth required**: Yes (organizer/promoter)
+- **Response** (200): Dashboard data object.
 
----
+### GET /api/organizer/activity
 
-### 2.3 Update User
+Get recent organizer activity feed.
 
-Update user profile.
+- **Auth required**: Yes (organizer/promoter)
+- **Response** (200): Array of activity entries.
 
-**Endpoint**: `PATCH /api/users/:id`  
-**Auth Required**: Yes (Self or Admin)
+### GET /api/organizer/events
 
-**Request Body**:
-```json
-{
-  "displayName": "John 'The Shadow' Doe",
-  "phone": "+919876543210",
-  "locale": "en-IN",
-  "timezone": "Asia/Kolkata"
-}
-```
+List all events belonging to the current organizer.
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "User updated successfully",
-  "data": { /* updated user object */ }
-}
-```
+- **Auth required**: Yes (organizer/promoter)
+- **Response** (200): Array of event objects.
+
+### POST /api/organizer/events
+
+Create a new event.
+
+- **Auth required**: Yes (organizer/promoter)
+- **Request body**: Validated against `createEventSchema`.
+- **Response** (201): Created event object.
+
+### GET /api/organizer/events/:id
+
+Get a single event by ID.
+
+- **Auth required**: Yes (organizer/promoter)
+- **Response** (200): Event object with details.
+
+### PUT /api/organizer/events/:id
+
+Update an event.
+
+- **Auth required**: Yes (organizer/promoter)
+- **Response** (200): Updated event object.
+
+### DELETE /api/organizer/events/:id
+
+Delete an event.
+
+- **Auth required**: Yes (organizer/promoter)
+- **Response** (200): Success message.
+
+### PUT /api/organizer/events/:id/publish
+
+Publish an event (makes it visible to artists on Find Gigs).
+
+- **Auth required**: Yes (organizer/promoter)
+- **Response** (200): Updated event with `status: "published"`.
+
+### GET /api/organizer/bookings
+
+List all bookings for the current organizer.
+
+- **Auth required**: Yes (organizer/promoter)
+- **Response** (200): Array of booking objects with details.
+
+### GET /api/organizer/bookings/:id
+
+Get a single organizer booking by ID.
+
+- **Auth required**: Yes (organizer/promoter)
+- **Response** (200): Booking object with full details.
+
+### POST /api/organizer/bookings/:id/complete
+
+Mark a booking as completed.
+
+- **Auth required**: Yes (organizer/promoter)
+- **Response** (200): Updated booking object.
 
 ---
 
-## 3. Artist Profiles
+## Venue Endpoints
 
-### 3.1 Create Artist Profile
+### POST /api/venues/profile/complete
 
-Create a new artist profile.
+Complete the venue profile onboarding (7-step wizard).
 
-**Endpoint**: `POST /api/artists`  
-**Auth Required**: Yes (Artist role required)
+- **Auth required**: Yes (venue_manager or organizer role)
+- **Request body**: Validated against `venueProfileCompleteSchema` -- venue name, description, address, city, capacity fields, amenities, metadata (music policy, photos, booking preferences).
+- **Response** (200): `{ "message": "Venue profile completed successfully", "venue": {...} }`
 
-**Request Body**:
-```json
-{
-  "artistName": "DJ Shadow",
-  "bio": "Professional DJ with 10+ years experience in techno and house music.",
-  "yearsExperience": 10,
-  "genres": ["techno", "house", "electronic"],
-  "budgetMin": 10000,
-  "budgetStandard": 20000,
-  "budgetPremium": 35000,
-  "location": {
-    "city": "Bangalore",
-    "state": "Karnataka",
-    "country": "India"
-  },
-  "socialLinks": {
-    "soundcloud": "https://soundcloud.com/djshadow",
-    "instagram": "https://instagram.com/djshadow",
-    "facebook": "https://facebook.com/djshadow"
-  }
-}
-```
+### GET /api/venues/profile/status
 
-**Response** (201 Created):
-```json
-{
-  "success": true,
-  "message": "Artist profile created successfully",
-  "data": {
-    "id": "660e8400-e29b-41d4-a716-446655440000",
-    "artistName": "DJ Shadow",
-    "userId": "550e8400-e29b-41d4-a716-446655440000",
-    "trustScore": 50.0,
-    "isVerified": false,
-    "createdAt": "2026-02-03T13:56:47+05:30"
-  }
-}
-```
+Check whether the venue profile is complete.
 
----
+- **Auth required**: Yes
+- **Response** (200): `{ "isComplete": true | false }`
 
-### 3.2 List Artists
+### GET /api/venues/profile
 
-Browse artist profiles with filters.
+Get the current user's venue profile.
 
-**Endpoint**: `GET /api/artists`  
-**Auth Required**: No (public endpoint)
+- **Auth required**: Yes
+- **Response** (200): `{ "venue": {...} }` or `{ "venue": null }`.
 
-**Query Parameters**:
-- `page`, `pageSize`: Pagination
-- `genre`: Filter by genre
-- `budgetMin`, `budgetMax`: Budget range filter
-- `city`: Filter by city
-- `minTrustScore`: Minimum trust score
-- `verified`: Show only verified artists (boolean)
-- `sortBy`: Sort field (trustScore, budget, experience)
-- `sortOrder`: asc or desc
+### PATCH /api/venues/profile
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "660e8400-e29b-41d4-a716-446655440000",
-      "artistName": "DJ Shadow",
-      "bio": "Professional DJ with 10+ years experience...",
-      "genres": ["techno", "house", "electronic"],
-      "budgetRange": {
-        "min": 10000,
-        "standard": 20000,
-        "premium": 35000
-      },
-      "trustScore": 75.5,
-      "isVerified": true,
-      "yearsExperience": 10,
-      "location": {
-        "city": "Bangalore",
-        "state": "Karnataka"
-      },
-      "profilePhoto": "https://cdn.example.com/photos/artist-123.jpg",
-      "totalBookings": 45
-    }
-  ],
-  "pagination": { /* pagination object */ }
-}
-```
+Update the venue profile. Merges metadata.
+
+- **Auth required**: Yes
+- **Allowed top-level fields**: `name`, `description`, `address`, `capacity`, `capacitySeated`, `capacityStanding`, `amenities`, `metadata`.
+- **Response** (200): `{ "venue": {...} }`
+
+### GET /api/venues/dashboard
+
+Get venue dashboard stats.
+
+- **Auth required**: Yes
+- **Response** (200): `{ "totalShowsHosted", "upcomingShows", "artistsBooked", "budgetUtilization", "trustScore", "pendingRequests" }`
+
+### GET /api/venues/events/upcoming
+
+List upcoming events at the current user's venue.
+
+- **Auth required**: Yes
+- **Response** (200): Array of event objects.
+
+### GET /api/venues
+
+List all venues (public).
+
+- **Auth required**: No
+- **Response** (200): Array of venue objects.
+
+### GET /api/venues/:id
+
+Get a single venue by ID (public).
+
+- **Auth required**: No
+- **Response** (200): Venue object.
+
+### GET /api/venue/applications
+
+List artist applications to the venue (used in the venue application inbox).
+
+- **Auth required**: Yes (venue_manager)
+- **Response** (200): Array of application/booking objects with artist and event details.
+
+### POST /api/venue/applications/:id/accept
+
+Accept a venue application (sets booking status to `confirmed`).
+
+- **Auth required**: Yes (venue_manager)
+- **Response** (200): Updated booking object.
+
+### POST /api/venue/applications/:id/decline
+
+Decline a venue application (sets booking status to `cancelled`).
+
+- **Auth required**: Yes (venue_manager)
+- **Response** (200): Updated booking object.
 
 ---
 
-### 3.3 Get Artist Profile
+## Opportunity (Event Discovery) Endpoints
 
-Get detailed artist profile.
+### POST /api/opportunities
 
-**Endpoint**: `GET /api/artists/:id`  
-**Auth Required**: No (public endpoint)
+Create a new event/opportunity (for venues and organizers).
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "id": "660e8400-e29b-41d4-a716-446655440000",
-    "userId": "550e8400-e29b-41d4-a716-446655440000",
-    "artistName": "DJ Shadow",
-    "bio": "Professional DJ with 10+ years experience in techno and house music.",
-    "genres": ["techno", "house", "electronic"],
-    "budgetRange": {
-      "min": 10000,
-      "standard": 20000,
-      "premium": 35000,
-      "currency": "INR"
-    },
-    "trustScore": 75.5,
-    "isVerified": true,
-    "yearsExperience": 10,
-    "location": {
-      "city": "Bangalore",
-      "state": "Karnataka",
-      "country": "India"
-    },
-    "socialLinks": {
-      "soundcloud": "https://soundcloud.com/djshadow",
-      "instagram": "https://instagram.com/djshadow"
-    },
-    "portfolio": [
-      {
-        "id": "photo-1",
-        "type": "image",
-        "url": "https://cdn.example.com/portfolio/1.jpg",
-        "caption": "Sunburn Festival 2025"
-      }
-    ],
-    "stats": {
-      "totalBookings": 45,
-      "completedBookings": 42,
-      "cancelledBookings": 1,
-      "averageRating": 4.7,
-      "totalEarnings": 850000
-    },
-    "achievements": [
-      "Performed at Sunburn Festival 2025",
-      "Resident DJ at High Ultra Lounge"
-    ],
-    "technicalRider": {
-      "url": "https://cdn.example.com/riders/djshadow.pdf",
-      "updatedAt": "2026-01-20T10:00:00Z"
-    }
-  }
-}
-```
+- **Auth required**: Yes (venue_manager or organizer)
+- **Request body**:
+  - `title` (string, required)
+  - `description` (string, optional)
+  - `startTime` (ISO datetime string, required)
+  - `endTime` (ISO datetime string, optional)
+  - `capacityTotal` (number, optional)
+  - `visibility` (`"public"` | `"private"`, default `"private"`)
+  - `stages` (array of stage objects, optional)
+  - `metadata` (object, optional)
+- **Response** (201): Created event object.
+
+### GET /api/opportunities
+
+List published opportunities. Supports filtering.
+
+- **Auth required**: No
+- **Query params**:
+  - `genre` (string, optional) -- filter by genre
+  - `minBudget` (number, optional) -- minimum budget filter
+  - `maxBudget` (number, optional) -- maximum budget filter
+  - `location` (string, optional) -- location filter
+- **Response** (200): Array of opportunity objects.
+
+### GET /api/opportunities/:id
+
+Get a single opportunity by ID.
+
+- **Auth required**: No
+- **Response** (200): Opportunity/event object with venue and organizer details.
 
 ---
 
-### 3.4 Update Artist Profile
+## Booking & Negotiation Endpoints
 
-Update artist profile information.
+### GET /api/bookings
 
-**Endpoint**: `PATCH /api/artists/:id`  
-**Auth Required**: Yes (Artist owner or Admin)
+List bookings for the current user (filtered by role: artist, organizer, or venue).
 
-**Request Body**:
-```json
-{
-  "bio": "Updated bio with new achievements...",
-  "budgetStandard": 25000,
-  "genres": ["techno", "house", "electronic", "progressive"]
-}
-```
+- **Auth required**: Yes
+- **Response** (200): Array of booking objects with details.
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Artist profile updated successfully",
-  "data": { /* updated artist profile */ }
-}
-```
+### POST /api/bookings
 
----
+Create a new booking (direct offer from organizer/venue to artist).
 
-### 3.5 Complete Artist Profile (Onboarding)
+- **Auth required**: Yes
+- **Request body**:
+  - `artistId` (number, required)
+  - `eventId` (number, optional) -- auto-created if `eventDate` is provided
+  - `eventDate` (ISO date string, optional)
+  - `offerAmount` (number, optional)
+  - `currency` (string, default `"INR"`)
+  - `notes` (string, optional)
+  - `slotTime` (string, optional)
+  - `organizerId` (number, optional) -- auto-resolved from session
+- **Response** (201): Booking object with status `"offered"` and a 72-hour deadline.
+- **Errors**: `409` if duplicate active booking exists for the same artist/date.
 
-Submit the artist onboarding wizard data. Creates a new artist record or updates an existing one, and marks the profile as complete.
+### PUT /api/bookings/:id
 
-**Endpoint**: `POST /api/artists/profile/complete`  
-**Auth Required**: Yes (artist role only)
+Update a booking (general-purpose update).
 
-**Role Resolution**: The endpoint resolves the caller's role via a fallback chain (`user.role` → `user.metadata.role` → `"artist"`). This ensures older sessions without a hydrated `role` property are still handled correctly. Non-artist roles receive a `403`.
+- **Auth required**: Yes
+- **Response** (200): Updated booking object.
 
-**Request Body**:
-```json
-{
-  "stageName": "DJ Example",
-  "bio": "Electronic music producer based in Bangalore",
-  "location": "Bangalore",
-  "yearsOfExperience": 5,
-  "primaryGenre": "techno",
-  "secondaryGenres": ["house", "progressive"],
-  "performanceDurations": [60, 90, 120],
-  "feeMin": 15000,
-  "feeMax": 50000,
-  "currency": "INR",
-  "soundcloudUrl": "https://soundcloud.com/example",
-  "instagramHandle": "@djexample"
-}
-```
+### POST /api/bookings/apply
 
-**Response** (200 OK):
-```json
-{
-  "message": "Profile completed successfully",
-  "artist": { /* artist record with metadata.profileComplete = true */ }
-}
-```
+Artist applies to a published event. Creates a booking with status `"inquiry"`, an initial proposal in `bookingProposals`, and sets a 72-hour deadline.
 
-**Error Responses**:
-- `401` — Not authenticated
-- `403` — Caller is not an artist
-- `400` — Validation failed (Zod schema errors returned in `errors` array)
+- **Auth required**: Yes (artist role only)
+- **Request body**: Validated against `api.bookings.apply.input` -- includes `eventId`, `proposal` (financial, scheduling, tech rider), and optional `message`.
+- **Response** (201): `{ "booking": {...}, "proposal": {...}, "summary": {...} }`
+- **Errors**: `409` if already applied to this event, `404` if event not published.
 
----
+### GET /api/bookings/:id/negotiation
 
-### 3.6 Check Artist Profile Status
+Get the negotiation summary for a booking. Returns the current proposal, history, acceptance status, rider confirmation, and activity timeline.
 
-Returns whether the authenticated artist has completed onboarding.
+- **Auth required**: Yes
+- **Response** (200): Negotiation summary object.
 
-**Endpoint**: `GET /api/artists/profile/status`  
-**Auth Required**: Yes
+### POST /api/bookings/:id/negotiation/action
 
-**Response** (200 OK):
-```json
-{
-  "isComplete": true
-}
-```
+Unified negotiation action endpoint (preferred over legacy endpoints).
 
----
+- **Auth required**: Yes
+- **Request body**: Validated against `api.bookings.negotiationAction.input`:
+  - `action` (`"edit"` | `"accept"` | `"walkaway"`)
+  - `snapshot` (proposal snapshot object, required for `"edit"`)
+  - `note` (string, optional)
+  - `reason` (string, optional, for `"walkaway"`)
+- **Response** (200): `{ "success": true, "summary": {...} }`
+- **Errors**: `403` not a participant or wrong turn, `400` validation or business logic errors.
 
-### 3.7 Upload Portfolio Item
+### POST /api/bookings/:id/negotiation/propose (deprecated)
 
-Add item to artist portfolio.
+Submit a counter-proposal. Delegates to the unified action endpoint. Returns `X-Deprecated` header.
 
-**Endpoint**: `POST /api/artists/:id/portfolio`  
-**Auth Required**: Yes (Artist owner)  
-**Content-Type**: `multipart/form-data`
+- **Auth required**: Yes
+- **Request body**: `{ "snapshot": {...}, "note": "..." }`
 
-**Request Body** (form-data):
-- `file`: Image file (max 5MB, jpg/png)
-- `caption`: Description text
-- `type`: "image" | "video" | "audio"
+### POST /api/bookings/:id/negotiation/rider-confirm (deprecated)
 
-**Response** (201 Created):
-```json
-{
-  "success": true,
-  "message": "Portfolio item uploaded successfully",
-  "data": {
-    "id": "photo-5",
-    "type": "image",
-    "url": "https://cdn.example.com/portfolio/photo-5.jpg",
-    "caption": "NH7 Weekender Performance",
-    "uploadedAt": "2026-02-03T14:00:00Z"
-  }
-}
-```
+Rider confirmation is now part of the proposal snapshot. Returns `410 Gone`.
+
+### POST /api/bookings/:id/negotiation/accept (deprecated)
+
+Accept the current negotiation terms. Delegates to the unified action endpoint. Returns `X-Deprecated` header.
+
+- **Auth required**: Yes
+
+### POST /api/bookings/:id/negotiation/walk-away (deprecated)
+
+Walk away from the negotiation. Delegates to the unified action endpoint. Returns `X-Deprecated` header.
+
+- **Auth required**: Yes
+- **Request body**: `{ "reason": "..." }`
 
 ---
 
-### 3.6 Get Artist Bookings
+## Contract Endpoints
 
-Get all bookings for an artist.
+### POST /api/bookings/:bookingId/contract/initiate
 
-**Endpoint**: `GET /api/artists/:id/bookings`  
-**Auth Required**: Yes (Artist owner or Admin)
+Initiate the contract stage for a booking. Auto-generates the contract text from the agreed negotiation snapshot. Sets a 48-hour deadline.
 
-**Query Parameters**:
-- `status`: Filter by booking status
-- `from`, `to`: Date range filter
-- `page`, `pageSize`: Pagination
+- **Auth required**: Yes
+- **Preconditions**: Booking must be in `"contracting"` status or negotiation must be `"agreed"`.
+- **Response** (201): `{ "contract": {...}, "message": "Contract initiated..." }`
+- **Idempotent**: Returns existing contract if already initiated.
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "booking-1",
-      "eventDate": "2026-03-15",
-      "venueName": "High Ultra Lounge",
-      "city": "Bangalore",
-      "slotTime": "closing",
-      "duration": 120,
-      "status": "confirmed",
-      "budget": 25000,
-      "currency": "INR",
-      "organizerName": "XYZ Events"
-    }
-  ],
-  "pagination": { /* pagination */ }
-}
-```
+### GET /api/bookings/:bookingId/contract
 
----
+Get the contract for a booking, with user-specific context.
 
-### 3.7 Get Artist Earnings
+- **Auth required**: Yes
+- **Response** (200): Contract object with additional fields:
+  - `userRole` -- the requesting user's contract role (`"artist"` or `"promoter"`)
+  - `userCanEdit` -- whether the user still has their one-time edit
+  - `userHasAccepted` -- whether the user has accepted the terms
+  - `userHasSigned` -- whether the user has signed
+  - `timeRemaining` -- seconds until contract deadline, or `null`
 
-Get earnings statistics for an artist.
+### POST /api/contracts/:id/review
 
-**Endpoint**: `GET /api/artists/:id/earnings`  
-**Auth Required**: Yes (Artist owner or Admin)
+Review a contract: accept as-is or propose edits (one edit per party, organizer first).
 
-**Query Parameters**:
-- `period`: "month" | "quarter" | "year" | "all"
-- `year`: Specific year
-- `month`: Specific month (1-12)
+- **Auth required**: Yes
+- **Request body**:
+  - `action` (`"ACCEPT_AS_IS"` | `"PROPOSE_EDITS"`)
+  - `changes` (object, required for `"PROPOSE_EDITS"`) -- editable fields: date, time slot, accommodations, hospitality
+  - `note` (string, optional)
+- **Sequential rule**: Organizer must review first. Artist cannot review until organizer has completed their review.
+- **One-edit rule**: Each party can propose edits exactly once.
+- **Response** (200): `{ "success": true, "contract": {...} }`
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "total": 850000,
-    "currency": "INR",
-    "breakdown": {
-      "received": 800000,
-      "pending": 50000,
-      "upcoming": 150000
-    },
-    "byMonth": [
-      { "month": "2026-01", "amount": 180000 },
-      { "month": "2026-02", "amount": 250000 }
-    ],
-    "avgPerBooking": 20000,
-    "topVenues": [
-      { "venueName": "High Ultra Lounge", "totalEarnings": 300000 }
-    ]
-  }
-}
-```
+### POST /api/contracts/:id/edit-requests/:reqId/respond
 
----
+Respond to an edit request (approve or reject).
 
-## 4. Venue Management
+- **Auth required**: Yes
+- **Request body**:
+  - `decision` (`"APPROVE"` | `"REJECT"`)
+  - `responseNote` (string, optional)
+- **Response** (200): Updated contract details.
 
-### 4.1 Create Venue
+### POST /api/contracts/:id/accept
 
-Create a new venue profile.
+Accept the finalized contract terms (EULA checkpoint). Must have completed review first.
 
-**Endpoint**: `POST /api/venues`  
-**Auth Required**: Yes (Venue Manager role)
+- **Auth required**: Yes
+- **Request body**: `{ "agreed": true }`
+- **Response** (200): `{ "success": true, "message": "Contract accepted...", "contract": {...} }`
 
-**Request Body**:
-```json
-{
-  "name": "High Ultra Lounge",
-  "description": "Premium nightclub with world-class sound system",
-  "venueType": "nightclub",
-  "capacity": 800,
-  "location": {
-    "address": "123 MG Road",
-    "city": "Bangalore",
-    "state": "Karnataka",
-    "country": "India",
-    "pincode": "560001",
-    "coordinates": {
-      "lat": 12.9716,
-      "lng": 77.5946
-    }
-  },
-  "amenities": ["premium_sound", "vip_area", "parking", "valet"],
-  "technicalSpecs": {
-    "soundSystem": "Pioneer",
-    "mixerModel": "DJM-900NXS2",
-    "cdjs": 4,
-    "backlineAvailable": true
-  }
-}
-```
+### POST /api/contracts/:id/sign
 
-**Response** (201 Created):
-```json
-{
-  "success": true,
-  "message": "Venue created successfully",
-  "data": {
-    "id": "770e8400-e29b-41d4-a716-446655440000",
-    "name": "High Ultra Lounge",
-    "trustScore": 50.0,
-    "isVerified": false,
-    "createdAt": "2026-02-03T14:10:00Z"
-  }
-}
-```
+Sign the contract. Captures IP address and timestamp. Requires prior acceptance.
+
+- **Auth required**: Yes
+- **Request body**:
+  - `signatureData` (string, optional) -- signature content
+  - `signatureMethod` (`"draw"` | `"type"` | `"upload"`, default `"type"`)
+- **Preconditions**: Must have accepted first, no pending edit requests, deadline not passed.
+- **Response** (200): Updated contract with signature details. When both parties have signed, contract status advances to `"admin_review"`.
+
+### POST /api/contracts/check-deadlines
+
+Check all contracts for expired deadlines and void them.
+
+- **Auth required**: No (system/cron endpoint)
+- **Response** (200): `{ "message": "...", "voided": <count> }`
+
+### POST /api/bookings/:id/contract/generate (legacy)
+
+Legacy alias for contract initiation. Generates a contract from booking terms.
+
+- **Auth required**: Yes
+- **Response** (201): Contract object.
+
+### GET /api/contracts/:id/pdf
+
+Generate and download a PDF of the contract. Includes "DIGITALLY SIGNED" watermark for signed contracts or "DRAFT" watermark otherwise.
+
+- **Auth required**: Yes
+- **Response**: PDF file download (`application/pdf`).
 
 ---
 
-### 4.2 List Venues
+## Conversation & Messaging Endpoints
 
-Browse venues with filters.
+### GET /api/conversations
 
-**Endpoint**: `GET /api/venues`  
-**Auth Required**: No (public endpoint)
+List all conversations the authenticated user participates in, ordered by most recent activity.
 
-**Query Parameters**:
-- `city`, `state`: Location filters
-- `capacity`: Minimum capacity
-- `venueType`: Filter by type
-- `amenities`: Filter by amenities (comma-separated)
-- `verified`: Show only verified venues
+- **Auth required**: Yes
+- **Response** (200): Array of conversation objects.
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "770e8400-e29b-41d4-a716-446655440000",
-      "name": "High Ultra Lounge",
-      "venueType": "nightclub",
-      "capacity": 800,
-      "city": "Bangalore",
-      "trustScore": 85.5,
-      "isVerified": true,
-      "photos": [
-        "https://cdn.example.com/venues/high-1.jpg"
-      ],
-      "totalEvents": 120
-    }
-  ],
-  "pagination": { /* pagination */ }
-}
-```
+### GET /api/conversations/:id
 
----
+Get a single conversation with workflow instance and participant list.
 
-### 4.3 Get Venue Details
+- **Auth required**: Yes
+- **Access control**: Only participants can view (403 for non-participants).
+- **Response** (200): Conversation with `workflowInstance` and `participants[]`.
 
-Get detailed venue information.
+### GET /api/conversations/:id/messages
 
-**Endpoint**: `GET /api/venues/:id`  
-**Auth Required**: No (public endpoint)
+Get messages for a conversation, returned in chronological order.
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "id": "770e8400-e29b-41d4-a716-446655440000",
-    "name": "High Ultra Lounge",
-    "description": "Premium nightclub with world-class sound system",
-    "venueType": "nightclub",
-    "capacity": 800,
-    "location": {
-      "address": "123 MG Road",
-      "city": "Bangalore",
-      "state": "Karnataka",
-      "pincode": "560001",
-      "coordinates": { "lat": 12.9716, "lng": 77.5946 }
-    },
-    "amenities": ["premium_sound", "vip_area", "parking"],
-    "technicalSpecs": {
-      "soundSystem": "Pioneer",
-      "mixerModel": "DJM-900NXS2"
-    },
-    "photos": [
-      { "url": "https://cdn.example.com/venues/high-1.jpg" }
-    ],
-    "trustScore": 85.5,
-    "isVerified": true,
-    "stats": {
-      "totalEvents": 120,
-      "upcomingEvents": 8,
-      "averageRating": 4.6
-    },
-    "pastArtists": [
-      { "artistName": "DJ Shadow", "eventDate": "2025-12-25" }
-    ]
-  }
-}
-```
+- **Auth required**: Yes
+- **Response** (200): Array of message objects (oldest first).
+
+### POST /api/entities/:entityType/:entityId/conversation/:conversationType/open
+
+Open (or return existing) a conversation for a domain entity. Idempotent -- if a conversation already exists for the given entity and type, it is returned without creating a duplicate.
+
+- **Auth required**: Yes
+- **Path params**:
+  - `entityType` -- e.g. `"booking"`
+  - `entityId` -- integer ID of the entity
+  - `conversationType` -- e.g. `"negotiation"`, `"general"`
+- **Response** (200): Conversation object.
+
+### POST /api/conversations/:id/actions
+
+Dispatch a workflow action (e.g. ACCEPT, DECLINE, PROPOSE_CHANGE) within a conversation.
+
+- **Auth required**: Yes
+- **Request body**:
+  - `actionKey` (string, required) -- the workflow action name
+  - `inputs` (object, optional) -- action-specific payload
+  - `clientMsgId` (string, optional) -- client-generated dedup ID
+- **Response** (200): The action message created by the workflow service.
+- **Errors**: `400` for workflow logic errors (wrong turn, locked, max rounds).
+
+### POST /api/conversations/:id/messages
+
+Send a free-text message in a conversation. Blocked for negotiation-type conversations (use `/actions` instead).
+
+- **Auth required**: Yes
+- **Request body**:
+  - `body` (string, required) -- message text
+  - `clientMsgId` (string, optional) -- client-generated dedup ID
+- **Response** (200): Created message object.
+- **Errors**: `400` if conversation is a negotiation (free text not allowed).
 
 ---
 
-## 5. Opportunities & Applications
+## Notification Endpoints
 
-### 5.1 Browse Opportunities
+### GET /api/notifications
 
-Get list of available booking opportunities.
+List notifications for the authenticated user.
 
-**Endpoint**: `GET /api/opportunities`  
-**Auth Required**: Yes (Artist role)
+- **Auth required**: Yes
+- **Query params**:
+  - `limit` (number, default 20, max 50)
+  - `offset` (number, default 0)
+  - `unreadOnly` (`"true"` | `"false"`)
+- **Response** (200): `{ "notifications": [...], "unreadCount": <number>, "total": <number> }`
 
-**Query Parameters**:
-- `budgetMin`, `budgetMax`: Budget range
-- `genre`: Filter by genre
-- `city`: Location filter
-- `dateFrom`, `dateTo`: Event date range
-- `slotTime`: opening|mid|closing
-- `sortBy`: date|budget|match_score
+### GET /api/notifications/unread-count
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "opp-1",
-      "eventDate": "2026-04-15",
-      "venueName": "High Ultra Lounge",
-      "venueId": "770e8400-e29b-41d4-a716-446655440000",
-      "city": "Bangalore",
-      "budgetOffered": 25000,
-      "currency": "INR",
-      "slotTime": "closing",
-      "duration": 120,
-      "genresPreferred": ["techno", "house"],
-      "matchScore": 92,
-      "applicationsCount": 3,
-      "status": "open",
-      "deadline": "2026-03-15T23:59:59Z"
-    }
-  ],
-  "pagination": { /* pagination */ }
-}
-```
+Get a lightweight unread notification count (for badge display).
+
+- **Auth required**: Yes
+- **Response** (200): `{ "count": <number> }`
+
+### POST /api/notifications/:id/read
+
+Mark a single notification as read.
+
+- **Auth required**: Yes
+- **Response** (200): `{ "success": true }`
+
+### POST /api/notifications/read-all
+
+Mark all notifications as read for the authenticated user.
+
+- **Auth required**: Yes
+- **Response** (200): `{ "success": true, "count": <number> }`
 
 ---
 
-### 5.2 Get Opportunity Details
+## Media Endpoints
 
-Get full details of an opportunity.
+### POST /api/media/upload
 
-**Endpoint**: `GET /api/opportunities/:id`  
-**Auth Required**: Yes (Artist role)
+Upload images from device (multipart form-data).
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "id": "opp-1",
-    "eventName": "Friday Night Techno",
-    "eventDate": "2026-04-15",
-    "venue": {
-      "id": "770e8400-e29b-41d4-a716-446655440000",
-      "name": "High Ultra Lounge",
-      "capacity": 800,
-      "city": "Bangalore",
-      "trustScore": 85.5
-    },
-    "organizer": {
-      "id": "org-1",
-      "name": "XYZ Events",
-      "trustScore": 78.0
-    },
-    "budgetOffered": 25000,
-    "currency": "INR",
-    "slotTime": "closing",
-    "performanceStart": "23:00",
-    "duration": 120,
-    "genresPreferred": ["techno", "house", "electronic"],
-    "expectedCrowd": 600,
-    "technicalRequirements": {
-      "soundCheckTime": "21:00",
-      "equipmentProvided": true
-    },
-    "matchScore": 92,
-    "matchReasons": [
-      "Genre match: 100%",
-      "Budget in your range",
-      "Similar past performances"
-    ],
-    "applicationsCount": 3,
-    "deadline": "2026-03-15T23:59:59Z",
-    "status": "open"
-  }
-}
-```
+- **Auth required**: Yes
+- **Content-Type**: `multipart/form-data`
+- **Form fields**:
+  - `images` (file, up to 20 files) -- image files to upload
+  - `entityType` (string, optional) -- e.g. `"artist_profile"`, `"venue_gallery"`
+  - `entityId` (number, optional) -- ID of the associated entity
+  - `altText` (string, optional)
+- **File constraints**: Max 20 MB per file. Allowed MIME types: `image/jpeg`, `image/png`, `image/gif`, `image/webp`, `image/svg+xml`.
+- **Per-entity limits**: `user_avatar` (1), `artist_profile` (1), `artist_portfolio` (20), `venue_cover` (1), `venue_gallery` (20), `organizer_logo` (1), `event_cover` (3). Default limit is 10.
+- **Response** (201): Array of media record objects with `url` field (e.g. `/api/media/<id>/file`).
 
----
+### POST /api/media/url
 
-### 5.3 Create Opportunity
+Upload an image from a URL. Attempts to fetch and store the image data; falls back to storing the URL reference if the fetch fails.
 
-Create a new booking opportunity (organizers only).
+- **Auth required**: Yes
+- **Request body**:
+  - `url` (string, valid URL, required)
+  - `entityType` (string, required)
+  - `entityId` (number, required)
+  - `altText` (string, optional)
+- **Response** (201): Media record object with `url` field.
 
-**Endpoint**: `POST /api/opportunities`  
-**Auth Required**: Yes (Organizer/Venue Manager role)
+### GET /api/media/:id/file
 
-**Request Body**:
-```json
-{
-  "eventName": "Friday Night Techno",
-  "eventDate": "2026-04-15",
-  "venueId": "770e8400-e29b-41d4-a716-446655440000",
-  "budgetOffered": 25000,
-  "currency": "INR",
-  "slotTime": "closing",
-  "performanceStart": "23:00",
-  "duration": 120,
-  "genresPreferred": ["techno", "house"],
-  "description": "Looking for a techno DJ for our Friday night event",
-  "technicalRequirements": {
-    "soundCheckTime": "21:00",
-    "equipmentProvided": true
-  },
-  "applicationDeadline": "2026-03-15T23:59:59Z"
-}
-```
+Serve an image file. Returns binary image data with proper MIME type headers for stored images, or redirects (302) for external URL references.
 
-**Response** (201 Created):
-```json
-{
-  "success": true,
-  "message": "Opportunity created successfully",
-  "data": {
-    "id": "opp-2",
-    "status": "open",
-    "createdAt": "2026-02-03T14:30:00Z"
-  }
-}
-```
+- **Auth required**: No (public)
+- **Response**: Image binary with `Content-Type` header, or 302 redirect.
+- **Caching**: `Cache-Control: public, max-age=86400` (24 hours).
+
+### GET /api/media/entity/:entityType/:entityId
+
+List all images for a given entity.
+
+- **Auth required**: No (public)
+- **Response** (200): Array of media record objects with `url` fields.
+
+### DELETE /api/media/:id
+
+Delete a media record. Owner or admin only.
+
+- **Auth required**: Yes
+- **Response** (200): `{ "message": "Media deleted" }`
+- **Errors**: `403` not authorized, `404` not found.
 
 ---
 
-### 5.4 Apply to Opportunity
+## Admin Endpoints
 
-Submit application for an opportunity.
+All admin endpoints are mounted under `/api/admin` and require `admin` or `platform_admin` role. Unauthorized requests receive `401` or `403`.
 
-**Endpoint**: `POST /api/applications`  
-**Auth Required**: Yes (Artist role)
+### Stats
 
-**Request Body**:
-```json
-{
-  "opportunityId": "opp-1",
-  "proposedFee": 28000,
-  "willingToNegotiate": true,
-  "message": "I've performed at similar venues and would love to bring my unique techno sound to your event.",
-  "confirmAvailability": true
-}
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/stats` | Platform-wide statistics |
 
-**Response** (201 Created):
-```json
-{
-  "success": true,
-  "message": "Application submitted successfully",
-  "data": {
-    "id": "app-1",
-    "opportunityId": "opp-1",
-    "artistId": "660e8400-e29b-41d4-a716-446655440000",
-    "status": "pending_review",
-    "submittedAt": "2026-02-03T14:45:00Z",
-    "responseDeadline": "2026-02-05T14:45:00Z"
-  }
-}
-```
+### User Management
 
----
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/users` | List all users |
+| POST | `/api/admin/users` | Create a new user with profile (requires `email`, `password`, `role`) |
+| GET | `/api/admin/users/:id` | Get user by ID |
+| PATCH | `/api/admin/users/:id` | Update user fields |
+| PATCH | `/api/admin/users/:id/status` | Change user status (active, suspended, etc.) |
+| PATCH | `/api/admin/users/:id/role` | Change user role |
+| DELETE | `/api/admin/users/:id` | Delete a user |
 
-### 5.5 Get Application Details
+### Artist Management
 
-Get application status and details.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/artists` | List all artists |
+| GET | `/api/admin/artists/:id` | Get artist by ID |
+| PATCH | `/api/admin/artists/:id` | Update artist fields |
 
-**Endpoint**: `GET /api/applications/:id`  
-**Auth Required**: Yes (Application owner or opportunity creator)
+### Organizer Management
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "id": "app-1",
-    "opportunity": {
-      "id": "opp-1",
-      "eventName": "Friday Night Techno",
-      "eventDate": "2026-04-15",
-      "venueName": "High Ultra Lounge"
-    },
-    "artist": {
-      "id": "660e8400-e29b-41d4-a716-446655440000",
-      "artistName": "DJ Shadow",
-      "trustScore": 75.5
-    },
-    "proposedFee": 28000,
-    "willingToNegotiate": true,
-    "message": "I've performed at similar venues...",
-    "status": "pending_review",
-    "submittedAt": "2026-02-03T14:45:00Z",
-    "responseDeadline": "2026-02-05T14:45:00Z",
-    "viewedByOrganizer": true,
-    "viewedAt": "2026-02-03T15:00:00Z"
-  }
-}
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/organizers` | List all organizers |
+| GET | `/api/admin/organizers/:id` | Get organizer by ID |
+| PATCH | `/api/admin/organizers/:id` | Update organizer fields |
 
----
+### Venue Management
 
-### 5.6 Withdraw Application
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/venues` | List all venues |
+| GET | `/api/admin/venues/:id` | Get venue by ID |
+| PATCH | `/api/admin/venues/:id` | Update venue fields |
 
-Withdraw a pending application.
+### Event Management
 
-**Endpoint**: `DELETE /api/applications/:id`  
-**Auth Required**: Yes (Application owner)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/events` | List all events |
+| GET | `/api/admin/events/:id` | Get event by ID |
+| PATCH | `/api/admin/events/:id` | Update event fields |
+| DELETE | `/api/admin/events/:id` | Delete an event |
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Application withdrawn successfully"
-}
-```
+### Booking Management
 
----
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/bookings` | List all bookings |
+| GET | `/api/admin/bookings/:id` | Get booking by ID |
+| PATCH | `/api/admin/bookings/:id/status` | Change booking status |
 
-## 6. Bookings
+### Contract Management
 
-### 6.1 Create Booking
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/contracts/pending` | List contracts pending admin review |
+| GET | `/api/admin/contracts` | List all contracts |
+| GET | `/api/admin/contracts/:id` | Get contract by ID |
+| PATCH | `/api/admin/contracts/:id` | Update contract fields |
+| POST | `/api/admin/contracts/:id/review` | Admin review action on a contract (approve/reject) |
 
-Create a confirmed booking.
+### Conversations
 
-**Endpoint**: `POST /api/bookings`  
-**Auth Required**: Yes (Organizer role)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/conversations` | List all conversations |
+| GET | `/api/admin/conversations/:id/messages` | Get messages for a conversation |
 
-**Request Body**:
-```json
-{
-  "artistId": "660e8400-e29b-41d4-a716-446655440000",
-  "venueId": "770e8400-e29b-41d4-a716-446655440000",
-  "eventDate": "2026-04-15",
-  "slotTime": "closing",
-  "performanceStart": "23:00",
-  "performanceDuration": 120,
-  "budget": 28000,
-  "currency": "INR",
-  "eventDetails": {
-    "name": "Friday Night Techno",
-    "expectedCrowd": 600,
-    "genre": "techno"
-  }
-}
-```
+### Settings
 
-**Response** (201 Created):
-```json
-{
-  "success": true,
-  "message": "Booking created successfully",
-  "data": {
-    "id": "booking-1",
-    "status": "confirmed",
-    "createdAt": "2026-02-03T15:00:00Z",
-    "nextSteps": [
-      "Contract will be generated within 24 hours",
-      "Both parties must sign within 48 hours"
-    ]
-  }
-}
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/settings` | Get app settings (approval toggles) |
+| POST | `/api/admin/settings` | Update app settings |
+| GET | `/api/admin/settings/system` | Get system settings |
+| POST | `/api/admin/settings/system` | Update system settings |
+
+### Audit Log
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/audit` | List audit log entries |
+
+### Notification Management
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/notification-types` | List notification types |
+| POST | `/api/admin/notification-types` | Create a notification type |
+| PUT | `/api/admin/notification-types/:id` | Update a notification type |
+| DELETE | `/api/admin/notification-types/:id` | Delete a notification type |
+| GET | `/api/admin/notification-channels` | List notification channels |
+| PUT | `/api/admin/notification-channels/:id` | Update a notification channel |
+| POST | `/api/admin/notifications/test` | Send a test notification |
 
 ---
 
-### 6.2 Get Booking Details
+## WebSocket
 
-Get detailed booking information.
+Real-time messaging and notifications via WebSocket.
 
-**Endpoint**: `GET /api/bookings/:id`  
-**Auth Required**: Yes (Booking participant or Admin)
+- **Path**: `/ws`
+- **Protocol**: JSON messages over WebSocket
 
-**Response** (200 OK):
+### Client-to-Server Messages
+
+**Subscribe to a conversation room:**
 ```json
-{
-  "success": true,
-  "data": {
-    "id": "booking-1",
-    "artist": {
-      "id": "660e8400-e29b-41d4-a716-446655440000",
-      "artistName": "DJ Shadow",
-      "phone": "+919876543210"
-    },
-    "organizer": {
-      "id": "org-1",
-      "name": "XYZ Events",
-      "contactPerson": "Rahul Kumar"
-    },
-    "venue": {
-      "id": "770e8400-e29b-41d4-a716-446655440000",
-      "name": "High Ultra Lounge",
-      "address": "123 MG Road, Bangalore"
-    },
-    "eventDate": "2026-04-15",
-    "slotTime": "closing",
-    "performanceStart": "23:00",
-    "performanceDuration": 120,
-    "budget": 28000,
-    "currency": "INR",
-    "status": "confirmed",
-    "contract": {
-      "id": "contract-1",
-      "status": "pending_signatures",
-      "pdfUrl": "https://cdn.example.com/contracts/contract-1.pdf"
-    },
-    "payments": [
-      {
-        "id": "pay-1",
-        "type": "deposit",
-        "amount": 8400,
-        "status": "pending"
-      }
-    ],
-    "checklist": {
-      "contractSigned": false,
-      "depositPaid": false,
-      "travelArranged": false,
-      "technicalRiderConfirmed": false
-    }
-  }
-}
+{ "type": "subscribe", "conversationId": 42 }
 ```
+
+**Authenticate for user-level notifications:**
+```json
+{ "type": "auth", "userId": 7 }
+```
+
+### Server-to-Client Messages
+
+**Subscription confirmed:**
+```json
+{ "type": "connected", "conversationId": 42 }
+```
+
+**Auth confirmed:**
+```json
+{ "type": "auth_ok", "userId": 7 }
+```
+
+**New message in a subscribed conversation:**
+```json
+{ "type": "message", "data": { "id": 123, "conversationId": 42, "senderId": 7, "body": "...", ... } }
+```
+
+**Notification for an authenticated user:**
+```json
+{ "type": "notification", "data": { "id": 99, "title": "...", "body": "...", ... } }
+```
+
+### Architecture
+
+- **Room-based pub/sub**: Each conversation ID maps to a set of connected clients. Messages are broadcast to all clients in the room.
+- **User-based pub/sub**: Each authenticated user ID maps to a set of connections. Notifications are delivered to all of a user's active connections.
+- Clients that disconnect are automatically cleaned up from both room and user maps.
 
 ---
 
-### 6.3 Update Booking
+## Common Error Response Format
 
-Update booking details (limited fields).
+All error responses follow this structure:
 
-**Endpoint**: `PATCH /api/bookings/:id`  
-**Auth Required**: Yes (Organizer or Admin)
-
-**Request Body**:
 ```json
 {
-  "performanceStart": "23:30",
-  "notes": "Adjusted start time for headliner slot"
+  "message": "Human-readable error description",
+  "errors": []
 }
 ```
 
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Booking updated successfully",
-  "data": { /* updated booking */ }
-}
-```
-
----
-
-### 6.4 Cancel Booking
-
-Cancel a booking.
-
-**Endpoint**: `DELETE /api/bookings/:id`  
-**Auth Required**: Yes (Booking participant)
-
-**Request Body**:
-```json
-{
-  "reason": "Artist unavailable due to health issues",
-  "cancellationType": "artist_cancellation"
-}
-```
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Booking cancelled. Refund/penalty processing initiated.",
-  "data": {
-    "cancellationId": "cancel-1",
-    "refundAmount": 8400,
-    "penaltyAmount": 0,
-    "processingTime": "3-5 business days"
-  }
-}
-```
-
----
-
-## 7. Negotiations
-
-### 7.1 Start Negotiation
-
-Initiate negotiation on an application.
-
-**Endpoint**: `POST /api/negotiations`  
-**Auth Required**: Yes (Organizer role)
-
-**Request Body**:
-```json
-{
-  "applicationId": "app-1",
-  "counterOffer": {
-    "budget": 22000,
-    "slotTime": "mid",
-    "duration": 90,
-    "message": "We'd like to offer you a mid-slot with adjusted budget"
-  }
-}
-```
-
-**Response** (201 Created):
-```json
-{
-  "success": true,
-  "message": "Negotiation initiated",
-  "data": {
-    "id": "neg-1",
-    "applicationId": "app-1",
-    "round": 1,
-    "maxRounds": 3,
-    "status": "pending_artist_response",
-    "responseDeadline": "2026-02-05T15:00:00Z"
-  }
-}
-```
-
----
-
-### 7.2 Get Negotiation Thread
-
-Get negotiation history and current state.
-
-**Endpoint**: `GET /api/negotiations/:id`  
-**Auth Required**: Yes (Negotiation participant)
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "id": "neg-1",
-    "applicationId": "app-1",
-    "currentRound": 2,
-    "maxRounds": 3,
-    "status": "pending_organizer_response",
-    "timeline": [
-      {
-        "round": 1,
-        "actor": "organizer",
-        "action": "counter_offer",
-        "offer": {
-          "budget": 22000,
-          "slotTime": "mid",
-          "duration": 90
-        },
-        "message": "We'd like to offer you a mid-slot...",
-        "timestamp": "2026-02-04T10:00:00Z"
-      },
-      {
-        "round": 2,
-        "actor": "artist",
-        "action": "counter_offer",
-        "offer": {
-          "budget": 25000,
-          "slotTime": "mid",
-          "duration": 90
-        },
-        "message": "I can accept mid-slot for 25k",
-        "timestamp": "2026-02-04T14:00:00Z"
-      }
-    ],
-    "currentOffer": {
-      "budget": 25000,
-      "slotTime": "mid",
-      "duration": 90
-    },
-    "responseDeadline": "2026-02-06T14:00:00Z"
-  }
-}
-```
-
----
-
-### 7.3 Make Counter Offer
-
-Respond with a counter offer.
-
-**Endpoint**: `POST /api/negotiations/:id/offer`  
-**Auth Required**: Yes (Negotiation participant)
-
-**Request Body**:
-```json
-{
-  "offer": {
-    "budget": 25000,
-    "slotTime": "mid",
-    "duration": 90
-  },
-  "message": "I can accept mid-slot for 25k"
-}
-```
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Counter offer sent",
-  "data": {
-    "negotiationId": "neg-1",
-    "round": 2,
-    "status": "pending_organizer_response",
-    "responseDeadline": "2026-02-06T14:00:00Z"
-  }
-}
-```
-
----
-
-### 7.4 Accept Offer
-
-Accept the current offer and close negotiation.
-
-**Endpoint**: `POST /api/negotiations/:id/accept`  
-**Auth Required**: Yes (Negotiation participant)
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Offer accepted. Proceeding to contract generation.",
-  "data": {
-    "negotiationId": "neg-1",
-    "finalTerms": {
-      "budget": 25000,
-      "slotTime": "mid",
-      "duration": 90
-    },
-    "nextSteps": [
-      "Contract will be generated",
-      "Both parties must sign within 48 hours"
-    ]
-  }
-}
-```
-
----
-
-### 7.5 Decline Offer
-
-Decline offer and end negotiation.
-
-**Endpoint**: `POST /api/negotiations/:id/decline`  
-**Auth Required**: Yes (Negotiation participant)
-
-**Request Body**:
-```json
-{
-  "reason": "Terms don't align with requirements"
-}
-```
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Negotiation declined and closed"
-}
-```
-
----
-
-## 8. Contracts
-
-### 8.1 Get Contract
-
-Retrieve contract details.
-
-**Endpoint**: `GET /api/contracts/:id`  
-**Auth Required**: Yes (Contract party)
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "id": "contract-1",
-    "bookingId": "booking-1",
-    "contractType": "local_booking",
-    "status": "pending_signatures",
-    "terms": {
-      "artistFee": 25000,
-      "currency": "INR",
-      "paymentSchedule": [
-        { "type": "deposit", "percentage": 30, "amount": 7500 },
-        { "type": "preEvent", "percentage": 40, "amount": 10000 },
-        { "type": "final", "percentage": 30, "amount": 7500 }
-      ],
-      "cancellationPolicy": {
-        "artistCancellation": "90 days notice required",
-        "organizerCancellation": "Penalties apply based on timeline"
-      }
-    },
-    "artistSignature": null,
-    "organizerSignature": null,
-    "pdfUrl": "https://cdn.example.com/contracts/contract-1.pdf",
-    "createdAt": "2026-02-04T10:00:00Z",
-    "signingDeadline": "2026-02-06T10:00:00Z"
-  }
-}
-```
-
----
-
-### 8.2 Sign Contract
-
-Digitally sign the contract.
-
-**Endpoint**: `POST /api/contracts/:id/sign`  
-**Auth Required**: Yes (Contract party)
-
-**Request Body**:
-```json
-{
-  "agreed": true,
-  "signature": "data:image/png;base64,iVBORw0KGgo...",
-  "verificationMethod": "password",
-  "verificationValue": "myPassword123"
-}
-```
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Contract signed successfully",
-  "data": {
-    "contractId": "contract-1",
-    "signedBy": "artist",
-    "signedAt": "2026-02-04T12:00:00Z",
-    "status": "signed_by_artist",
-    "nextStep": "Awaiting organizer signature"
-  }
-}
-```
-
----
-
-### 8.3 Download Contract PDF
-
-Download signed contract PDF.
-
-**Endpoint**: `GET /api/contracts/:id/pdf`  
-**Auth Required**: Yes (Contract party)
-
-**Response**: Binary PDF file
-
----
-
-## 9. Payments
-
-### 9.1 Initiate Payment
-
-Initiate a payment for booking.
-
-**Endpoint**: `POST /api/payments`  
-**Auth Required**: Yes (Organizer role)
-
-**Request Body**:
-```json
-{
-  "bookingId": "booking-1",
-  "amount": 7500,
-  "currency": "INR",
-  "paymentType": "deposit",
-  "paymentMethod": "razorpay"
-}
-```
-
-**Response** (201 Created):
-```json
-{
-  "success": true,
-  "message": "Payment initiated",
-  "data": {
-    "paymentId": "pay-1",
-    "amount": 7500,
-    "currency": "INR",
-    "status": "initiated",
-    "gateway": "razorpay",
-    "orderId": "order_123456",
-    "checkoutUrl": "https://razorpay.com/checkout/xyz"
-  }
-}
-```
-
----
-
-### 9.2 Get Payment Status
-
-Check payment status.
-
-**Endpoint**: `GET /api/payments/:id`  
-**Auth Required**: Yes (Payment participant)
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "id": "pay-1",
-    "bookingId": "booking-1",
-    "amount": 7500,
-    "currency": "INR",
-    "paymentType": "deposit",
-    "status": "captured",
-    "gateway": "razorpay",
-    "gatewayTransactionId": "pay_ABC123",
-    "payer": {
-      "id": "org-1",
-      "name": "XYZ Events"
-    },
-    "payee": {
-      "id": "660e8400-e29b-41d4-a716-446655440000",
-      "artistName": "DJ Shadow"
-    },
-    "initiatedAt": "2026-02-04T13:00:00Z",
-    "completedAt": "2026-02-04T13:05:00Z"
-  }
-}
-```
-
----
-
-### 9.3 Webhook Handler
-
-Receive payment gateway webhooks.
-
-**Endpoint**: `POST /api/payments/webhooks/:gateway`  
-**Auth Required**: No (verified via signature)
-
-**Request Body**: (Gateway-specific payload)
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Webhook processed"
-}
-```
-
----
-
-## 10. Search & Discovery
-
-### 10.1 Global Search
-
-Search across all entities.
-
-**Endpoint**: `GET /api/search`  
-**Auth Required**: Optional
-
-**Query Parameters**:
-- `q`: Search query
-- `type`: Entity type filter (artist|venue|event)
-- `page`, `pageSize`: Pagination
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "artists": [
-      {
-        "id": "660e8400-e29b-41d4-a716-446655440000",
-        "artistName": "DJ Shadow",
-        "matchScore": 95
-      }
-    ],
-    "venues": [],
-    "events": []
-  },
-  "totalResults": 1
-}
-```
-
----
-
-## 11. Notifications
-
-### 11.1 Get Notifications
-
-Get user notifications.
-
-**Endpoint**: `GET /api/notifications`  
-**Auth Required**: Yes
-
-**Query Parameters**:
-- `unreadOnly` (boolean): Show only unread
-- `type`: Filter by notification type
-- `page`, `pageSize`: Pagination
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "notif-1",
-      "type": "application_response",
-      "title": "Application Accepted!",
-      "body": "Your application for Friday Night Techno has been accepted",
-      "read": false,
-      "createdAt": "2026-02-04T10:00:00Z",
-      "relatedEntity": {
-        "type": "application",
-        "id": "app-1"
-      }
-    }
-  ],
-  "unreadCount": 5,
-  "pagination": { /* pagination */ }
-}
-```
-
----
-
-### 11.2 Mark as Read
-
-Mark notification(s) as read.
-
-**Endpoint**: `PATCH /api/notifications/:id/read`  
-**Auth Required**: Yes
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "message": "Notification marked as read"
-}
-```
-
----
-
-## 12. Analytics
-
-### 12.1 Get Platform Stats
-
-Get platform-wide statistics (admin only).
-
-**Endpoint**: `GET /api/analytics/platform`  
-**Auth Required**: Yes (Admin only)
-
-**Response** (200 OK):
-```json
-{
-  "success": true,
-  "data": {
-    "users": {
-      "total": 1250,
-      "artists": 450,
-      "organizers": 180,
-      "venues": 65
-    },
-    "bookings": {
-      "total": 890,
-      "thisMonth": 85,
-      "avgPerMonth": 74
-    },
-    "revenue": {
-      "total": 4500000,
-      "thisMonth": 380000,
-      "currency": "INR"
-    },
-    "trustScores": {
-      "avgArtist": 68.5,
-      "avgOrganizer": 72.3,
-      "avgVenue": 75.8
-    }
-  }
-}
-```
-
----
-
-## Error Codes Reference
-
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| `VALIDATION_ERROR` | 400 | Request validation failed |
-| `UNAUTHORIZED` | 401 | Authentication required |
-| `FORBIDDEN` | 403 | Insufficient permissions |
-| `NOT_FOUND` | 404 | Resource not found |
-| `CONFLICT` | 409 | Resource already exists or conflict |
-| `RATE_LIMIT_EXCEEDED` | 429 | Too many requests |
-| `INTERNAL_ERROR` | 500 | Server error |
-| `DATABASE_ERROR` | 500 | Database operation failed |
-| `EXTERNAL_SERVICE_ERROR` | 503 | Third-party service unavailable |
-
----
-
-## Rate Limiting
-
-All endpoints are rate-limited:
-
-- **Public endpoints**: 1000 requests/hour per IP
-- **Authenticated endpoints**: 100 requests/15 minutes per user
-- **Login endpoint**: 5 attempts/15 minutes per IP
-
-Rate limit headers:
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1642145947
-```
-
----
-
-**Last Updated**: February 3, 2026  
-**API Version**: v1  
-**Support**: api-support@musicplatform.com
+The `errors` array is present for validation failures (Zod) and contains individual field-level error details. For non-validation errors, only `message` is returned.
+
+## HTTP Status Codes
+
+| Code | Meaning |
+|------|---------|
+| 200 | Success |
+| 201 | Created |
+| 400 | Bad request / validation error |
+| 401 | Not authenticated |
+| 403 | Not authorized (wrong role or not owner) |
+| 404 | Resource not found |
+| 409 | Conflict (duplicate) |
+| 410 | Gone (deprecated endpoint removed) |
+| 500 | Internal server error |
