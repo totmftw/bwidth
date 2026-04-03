@@ -31,16 +31,19 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
+import { useQuery } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { organizerOnboardingSchema } from "@shared/routes";
 import { useCompleteOnboarding } from "@/hooks/use-organizer";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { ImageUpload } from "@/components/ImageUpload";
 import { Loader2, ArrowRight, ArrowLeft } from "lucide-react";
 
 /**
@@ -52,13 +55,25 @@ type OnboardingFormData = z.infer<typeof organizerOnboardingSchema>;
 export default function OrganizerSetup() {
   // Wouter hook for programmatic navigation (redirects after completion)
   const [, setLocation] = useLocation();
-  
+  const { user } = useAuth();
+  const organizerId = (user as any)?.organizer?.id || 0;
+
   // Track which step (1-3) the user is currently viewing
   const [currentStep, setCurrentStep] = useState(1);
-  
+
   // TanStack Query mutation hook for submitting onboarding data to the server
   // Handles loading state, error handling, and cache invalidation
   const completeMutation = useCompleteOnboarding();
+
+  const { data: existingLogoImages = [] } = useQuery({
+    queryKey: ["/api/media/entity", "organizer_logo", organizerId],
+    queryFn: async () => {
+      const res = await fetch(`/api/media/entity/organizer_logo/${organizerId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: organizerId > 0,
+  });
 
   /**
    * React Hook Form setup with Zod validation resolver.
@@ -263,6 +278,17 @@ export default function OrganizerSetup() {
                     Minimum 10 characters, maximum 2000 characters
                   </p>
                 </div>
+
+                {organizerId > 0 && (
+                  <ImageUpload
+                    entityType="organizer_logo"
+                    entityId={organizerId}
+                    maxImages={1}
+                    compact
+                    existingImages={existingLogoImages}
+                    label="Organization Logo"
+                  />
+                )}
               </div>
             )}
 

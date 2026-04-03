@@ -8,12 +8,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { useForm } from "react-hook-form";
+import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
+import { ImageUpload } from "@/components/ImageUpload";
 
 export default function Profile() {
   const { user } = useAuth();
   const updateArtist = useUpdateArtist();
+
+  const userId = user?.id || 0;
+
+  const { data: existingAvatarImages = [] } = useQuery({
+    queryKey: ["/api/media/entity", "user_avatar", userId],
+    queryFn: async () => {
+      const res = await fetch(`/api/media/entity/user_avatar/${userId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: userId > 0,
+  });
 
   if (!user) return null;
   const isArtist = user.role === "artist";
@@ -32,10 +46,23 @@ export default function Profile() {
               <CardTitle>Avatar</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col items-center gap-4">
-              <Avatar className="w-32 h-32 border-4 border-primary/20">
-                <AvatarFallback className="text-4xl bg-secondary">{(user.name || user.username || "U")[0]}</AvatarFallback>
-              </Avatar>
-              <Button variant="outline" className="w-full">Change Photo</Button>
+              {userId > 0 ? (
+                <ImageUpload
+                    entityType="user_avatar"
+                    entityId={userId}
+                    maxImages={1}
+                    compact
+                    existingImages={existingAvatarImages}
+                    label="Profile Photo"
+                />
+              ) : (
+                <>
+                  <Avatar className="w-32 h-32 border-4 border-primary/20">
+                    <AvatarFallback className="text-4xl bg-secondary">{(user.name || user.username || "U")[0]}</AvatarFallback>
+                  </Avatar>
+                  <Button variant="outline" className="w-full">Change Photo</Button>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>

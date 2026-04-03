@@ -11,6 +11,7 @@ import contractsRouter from "./routes/contracts";
 import conversationsRouter from "./routes/conversations";
 import organizerRouter from "./routes/organizer";
 import venueRouter from "./routes/venue";
+import mediaRouter from "./routes/media";
 import { isSameDay } from "date-fns";
 import { artistProfileCompleteSchema, buildArtistMetadata, buildArtistRecord } from "./artist-profile-utils";
 import { venueProfileCompleteSchema, buildVenueMetadata, buildVenueRecord } from "./venue-profile-utils";
@@ -65,6 +66,7 @@ export async function registerRoutes(
   app.use("/api", conversationsRouter);
   app.use("/api", organizerRouter);
   app.use("/api", venueRouter);
+  app.use("/api", mediaRouter);
   app.use("/api/admin", adminRouter); // Admin routes mounted under /api/admin
 
 

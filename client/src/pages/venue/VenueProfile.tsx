@@ -13,6 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { ImageUpload } from "@/components/ImageUpload";
 import {
     Building2, MapPin, Music2, Settings, Camera,
     Save, Loader2, Globe, Instagram, Mail, Phone, X, Check, Image
@@ -103,6 +104,28 @@ export default function VenueProfile() {
     const [operatingDays, setOperatingDays] = useState<string[]>(
         metadata?.bookingPreferences?.operatingDays || []
     );
+
+    const venueId = venue?.id || 0;
+
+    const { data: existingCoverImages = [] } = useQuery({
+        queryKey: ["/api/media/entity", "venue_cover", venueId],
+        queryFn: async () => {
+            const res = await fetch(`/api/media/entity/venue_cover/${venueId}`, { credentials: "include" });
+            if (!res.ok) return [];
+            return res.json();
+        },
+        enabled: venueId > 0,
+    });
+
+    const { data: existingGalleryImages = [] } = useQuery({
+        queryKey: ["/api/media/entity", "venue_gallery", venueId],
+        queryFn: async () => {
+            const res = await fetch(`/api/media/entity/venue_gallery/${venueId}`, { credentials: "include" });
+            if (!res.ok) return [];
+            return res.json();
+        },
+        enabled: venueId > 0,
+    });
 
     // Form setup
     const form = useForm<VenueProfileForm>({
@@ -271,22 +294,35 @@ export default function VenueProfile() {
                                 <CardTitle>Cover Image</CardTitle>
                             </CardHeader>
                             <CardContent className="flex flex-col items-center gap-4">
-                                <Avatar className="w-32 h-32 border-4 border-primary/20">
-                                    <AvatarImage src={coverImageUrl} />
-                                    <AvatarFallback className="text-4xl bg-secondary">
-                                        <Building2 className="w-12 h-12" />
-                                    </AvatarFallback>
-                                </Avatar>
-                                <div className="w-full space-y-1">
-                                    <Label className="text-xs text-muted-foreground">Cover Image URL</Label>
-                                    <Input
-                                        type="url"
-                                        placeholder="https://example.com/photo.jpg"
-                                        value={coverImageUrl}
-                                        onChange={(e) => setCoverImageUrl(e.target.value)}
-                                        className="bg-background text-xs"
+                                {venueId > 0 ? (
+                                    <ImageUpload
+                                        entityType="venue_cover"
+                                        entityId={venueId}
+                                        maxImages={1}
+                                        compact
+                                        existingImages={existingCoverImages}
+                                        label="Cover Image"
                                     />
-                                </div>
+                                ) : (
+                                    <>
+                                        <Avatar className="w-32 h-32 border-4 border-primary/20">
+                                            <AvatarImage src={coverImageUrl} />
+                                            <AvatarFallback className="text-4xl bg-secondary">
+                                                <Building2 className="w-12 h-12" />
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <div className="w-full space-y-1">
+                                            <Label className="text-xs text-muted-foreground">Cover Image URL</Label>
+                                            <Input
+                                                type="url"
+                                                placeholder="https://example.com/photo.jpg"
+                                                value={coverImageUrl}
+                                                onChange={(e) => setCoverImageUrl(e.target.value)}
+                                                className="bg-background text-xs"
+                                            />
+                                        </div>
+                                    </>
+                                )}
                             </CardContent>
                         </Card>
 
@@ -479,39 +515,33 @@ export default function VenueProfile() {
                             <CardDescription>Showcase your venue with images and a virtual tour</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            <div className="space-y-2">
-                                <Label>Cover Image URL</Label>
-                                <Input
-                                    type="url"
-                                    placeholder="https://example.com/venue-cover.jpg"
-                                    value={coverImageUrl}
-                                    onChange={(e) => setCoverImageUrl(e.target.value)}
-                                    className="bg-background"
-                                />
-                                {coverImageUrl && (
-                                    <div className="mt-3 rounded-xl overflow-hidden border border-white/10 max-h-48">
-                                        <img
-                                            src={coverImageUrl}
-                                            alt="Cover preview"
-                                            className="w-full h-48 object-cover"
-                                            onError={(e) => (e.currentTarget.style.display = "none")}
-                                        />
-                                    </div>
-                                )}
-                            </div>
+                            {venueId > 0 ? (
+                                <>
+                                    <ImageUpload
+                                        entityType="venue_cover"
+                                        entityId={venueId}
+                                        maxImages={1}
+                                        compact
+                                        existingImages={existingCoverImages}
+                                        label="Cover Image"
+                                    />
 
-                            <Separator className="bg-white/10" />
+                                    <Separator className="bg-white/10" />
 
-                            <div className="space-y-2">
-                                <Label>Gallery Image URLs</Label>
-                                <Textarea
-                                    placeholder="Paste image URLs separated by commas&#10;https://..., https://..."
-                                    value={galleryUrls}
-                                    onChange={(e) => setGalleryUrls(e.target.value)}
-                                    className="bg-background min-h-[80px]"
-                                />
-                                <p className="text-xs text-muted-foreground">Separate multiple URLs with commas</p>
-                            </div>
+                                    <ImageUpload
+                                        entityType="venue_gallery"
+                                        entityId={venueId}
+                                        maxImages={20}
+                                        existingImages={existingGalleryImages}
+                                        label="Gallery Photos"
+                                        description="Upload photos of your venue interior, stage, and ambiance"
+                                    />
+                                </>
+                            ) : (
+                                <p className="text-sm text-muted-foreground">
+                                    Save your venue profile first to enable image uploads.
+                                </p>
+                            )}
 
                             <Separator className="bg-white/10" />
 

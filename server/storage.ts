@@ -163,6 +163,13 @@ export interface IStorage {
   getAllContracts(filters?: { status?: string }): Promise<any[]>;
   adminUpdateContract(id: number, data: any): Promise<any>;
   getAuditLogs(filters?: { limit?: number; offset?: number; userId?: number }): Promise<any[]>;
+
+  // Media
+  createMedia(data: any): Promise<any>;
+  getMediaById(id: number): Promise<any>;
+  getMediaByEntity(entityType: string, entityId: number): Promise<any[]>;
+  getMediaCountByEntity(entityType: string, entityId: number): Promise<number>;
+  deleteMedia(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1520,6 +1527,40 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(auditLogs.occurredAt))
       .limit(limit)
       .offset(offset);
+  }
+
+  // =========================================================================
+  // Media
+  // =========================================================================
+
+  async createMedia(data: any): Promise<any> {
+    const [record] = await db.insert(media).values(data).returning();
+    return record;
+  }
+
+  async getMediaById(id: number): Promise<any> {
+    const [record] = await db.select().from(media).where(eq(media.id, id));
+    return record;
+  }
+
+  async getMediaByEntity(entityType: string, entityId: number): Promise<any[]> {
+    return await db
+      .select()
+      .from(media)
+      .where(and(eq(media.entityType, entityType), eq(media.entityId, entityId)))
+      .orderBy(asc(media.uploadedAt));
+  }
+
+  async getMediaCountByEntity(entityType: string, entityId: number): Promise<number> {
+    const [result] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(media)
+      .where(and(eq(media.entityType, entityType), eq(media.entityId, entityId)));
+    return Number(result.count);
+  }
+
+  async deleteMedia(id: number): Promise<void> {
+    await db.delete(media).where(eq(media.id, id));
   }
 }
 

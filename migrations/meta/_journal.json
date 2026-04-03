@@ -36,6 +36,13 @@
       "when": 1775032100126,
       "tag": "0004_first_dexter_bennett",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1775213613960,
+      "tag": "0005_powerful_scream",
+      "breakpoints": true
     }
   ]
 }

@@ -4,7 +4,7 @@ import * as z from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, Loader2, ArrowLeft, X } from "lucide-react";
+import { Calendar as CalendarIcon, Loader2, ArrowLeft, X, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     Form,
@@ -439,6 +439,19 @@ export default function CreateEvent() {
                             </p>
                             <p>
                                 • <strong>Advance Planning:</strong> Creating events at least 2 weeks in advance attracts better talent.
+                            </p>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="glass-card border-white/5">
+                        <CardHeader>
+                            <CardTitle className="text-lg flex items-center gap-2">
+                                <ImageIcon className="w-4 h-4" /> Event Images
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-sm text-muted-foreground">
+                                You can add cover images and promotional photos after creating the event. Look for the image upload option on the event details page.
                             </p>
                         </CardContent>
                     </Card>

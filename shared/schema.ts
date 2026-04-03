@@ -639,7 +639,8 @@ export const media = pgTable("media", {
   filename: text("filename"),
   mimeType: text("mime_type"),
   fileSize: integer("file_size"),
-  data: text("data"), // URL or storage reference
+  data: text("data"), // base64 data URL or external URL
+  sourceUrl: text("source_url"), // original URL if fetched from a link
   altText: text("alt_text"),
   metadata: jsonb("metadata").default({}),
   uploadedAt: timestamp("uploaded_at").defaultNow(),

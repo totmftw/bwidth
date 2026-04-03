@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
+import { ImageUpload } from "@/components/ImageUpload";
 import {
     Loader2,
     Check,
@@ -287,6 +288,7 @@ export default function ArtistProfileSetup() {
                                         data={formData}
                                         onUpdate={updateFormData}
                                         onNext={nextStep}
+                                        artistId={artist?.id || 0}
                                     />
                                 )}
                                 {currentStep === 2 && (
@@ -311,6 +313,7 @@ export default function ArtistProfileSetup() {
                                         onUpdate={updateFormData}
                                         onNext={nextStep}
                                         onBack={prevStep}
+                                        artistId={artist?.id || 0}
                                     />
                                 )}
                                 {currentStep === 5 && (
@@ -340,11 +343,13 @@ export default function ArtistProfileSetup() {
 function BasicInfoStep({
     data,
     onUpdate,
-    onNext
+    onNext,
+    artistId,
 }: {
     data: any;
     onUpdate: (data: any) => void;
     onNext: () => void;
+    artistId: number;
 }) {
     const form = useForm<BasicInfo>({
         resolver: zodResolver(basicInfoSchema),
@@ -356,6 +361,16 @@ function BasicInfoStep({
         },
     });
 
+    const { data: existingProfileImages = [] } = useQuery({
+        queryKey: ["/api/media/entity", "artist_profile", artistId],
+        queryFn: async () => {
+            const res = await fetch(`/api/media/entity/artist_profile/${artistId}`, { credentials: "include" });
+            if (!res.ok) return [];
+            return res.json();
+        },
+        enabled: artistId > 0,
+    });
+
     const handleSubmit = (values: BasicInfo) => {
         onUpdate(values);
         onNext();
@@ -365,6 +380,17 @@ function BasicInfoStep({
 
     return (
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+            {artistId > 0 && (
+                <ImageUpload
+                    entityType="artist_profile"
+                    entityId={artistId}
+                    maxImages={1}
+                    compact
+                    existingImages={existingProfileImages}
+                    label="Profile Photo"
+                />
+            )}
+
             <div className="space-y-2">
                 <Label htmlFor="stageName">Stage Name / Artist Name</Label>
                 <Input
@@ -653,11 +679,13 @@ function PortfolioStep({
     onUpdate,
     onNext,
     onBack,
+    artistId,
 }: {
     data: any;
     onUpdate: (data: any) => void;
     onNext: () => void;
     onBack: () => void;
+    artistId: number;
 }) {
     const form = useForm<PortfolioInfo>({
         resolver: zodResolver(portfolioSchema),
@@ -668,6 +696,16 @@ function PortfolioStep({
             websiteUrl: data.websiteUrl,
             achievements: data.achievements,
         },
+    });
+
+    const { data: existingPortfolioImages = [] } = useQuery({
+        queryKey: ["/api/media/entity", "artist_portfolio", artistId],
+        queryFn: async () => {
+            const res = await fetch(`/api/media/entity/artist_portfolio/${artistId}`, { credentials: "include" });
+            if (!res.ok) return [];
+            return res.json();
+        },
+        enabled: artistId > 0,
     });
 
     const handleSubmit = (values: PortfolioInfo) => {
@@ -742,6 +780,17 @@ function PortfolioStep({
                     className="bg-background/60 min-h-[80px] resize-none"
                 />
             </div>
+
+            {artistId > 0 && (
+                <ImageUpload
+                    entityType="artist_portfolio"
+                    entityId={artistId}
+                    maxImages={20}
+                    existingImages={existingPortfolioImages}
+                    label="Portfolio Gallery"
+                    description="Upload photos from your performances, events, and promotional shoots"
+                />
+            )}
 
             <div className="flex justify-between pt-4">
                 <Button type="button" variant="ghost" onClick={onBack} className="gap-2">

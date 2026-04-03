@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -15,6 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
+import { ImageUpload } from "@/components/ImageUpload";
 import {
     Check, ChevronRight, ChevronLeft, Building2, MapPin, Users, Music2,
     Settings, Camera, Calendar, X, Sparkles, Instagram, Globe, Mail, Phone
@@ -134,9 +135,11 @@ const STEPS = [
 
 export default function VenueProfileSetup() {
     const [, setLocation] = useLocation();
+    const { user } = useAuth();
     const { toast } = useToast();
     const queryClient = useQueryClient();
     const [currentStep, setCurrentStep] = useState(1);
+    const venueId = (user as any)?.venue?.id || 0;
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [formData, setFormData] = useState({
@@ -345,7 +348,7 @@ export default function VenueProfileSetup() {
                                 {currentStep === 3 && <CapacityStep data={formData} onUpdate={updateFormData} onNext={nextStep} onBack={prevStep} />}
                                 {currentStep === 4 && <MusicPolicyStep data={formData} onUpdate={updateFormData} onNext={nextStep} onBack={prevStep} />}
                                 {currentStep === 5 && <AmenitiesStep data={formData} onUpdate={updateFormData} onNext={nextStep} onBack={prevStep} />}
-                                {currentStep === 6 && <PhotosStep data={formData} onUpdate={updateFormData} onNext={nextStep} onBack={prevStep} />}
+                                {currentStep === 6 && <PhotosStep data={formData} onUpdate={updateFormData} onNext={nextStep} onBack={prevStep} venueId={venueId} />}
                                 {currentStep === 7 && <PreferencesStep data={formData} onUpdate={updateFormData} onSubmit={handleSubmit} onBack={prevStep} isSubmitting={isSubmitting} />}
                             </motion.div>
                         </AnimatePresence>
@@ -719,26 +722,61 @@ function AmenitiesStep({ data, onUpdate, onNext, onBack }: { data: any; onUpdate
     );
 }
 
-function PhotosStep({ data, onUpdate, onNext, onBack }: { data: any; onUpdate: (data: any) => void; onNext: () => void; onBack: () => void }) {
-    const [coverImageUrl, setCoverImageUrl] = useState(data.coverImageUrl || "");
+function PhotosStep({ data, onUpdate, onNext, onBack, venueId }: { data: any; onUpdate: (data: any) => void; onNext: () => void; onBack: () => void; venueId: number }) {
     const [virtualTourUrl, setVirtualTourUrl] = useState(data.virtualTourUrl || "");
 
+    const { data: existingCoverImages = [] } = useQuery({
+        queryKey: ["/api/media/entity", "venue_cover", venueId],
+        queryFn: async () => {
+            const res = await fetch(`/api/media/entity/venue_cover/${venueId}`, { credentials: "include" });
+            if (!res.ok) return [];
+            return res.json();
+        },
+        enabled: venueId > 0,
+    });
+
+    const { data: existingGalleryImages = [] } = useQuery({
+        queryKey: ["/api/media/entity", "venue_gallery", venueId],
+        queryFn: async () => {
+            const res = await fetch(`/api/media/entity/venue_gallery/${venueId}`, { credentials: "include" });
+            if (!res.ok) return [];
+            return res.json();
+        },
+        enabled: venueId > 0,
+    });
+
     const handleNext = () => {
-        onUpdate({ coverImageUrl, virtualTourUrl });
+        onUpdate({ virtualTourUrl });
         onNext();
     };
 
     return (
         <div className="space-y-6">
-            <div className="space-y-2">
-                <Label>Cover Image URL</Label>
-                <Input
-                    value={coverImageUrl}
-                    onChange={(e) => setCoverImageUrl(e.target.value)}
-                    placeholder="https://example.com/venue-photo.jpg"
-                    className="bg-background"
-                />
-            </div>
+            {venueId > 0 ? (
+                <>
+                    <ImageUpload
+                        entityType="venue_cover"
+                        entityId={venueId}
+                        maxImages={1}
+                        compact
+                        existingImages={existingCoverImages}
+                        label="Cover Image"
+                    />
+
+                    <ImageUpload
+                        entityType="venue_gallery"
+                        entityId={venueId}
+                        maxImages={20}
+                        existingImages={existingGalleryImages}
+                        label="Gallery Photos"
+                        description="Upload photos of your venue interior, stage, and ambiance"
+                    />
+                </>
+            ) : (
+                <p className="text-sm text-muted-foreground">
+                    You can upload venue photos after completing your profile setup.
+                </p>
+            )}
 
             <div className="space-y-2">
                 <Label>Virtual Tour URL (Optional)</Label>
