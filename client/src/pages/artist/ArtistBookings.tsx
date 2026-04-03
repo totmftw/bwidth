@@ -247,7 +247,6 @@ function BookingCard({
     index: number;
     onOpen: (view: "negotiate" | "contract") => void;
 }) {
-    const [, navigate] = useLocation();
     const status = booking.status || "inquiry";
     const isPending = ["inquiry", "offered", "negotiating"].includes(status);
     const isContracting = status === "contracting";
@@ -336,7 +335,7 @@ function BookingCard({
                                     <Button
                                         size="sm"
                                         className="bg-purple-600 hover:bg-purple-700 text-white"
-                                        onClick={() => navigate(`/contract/${booking.id}`)}
+                                        onClick={() => onOpen("contract")}
                                     >
                                         <FileText className="w-4 h-4 mr-2" />
                                         Start Contract
@@ -349,7 +348,7 @@ function BookingCard({
                                         size="sm"
                                         variant="outline"
                                         className="hover:bg-primary/10"
-                                        onClick={() => navigate(`/contract/${booking.id}`)}
+                                        onClick={() => onOpen("contract")}
                                     >
                                         <FileText className="w-4 h-4 mr-2" />
                                         Contract

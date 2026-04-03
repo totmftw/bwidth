@@ -38,7 +38,7 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
     const [showEditForm, setShowEditForm] = useState(false);
     const [editNote, setEditNote] = useState("");
     const [editChanges, setEditChanges] = useState<Record<string, any>>({});
-    const [signatureText, setSignatureText] = useState("");
+    const [signatureText, setSignatureText] = useState(() => user?.name || (user as any)?.displayName || user?.username || "");
 
     const role = user?.role === "artist" ? "artist" : (user?.role === "admin" || user?.role === "platform_admin") ? "admin" : "promoter";
     const isAdmin = role === "admin";

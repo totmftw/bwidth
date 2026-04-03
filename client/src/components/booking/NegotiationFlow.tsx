@@ -11,6 +11,17 @@ import {
   type NegotiationActionInput,
   type NegotiationSnapshot,
 } from "@shared/routes";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -434,14 +445,14 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
             {/* ── Terminal: locked / agreed ── */}
             {isTerminal && isLocked && (
               <div className="space-y-3">
-                <div className="bg-green-500/10 text-green-700 p-3 rounded-md text-sm flex items-center gap-2">
+                <div className="bg-green-500/10 text-green-700 dark:text-green-400 p-3 rounded-md text-sm flex items-center gap-2 border border-green-500/20">
                   <CheckCheck className="w-4 h-4 shrink-0" />
-                  <span className="font-medium">Negotiation Complete</span>
+                  <span className="font-medium">Negotiation Complete — Terms Locked</span>
                 </div>
                 {onStartContract && (
-                  <Button className="w-full" onClick={onStartContract}>
+                  <Button className="w-full bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20" onClick={onStartContract}>
                     <CheckCheck className="w-4 h-4 mr-2" />
-                    Proceed to Contract
+                    Proceed to Contract →
                   </Button>
                 )}
               </div>
@@ -508,21 +519,36 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
                 )}
 
                 {canWalkAway && (
-                  <Button
-                    variant="ghost"
-                    className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() =>
-                      actionMutation.mutate({ action: "walkaway", reason: "User walked away" })
-                    }
-                    disabled={actionMutation.isPending}
-                  >
-                    {actionMutation.isPending && lastActionRef.current === "walkaway" ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <LogOut className="w-4 h-4 mr-2" />
-                    )}
-                    Walk Away
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive w-full"
+                        disabled={actionMutation.isPending}
+                      >
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Walk Away
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Walk away from this negotiation?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will permanently close this negotiation. The other party will be notified. This cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive hover:bg-destructive/90"
+                          onClick={() => actionMutation.mutate({ action: "walkaway" })}
+                        >
+                          Walk Away
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 )}
               </>
             )}

@@ -350,14 +350,35 @@ function BookingCard({
 
                                 {/* Contracting CTA */}
                                 {isContracting && (
-                                    <Button
-                                        size="sm"
-                                        className="bg-purple-600 hover:bg-purple-700 text-white"
-                                        onClick={() => navigate(`/contract/${booking.id}`)}
-                                    >
-                                        <FileText className="w-4 h-4 mr-2" />
-                                        Start Contract
-                                    </Button>
+                                    booking.contract?.signedByPromoter && !booking.contract?.signedByArtist ? (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            disabled
+                                            className="text-muted-foreground cursor-not-allowed"
+                                        >
+                                            <Clock className="w-4 h-4 mr-2" />
+                                            Awaiting Artist Signature
+                                        </Button>
+                                    ) : booking.contract && !booking.contract.signedByPromoter ? (
+                                        <Button
+                                            size="sm"
+                                            className="bg-purple-600 hover:bg-purple-700 text-white"
+                                            onClick={() => navigate(`/contract/${booking.id}`)}
+                                        >
+                                            <FileText className="w-4 h-4 mr-2" />
+                                            Sign Contract
+                                        </Button>
+                                    ) : (
+                                        <Button
+                                            size="sm"
+                                            className="bg-purple-600 hover:bg-purple-700 text-white"
+                                            onClick={() => navigate(`/contract/${booking.id}`)}
+                                        >
+                                            <FileText className="w-4 h-4 mr-2" />
+                                            Review Contract
+                                        </Button>
+                                    )
                                 )}
 
                                 {/* Contract for confirmed */}

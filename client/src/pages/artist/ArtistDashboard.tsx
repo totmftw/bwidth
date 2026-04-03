@@ -120,29 +120,40 @@ export default function ArtistDashboard() {
                     transition={{ delay: 0.1 }}
                 >
                     <Card className="border-primary/30 bg-gradient-to-r from-primary/10 to-violet-500/10">
-                        <CardContent className="p-4 flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
+                        <CardContent className="p-4">
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
                                     <AlertCircle className="w-6 h-6 text-primary" />
                                 </div>
-                                <div>
+                                <div className="flex-1">
                                     <p className="font-semibold">Complete Your Profile</p>
                                     <p className="text-sm text-muted-foreground">
                                         A complete profile gets 3x more booking requests
                                     </p>
                                 </div>
-                            </div>
-                            <div className="flex items-center gap-4">
                                 <div className="text-right hidden sm:block">
                                     <p className="text-2xl font-bold text-primary">{profileCompletion}%</p>
                                     <p className="text-xs text-muted-foreground">Complete</p>
                                 </div>
-                                <Link href="/profile">
-                                    <Button size="sm" className="bg-primary">
-                                        Complete Now
-                                        <ChevronRight className="w-4 h-4 ml-1" />
-                                    </Button>
-                                </Link>
+                            </div>
+                            <div className="space-y-2">
+                                {[
+                                    { label: "Basic Info & Bio", done: !!artist?.bio, href: "/profile" },
+                                    { label: "Genre & Style", done: !!(metadata?.primaryGenre || metadata?.genre), href: "/profile" },
+                                    { label: "Pricing (min/max fee)", done: !!(artist?.priceFrom && artist?.priceTo), href: "/profile" },
+                                    { label: "Portfolio Links", done: !!(metadata?.soundcloud || metadata?.instagram || metadata?.spotify), href: "/profile" },
+                                    { label: "Legal & Bank Details", done: !!(metadata?.pan || metadata?.bankAccount), href: "/profile" },
+                                ].map((item) => (
+                                    <Link key={item.label} href={item.href}>
+                                        <div className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors cursor-pointer ${item.done ? "opacity-60" : "hover:bg-primary/5 border border-dashed border-primary/30"}`}>
+                                            <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${item.done ? "bg-green-500/20 text-green-500" : "bg-primary/10 text-primary"}`}>
+                                                {item.done ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                                            </div>
+                                            <span className={`text-sm ${item.done ? "line-through text-muted-foreground" : "font-medium"}`}>{item.label}</span>
+                                            {!item.done && <span className="ml-auto text-xs text-primary">Complete →</span>}
+                                        </div>
+                                    </Link>
+                                ))}
                             </div>
                         </CardContent>
                     </Card>
