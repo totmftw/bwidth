@@ -18,6 +18,9 @@ import {
   ChevronRight,
   Bell,
   Lock,
+  Bot,
+  Gauge,
+  BarChart3,
 } from "lucide-react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -69,6 +72,15 @@ const NAV_SECTIONS: NavSection[] = [
       { label: "Bookings", path: "/admin/bookings", icon: ClipboardList },
       { label: "Contracts", path: "/admin/contracts", icon: FileText },
       { label: "Negotiations", path: "/admin/chats", icon: MessageSquare },
+    ],
+  },
+  {
+    heading: "AI AGENTS",
+    items: [
+      { label: "Agents", path: "/admin/agents", icon: Bot },
+      { label: "Rate Limits", path: "/admin/agents/rate-limits", icon: Gauge },
+      { label: "Prompts", path: "/admin/agents/prompts", icon: FileText },
+      { label: "Usage", path: "/admin/agents/usage", icon: BarChart3 },
     ],
   },
   {

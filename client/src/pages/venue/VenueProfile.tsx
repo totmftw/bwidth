@@ -18,6 +18,7 @@ import {
     Building2, MapPin, Music2, Settings, Camera,
     Save, Loader2, Globe, Instagram, Mail, Phone, X, Check, Image
 } from "lucide-react";
+import { ProfileAiSettings } from "@/components/agents/ProfileAiSettings";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 // ============================================================================
@@ -568,6 +569,11 @@ export default function VenueProfile() {
                     </Card>
                 </TabsContent>
             </Tabs>
+
+            {/* AI Settings */}
+            <div className="mt-6">
+                <ProfileAiSettings />
+            </div>
         </div>
     );
 }

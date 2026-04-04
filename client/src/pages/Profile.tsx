@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
 import { ImageUpload } from "@/components/ImageUpload";
+import { ProfileAiSettings } from "@/components/agents/ProfileAiSettings";
 
 export default function Profile() {
   const { user } = useAuth();
@@ -90,6 +91,8 @@ export default function Profile() {
               </div>
             </CardContent>
           </Card>
+
+          <ProfileAiSettings />
         </div>
       </div>
     </div>

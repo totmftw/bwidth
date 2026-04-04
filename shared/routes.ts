@@ -1113,13 +1113,15 @@ export const api = {
             enabled: z.boolean(),
             allowedRoles: z.array(z.string()),
           })),
-          llmConfig: z.object({
+          providerConfigs: z.array(z.object({
             provider: z.string(),
             model: z.string(),
             hasKey: z.boolean(),
+            isActive: z.boolean(),
             ollamaBaseUrl: z.string().nullable(),
             isValid: z.boolean().nullable(),
-          }).nullable(),
+          })),
+          activeProvider: z.string().nullable(),
         }),
         401: errorSchemas.unauthorized,
       },
@@ -1134,6 +1136,7 @@ export const api = {
           apiKey: z.string().min(1).optional(),
           ollamaBaseUrl: z.string().url().optional(),
           openrouterModel: z.string().optional(),
+          setActive: z.boolean().optional(),
         }),
         responses: {
           200: z.object({ success: z.boolean() }),
@@ -1144,6 +1147,20 @@ export const api = {
       delete: {
         method: 'DELETE' as const,
         path: '/api/agents/llm-config',
+        input: z.object({
+          provider: z.enum(["openai", "anthropic", "google", "openrouter", "ollama"]),
+        }),
+        responses: {
+          200: z.object({ success: z.boolean() }),
+          401: errorSchemas.unauthorized,
+        },
+      },
+      setActive: {
+        method: 'POST' as const,
+        path: '/api/agents/llm-config/set-active',
+        input: z.object({
+          provider: z.enum(["openai", "anthropic", "google", "openrouter", "ollama"]),
+        }),
         responses: {
           200: z.object({ success: z.boolean() }),
           401: errorSchemas.unauthorized,
@@ -1152,6 +1169,9 @@ export const api = {
       validate: {
         method: 'POST' as const,
         path: '/api/agents/llm-config/validate',
+        input: z.object({
+          provider: z.enum(["openai", "anthropic", "google", "openrouter", "ollama"]).optional(),
+        }).optional(),
         responses: {
           200: z.object({ valid: z.boolean(), error: z.string().optional() }),
           401: errorSchemas.unauthorized,

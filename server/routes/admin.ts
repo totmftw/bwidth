@@ -1,12 +1,14 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { db } from "../db";
-import { appSettings, systemSettings } from "@shared/schema";
+import { appSettings, systemSettings, agentFeedback } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { notificationService } from "../services/notification.service";
 import { emitDomainEvent } from "../services/event-bus";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
+import { api } from "@shared/routes";
+import { encrypt, isEncryptionConfigured } from "../services/encryption.service";
 
 const router = Router();
 
@@ -874,6 +876,167 @@ router.post("/notifications/test", async (req, res) => {
   } catch (error) {
     console.error("Error sending test notification:", error);
     res.status(500).json({ message: "Failed to send test notification" });
+  }
+});
+
+// ============================================================================
+// AI AGENTS — Admin Management
+// ============================================================================
+
+// GET /agents/configs — list all agent configurations
+router.get("/agents/configs", async (req, res) => {
+  try {
+    const configs = await storage.listAgentConfigs();
+    res.json(configs);
+  } catch (error) {
+    console.error("Error listing agent configs:", error);
+    res.status(500).json({ message: "Failed to list agent configs" });
+  }
+});
+
+// PUT /agents/configs/:agentType — update agent configuration
+router.put("/agents/configs/:agentType", async (req, res) => {
+  try {
+    const { agentType } = req.params;
+    const parsed = api.agents.admin.configs.update.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Validation failed", errors: parsed.error.errors });
+    }
+
+    const data: any = { ...parsed.data };
+
+    // Encrypt system API key if provided
+    if (data.systemApiKey) {
+      if (!isEncryptionConfigured()) {
+        return res.status(500).json({ message: "Encryption not configured" });
+      }
+      const encrypted = encrypt(data.systemApiKey);
+      data.systemApiKeyEncrypted = encrypted.encrypted;
+      data.systemApiKeyIv = encrypted.iv;
+      data.systemApiKeyTag = encrypted.tag;
+      delete data.systemApiKey;
+    }
+
+    const config = await storage.upsertAgentConfig(agentType, data);
+    res.json(config);
+  } catch (error) {
+    console.error("Error updating agent config:", error);
+    res.status(500).json({ message: "Failed to update agent config" });
+  }
+});
+
+// GET /agents/rate-limits — list rate limits
+router.get("/agents/rate-limits", async (req, res) => {
+  try {
+    const limits = await storage.listAgentRateLimits();
+    res.json(limits);
+  } catch (error) {
+    console.error("Error listing rate limits:", error);
+    res.status(500).json({ message: "Failed to list rate limits" });
+  }
+});
+
+// POST /agents/rate-limits — create/update rate limit
+router.post("/agents/rate-limits", async (req, res) => {
+  try {
+    const parsed = api.agents.admin.rateLimits.upsert.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Validation failed", errors: parsed.error.errors });
+    }
+    const limit = await storage.upsertAgentRateLimit(parsed.data as any);
+    res.json(limit);
+  } catch (error) {
+    console.error("Error upserting rate limit:", error);
+    res.status(500).json({ message: "Failed to upsert rate limit" });
+  }
+});
+
+// DELETE /agents/rate-limits/:id — delete rate limit
+router.delete("/agents/rate-limits/:id", async (req, res) => {
+  try {
+    await storage.deleteAgentRateLimit(Number(req.params.id));
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting rate limit:", error);
+    res.status(500).json({ message: "Failed to delete rate limit" });
+  }
+});
+
+// GET /agents/usage — usage stats
+router.get("/agents/usage", async (req, res) => {
+  try {
+    const stats = await storage.getAgentUsageStats({});
+    res.json(stats);
+  } catch (error) {
+    console.error("Error fetching agent usage:", error);
+    res.status(500).json({ message: "Failed to fetch usage stats" });
+  }
+});
+
+// GET /agents/sessions — all agent sessions (admin view)
+router.get("/agents/sessions", async (req, res) => {
+  try {
+    const sessions = await storage.listAgentSessions({});
+    res.json(sessions);
+  } catch (error) {
+    console.error("Error listing agent sessions:", error);
+    res.status(500).json({ message: "Failed to list sessions" });
+  }
+});
+
+// GET /agents/feedback — all feedback
+router.get("/agents/feedback", async (req, res) => {
+  try {
+    const feedback = await db
+      .select()
+      .from(agentFeedback)
+      .orderBy(desc(agentFeedback.createdAt))
+      .limit(200);
+    res.json(feedback);
+  } catch (error) {
+    console.error("Error listing feedback:", error);
+    res.status(500).json({ message: "Failed to list feedback" });
+  }
+});
+
+// GET /agents/prompts — list prompt versions
+router.get("/agents/prompts", async (req, res) => {
+  try {
+    const [ewPrompts, negPrompts] = await Promise.all([
+      storage.listPromptVersions("event_wizard"),
+      storage.listPromptVersions("negotiation"),
+    ]);
+    res.json([...ewPrompts, ...negPrompts]);
+  } catch (error) {
+    console.error("Error listing prompts:", error);
+    res.status(500).json({ message: "Failed to list prompts" });
+  }
+});
+
+// POST /agents/prompts — create prompt version
+router.post("/agents/prompts", async (req, res) => {
+  try {
+    const parsed = api.agents.admin.prompts.create.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Validation failed", errors: parsed.error.errors });
+    }
+    const prompt = await storage.createPromptVersion(parsed.data as any);
+    res.json(prompt);
+  } catch (error) {
+    console.error("Error creating prompt:", error);
+    res.status(500).json({ message: "Failed to create prompt" });
+  }
+});
+
+// PUT /agents/prompts/:id/activate — set active prompt version
+router.put("/agents/prompts/:id/activate", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const prompt = await storage.activatePromptVersion(id);
+    res.json(prompt);
+  } catch (error) {
+    console.error("Error activating prompt:", error);
+    res.status(500).json({ message: "Failed to activate prompt" });
   }
 });
 

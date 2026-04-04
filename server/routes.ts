@@ -13,6 +13,10 @@ import organizerRouter from "./routes/organizer";
 import venueRouter from "./routes/venue";
 import mediaRouter from "./routes/media";
 import notificationsRouter from "./routes/notifications";
+import agentsRouter from "./routes/agents";
+import { orchestrator } from "./services/agent-orchestrator";
+import { EventWizardAgent } from "./services/agents/event-wizard.agent";
+import { NegotiationAgent } from "./services/agents/negotiation.agent";
 import { isSameDay } from "date-fns";
 import { artistProfileCompleteSchema, buildArtistMetadata, buildArtistRecord } from "./artist-profile-utils";
 import { venueProfileCompleteSchema, buildVenueMetadata, buildVenueRecord } from "./venue-profile-utils";
@@ -75,6 +79,11 @@ export async function registerRoutes(
   app.use("/api", mediaRouter);
   app.use(notificationsRouter);
   app.use("/api/admin", adminRouter); // Admin routes mounted under /api/admin
+  app.use("/api/agents", agentsRouter);
+
+  // Register AI agents with the orchestrator
+  orchestrator.register(new EventWizardAgent());
+  orchestrator.register(new NegotiationAgent());
 
 
   // Artists

@@ -844,7 +844,7 @@ export const appSettings = pgTable("app_settings", {
 
 export const userLlmConfigs = pgTable("user_llm_configs", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull().unique(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   provider: llmProviderEnum("provider").notNull(),
   model: text("model").notNull(),
   apiKeyEncrypted: text("api_key_encrypted"),
@@ -852,11 +852,14 @@ export const userLlmConfigs = pgTable("user_llm_configs", {
   apiKeyTag: text("api_key_tag"),
   ollamaBaseUrl: text("ollama_base_url"),
   openrouterModel: text("openrouter_model"),
+  isActive: boolean("is_active").default(false).notNull(),
   isValid: boolean("is_valid").default(false),
   lastValidatedAt: timestamp("last_validated_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table: any) => ({
+  userProviderUnique: uniqueIndex("user_llm_configs_user_provider_idx").on(table.userId, table.provider),
+}));
 
 export const agentConfigs = pgTable("agent_configs", {
   id: serial("id").primaryKey(),

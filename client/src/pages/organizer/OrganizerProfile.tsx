@@ -38,6 +38,7 @@ import { api } from "@shared/routes";
 import { Shield } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { useToast } from "@/hooks/use-toast";
+import { ProfileAiSettings } from "@/components/agents/ProfileAiSettings";
 import { Separator } from "@/components/ui/separator";
 import { Loader2 } from "lucide-react";
 
@@ -514,6 +515,9 @@ export default function OrganizerProfile() {
           
           {/* Legal & Bank Tab */}
           <LegalBankTab user={user} />
+
+          {/* AI Settings */}
+          <ProfileAiSettings />
         </div>
 
         {/* Sidebar */}

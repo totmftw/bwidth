@@ -42,7 +42,9 @@ import {
   Clock,
   Send,
   MessageSquare,
+  Bot,
 } from "lucide-react";
+import { NegotiationAgentPanel } from "@/components/agents/NegotiationAgentPanel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 
@@ -59,6 +61,7 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
   const [, setLocation] = useLocation();
   const [mode, setMode] = useState<"view" | "propose">("view");
   const [chatMessage, setChatMessage] = useState("");
+  const [showAgent, setShowAgent] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Track last dispatched action for toast message in onSuccess
@@ -295,9 +298,22 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
             )}
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          {!isTerminal && (
+            <Button
+              variant={showAgent ? "secondary" : "ghost"}
+              size="icon"
+              onClick={() => setShowAgent((v) => !v)}
+              title="AI Negotiation Assistant"
+              className={showAgent ? "text-purple-600" : "text-muted-foreground hover:text-purple-600"}
+            >
+              <Bot className="h-4 w-4" />
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Step Progress Indicator */}
@@ -539,6 +555,13 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
               </div>
               <Separator />
             </>
+          )}
+
+          {/* AI Agent Panel — toggled by header Bot button */}
+          {showAgent && !isTerminal && (
+            <div className="px-4 lg:px-6 py-3 border-t bg-background/60">
+              <NegotiationAgentPanel bookingId={booking.id} />
+            </div>
           )}
 
           <div className="p-4 lg:p-6 space-y-2 shrink-0 bg-background border-t">

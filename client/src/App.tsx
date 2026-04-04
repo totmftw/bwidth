@@ -73,6 +73,12 @@ import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminAuditLog from "@/pages/admin/AdminAuditLog";
 import AdminNotificationTypes from "@/pages/admin/AdminNotificationTypes";
 import AdminNotificationChannels from "@/pages/admin/AdminNotificationChannels";
+import AdminAgents from "@/pages/admin/AdminAgents";
+import AdminAgentConfig from "@/pages/admin/AdminAgentConfig";
+import AdminAgentRateLimits from "@/pages/admin/AdminAgentRateLimits";
+import AdminAgentPrompts from "@/pages/admin/AdminAgentPrompts";
+import AdminAgentUsage from "@/pages/admin/AdminAgentUsage";
+import AgentSettings from "@/pages/settings/AgentSettings";
 import NotificationsPage from "@/pages/Notifications";
 
 // Hook to check profile completion status
@@ -509,6 +515,9 @@ function Router() {
       <Route path="/notifications">
         <PrivateRoute component={NotificationsPage} />
       </Route>
+      <Route path="/settings/ai">
+        <PrivateRoute component={AgentSettings} />
+      </Route>
 
       {/* Admin Login - isolated, no layout */}
       <Route path="/admin" component={AdminLogin} />
@@ -590,6 +599,21 @@ function Router() {
       </Route>
       <Route path="/admin/notification-channels">
         <AdminLayout><AdminNotificationChannels /></AdminLayout>
+      </Route>
+      <Route path="/admin/agents">
+        <AdminLayout><AdminAgents /></AdminLayout>
+      </Route>
+      <Route path="/admin/agents/config/:agentType">
+        <AdminLayout><AdminAgentConfig /></AdminLayout>
+      </Route>
+      <Route path="/admin/agents/rate-limits">
+        <AdminLayout><AdminAgentRateLimits /></AdminLayout>
+      </Route>
+      <Route path="/admin/agents/prompts">
+        <AdminLayout><AdminAgentPrompts /></AdminLayout>
+      </Route>
+      <Route path="/admin/agents/usage">
+        <AdminLayout><AdminAgentUsage /></AdminLayout>
       </Route>
 
       <Route component={NotFound} />

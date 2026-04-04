@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ProfileAiSettings } from "@/components/agents/ProfileAiSettings";
 import { useForm } from "react-hook-form";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
@@ -394,6 +395,11 @@ export default function ArtistProfile() {
                             </div>
                         </CardContent>
                     </Card>
+
+                    {/* AI Settings */}
+                    <div className="mt-6">
+                        <ProfileAiSettings />
+                    </div>
                 </div>
             </div>
         </div>

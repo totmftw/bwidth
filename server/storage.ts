@@ -212,8 +212,10 @@ export interface IStorage {
   // ─── AI Agent Methods ───
   // User LLM Config
   getUserLlmConfig(userId: number): Promise<UserLlmConfig | undefined>;
+  getUserLlmConfigs(userId: number): Promise<UserLlmConfig[]>;
   upsertUserLlmConfig(data: InsertUserLlmConfig): Promise<UserLlmConfig>;
-  deleteUserLlmConfig(userId: number): Promise<void>;
+  deleteUserLlmConfig(userId: number, provider?: string): Promise<void>;
+  setActiveLlmConfig(userId: number, provider: string): Promise<void>;
 
   // Agent Config (admin)
   getAgentConfig(agentType: string): Promise<AgentConfig | undefined>;
@@ -1854,35 +1856,71 @@ export class DatabaseStorage implements IStorage {
   // ── User LLM Config ──
 
   async getUserLlmConfig(userId: number): Promise<UserLlmConfig | undefined> {
-    const [row] = await db.select().from(userLlmConfigs).where(eq(userLlmConfigs.userId, userId));
-    return row;
+    // Returns the active config; falls back to most-recently-updated if none marked active.
+    const rows = await db.select().from(userLlmConfigs).where(eq(userLlmConfigs.userId, userId));
+    return rows.find((r) => r.isActive) ?? rows[0];
+  }
+
+  async getUserLlmConfigs(userId: number): Promise<UserLlmConfig[]> {
+    return db.select().from(userLlmConfigs).where(eq(userLlmConfigs.userId, userId));
   }
 
   async upsertUserLlmConfig(data: InsertUserLlmConfig): Promise<UserLlmConfig> {
-    const [row] = await db
-      .insert(userLlmConfigs)
-      .values(data)
-      .onConflictDoUpdate({
-        target: userLlmConfigs.userId,
-        set: {
-          provider: data.provider,
-          model: data.model,
-          apiKeyEncrypted: data.apiKeyEncrypted,
-          apiKeyIv: data.apiKeyIv,
-          apiKeyTag: data.apiKeyTag,
-          ollamaBaseUrl: data.ollamaBaseUrl,
-          openrouterModel: data.openrouterModel,
-          isValid: data.isValid,
-          lastValidatedAt: data.lastValidatedAt,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-    return row;
+    // Explicit select + update/insert avoids composite uniqueIndex conflict-target quirks in Drizzle
+    const [existing] = await db
+      .select()
+      .from(userLlmConfigs)
+      .where(and(eq(userLlmConfigs.userId, data.userId), eq(userLlmConfigs.provider, data.provider)));
+
+    if (existing) {
+      const updateSet: Partial<typeof userLlmConfigs.$inferInsert> = {
+        model: data.model,
+        updatedAt: new Date(),
+      };
+      // Only overwrite key fields if new values provided (don't clear on model-only update)
+      if (data.apiKeyEncrypted !== undefined && data.apiKeyEncrypted !== null) {
+        updateSet.apiKeyEncrypted = data.apiKeyEncrypted;
+        updateSet.apiKeyIv = data.apiKeyIv;
+        updateSet.apiKeyTag = data.apiKeyTag;
+      }
+      if (data.ollamaBaseUrl !== undefined) updateSet.ollamaBaseUrl = data.ollamaBaseUrl;
+      if (data.openrouterModel !== undefined) updateSet.openrouterModel = data.openrouterModel;
+      if (data.isValid !== undefined) updateSet.isValid = data.isValid;
+      if (data.lastValidatedAt !== undefined) updateSet.lastValidatedAt = data.lastValidatedAt;
+
+      const [updated] = await db
+        .update(userLlmConfigs)
+        .set(updateSet)
+        .where(eq(userLlmConfigs.id, existing.id))
+        .returning();
+      return updated;
+    } else {
+      const [inserted] = await db
+        .insert(userLlmConfigs)
+        .values({ ...data, isActive: data.isActive ?? false })
+        .returning();
+      return inserted;
+    }
   }
 
-  async deleteUserLlmConfig(userId: number): Promise<void> {
-    await db.delete(userLlmConfigs).where(eq(userLlmConfigs.userId, userId));
+  async deleteUserLlmConfig(userId: number, provider?: string): Promise<void> {
+    if (provider) {
+      await db.delete(userLlmConfigs).where(
+        and(eq(userLlmConfigs.userId, userId), eq(userLlmConfigs.provider, provider as any))
+      );
+    } else {
+      await db.delete(userLlmConfigs).where(eq(userLlmConfigs.userId, userId));
+    }
+  }
+
+  async setActiveLlmConfig(userId: number, provider: string): Promise<void> {
+    // Unset all active for this user, then set the chosen one
+    await db.update(userLlmConfigs)
+      .set({ isActive: false })
+      .where(eq(userLlmConfigs.userId, userId));
+    await db.update(userLlmConfigs)
+      .set({ isActive: true })
+      .where(and(eq(userLlmConfigs.userId, userId), eq(userLlmConfigs.provider, provider as any)));
   }
 
   // ── Agent Config (admin) ─���
