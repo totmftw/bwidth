@@ -7,6 +7,7 @@ import {
   payments,
   bookingProposals,
   notifications, notificationTypes, notificationChannels,
+  userLlmConfigs, agentConfigs, agentRateLimits, agentSessions, agentMessages, agentFeedback, promptVersions, agentUsageStats,
   type User, type Artist, type Organizer, type Venue, type Booking, type Event, type Contract, type AuditLog, type TemporaryVenue,
   type InsertUser, type InsertArtist, type InsertOrganizer, type InsertVenue, type InsertBooking, type InsertContract, type InsertAuditLog, type InsertEvent, type InsertTemporaryVenue,
   type ContractVersion, type InsertContractVersion,
@@ -18,6 +19,14 @@ import {
   type Notification, type InsertNotification,
   type NotificationType, type InsertNotificationType,
   type NotificationChannel, type InsertNotificationChannel,
+  type UserLlmConfig, type InsertUserLlmConfig,
+  type AgentConfig, type InsertAgentConfig,
+  type AgentRateLimit, type InsertAgentRateLimit,
+  type AgentSession, type InsertAgentSession,
+  type AgentMessage, type InsertAgentMessage,
+  type AgentFeedbackRecord, type InsertAgentFeedback,
+  type PromptVersion, type InsertPromptVersion,
+  type AgentUsageStat, type InsertAgentUsageStat,
 } from "@shared/schema";
 
 export interface OrganizerDashboardStats {
@@ -199,6 +208,49 @@ export interface IStorage {
   getAdminUserIds(): Promise<number[]>;
   getRoleSummary(): Promise<{ role: string; count: number }[]>;
   getUsersByRole(role: string): Promise<User[]>;
+
+  // ─── AI Agent Methods ───
+  // User LLM Config
+  getUserLlmConfig(userId: number): Promise<UserLlmConfig | undefined>;
+  upsertUserLlmConfig(data: InsertUserLlmConfig): Promise<UserLlmConfig>;
+  deleteUserLlmConfig(userId: number): Promise<void>;
+
+  // Agent Config (admin)
+  getAgentConfig(agentType: string): Promise<AgentConfig | undefined>;
+  listAgentConfigs(): Promise<AgentConfig[]>;
+  upsertAgentConfig(agentType: string, data: Partial<InsertAgentConfig>): Promise<AgentConfig>;
+
+  // Agent Rate Limits
+  getAgentRateLimit(userId: number, agentType: string): Promise<AgentRateLimit | undefined>;
+  listAgentRateLimits(): Promise<AgentRateLimit[]>;
+  upsertAgentRateLimit(data: InsertAgentRateLimit): Promise<AgentRateLimit>;
+  deleteAgentRateLimit(id: number): Promise<void>;
+
+  // Agent Sessions
+  createAgentSession(data: InsertAgentSession): Promise<AgentSession>;
+  updateAgentSession(id: number, data: Partial<InsertAgentSession>): Promise<AgentSession>;
+  getAgentSession(id: number): Promise<AgentSession | undefined>;
+  getActiveAgentSession(userId: number, agentType: string, contextEntityId?: number): Promise<AgentSession | undefined>;
+  listAgentSessions(filters: { userId?: number; agentType?: string; status?: string }, limit?: number, offset?: number): Promise<AgentSession[]>;
+
+  // Agent Messages
+  createAgentMessage(data: InsertAgentMessage): Promise<AgentMessage>;
+  getAgentMessages(sessionId: number): Promise<AgentMessage[]>;
+
+  // Agent Feedback
+  createAgentFeedback(data: InsertAgentFeedback): Promise<AgentFeedbackRecord>;
+  getAgentFeedback(sessionId: number): Promise<AgentFeedbackRecord | undefined>;
+
+  // Prompt Versions
+  getActivePromptVersion(agentType: string): Promise<PromptVersion | undefined>;
+  listPromptVersions(agentType: string): Promise<PromptVersion[]>;
+  createPromptVersion(data: InsertPromptVersion): Promise<PromptVersion>;
+  activatePromptVersion(id: number): Promise<PromptVersion>;
+  updatePromptVersionStats(id: number, deltas: { positive?: number; negative?: number; runs?: number; latencyMs?: number }): Promise<void>;
+
+  // Agent Usage Stats
+  upsertAgentUsageStats(userId: number, agentType: string, dateStr: string, deltas: { requests?: number; inputTokens?: number; outputTokens?: number; sessions?: number; positive?: number; negative?: number }): Promise<void>;
+  getAgentUsageStats(filters: { userId?: number; agentType?: string; startDate?: string; endDate?: string }): Promise<AgentUsageStat[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1793,6 +1845,288 @@ export class DatabaseStorage implements IStorage {
       .from(users)
       .where(sql`${users.metadata}->>'role' = ${role}`)
       .orderBy(desc(users.createdAt));
+  }
+
+  // =========================================================================
+  // AI AGENT METHODS
+  // =========================================================================
+
+  // ── User LLM Config ──
+
+  async getUserLlmConfig(userId: number): Promise<UserLlmConfig | undefined> {
+    const [row] = await db.select().from(userLlmConfigs).where(eq(userLlmConfigs.userId, userId));
+    return row;
+  }
+
+  async upsertUserLlmConfig(data: InsertUserLlmConfig): Promise<UserLlmConfig> {
+    const [row] = await db
+      .insert(userLlmConfigs)
+      .values(data)
+      .onConflictDoUpdate({
+        target: userLlmConfigs.userId,
+        set: {
+          provider: data.provider,
+          model: data.model,
+          apiKeyEncrypted: data.apiKeyEncrypted,
+          apiKeyIv: data.apiKeyIv,
+          apiKeyTag: data.apiKeyTag,
+          ollamaBaseUrl: data.ollamaBaseUrl,
+          openrouterModel: data.openrouterModel,
+          isValid: data.isValid,
+          lastValidatedAt: data.lastValidatedAt,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  }
+
+  async deleteUserLlmConfig(userId: number): Promise<void> {
+    await db.delete(userLlmConfigs).where(eq(userLlmConfigs.userId, userId));
+  }
+
+  // ── Agent Config (admin) ─���
+
+  async getAgentConfig(agentType: string): Promise<AgentConfig | undefined> {
+    const [row] = await db.select().from(agentConfigs).where(eq(agentConfigs.agentType, agentType as any));
+    return row;
+  }
+
+  async listAgentConfigs(): Promise<AgentConfig[]> {
+    return db.select().from(agentConfigs).orderBy(agentConfigs.agentType);
+  }
+
+  async upsertAgentConfig(agentType: string, data: Partial<InsertAgentConfig>): Promise<AgentConfig> {
+    const existing = await this.getAgentConfig(agentType);
+    if (existing) {
+      const [row] = await db
+        .update(agentConfigs)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(agentConfigs.agentType, agentType as any))
+        .returning();
+      return row;
+    }
+    const [row] = await db
+      .insert(agentConfigs)
+      .values({ agentType: agentType as any, displayName: agentType, ...data } as InsertAgentConfig)
+      .returning();
+    return row;
+  }
+
+  // ���─ Agent Rate Limits ──
+
+  async getAgentRateLimit(userId: number, agentType: string): Promise<AgentRateLimit | undefined> {
+    const [row] = await db
+      .select()
+      .from(agentRateLimits)
+      .where(and(eq(agentRateLimits.userId, userId), eq(agentRateLimits.agentType, agentType as any)));
+    return row;
+  }
+
+  async listAgentRateLimits(): Promise<AgentRateLimit[]> {
+    return db.select().from(agentRateLimits).orderBy(agentRateLimits.userId);
+  }
+
+  async upsertAgentRateLimit(data: InsertAgentRateLimit): Promise<AgentRateLimit> {
+    const existing = await this.getAgentRateLimit(data.userId, data.agentType);
+    if (existing) {
+      const [row] = await db
+        .update(agentRateLimits)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(agentRateLimits.id, existing.id))
+        .returning();
+      return row;
+    }
+    const [row] = await db.insert(agentRateLimits).values(data).returning();
+    return row;
+  }
+
+  async deleteAgentRateLimit(id: number): Promise<void> {
+    await db.delete(agentRateLimits).where(eq(agentRateLimits.id, id));
+  }
+
+  // ── Agent Sessions ──
+
+  async createAgentSession(data: InsertAgentSession): Promise<AgentSession> {
+    const [row] = await db.insert(agentSessions).values(data).returning();
+    return row;
+  }
+
+  async updateAgentSession(id: number, data: Partial<InsertAgentSession>): Promise<AgentSession> {
+    const [row] = await db
+      .update(agentSessions)
+      .set({ ...data, lastActivityAt: new Date() })
+      .where(eq(agentSessions.id, id))
+      .returning();
+    return row;
+  }
+
+  async getAgentSession(id: number): Promise<AgentSession | undefined> {
+    const [row] = await db.select().from(agentSessions).where(eq(agentSessions.id, id));
+    return row;
+  }
+
+  async getActiveAgentSession(userId: number, agentType: string, contextEntityId?: number): Promise<AgentSession | undefined> {
+    const conditions = [
+      eq(agentSessions.userId, userId),
+      eq(agentSessions.agentType, agentType as any),
+      eq(agentSessions.status, "active"),
+    ];
+    if (contextEntityId !== undefined) {
+      conditions.push(eq(agentSessions.contextEntityId, contextEntityId));
+    }
+    const [row] = await db.select().from(agentSessions).where(and(...conditions));
+    return row;
+  }
+
+  async listAgentSessions(
+    filters: { userId?: number; agentType?: string; status?: string },
+    limit = 50,
+    offset = 0,
+  ): Promise<AgentSession[]> {
+    const conditions: any[] = [];
+    if (filters.userId) conditions.push(eq(agentSessions.userId, filters.userId));
+    if (filters.agentType) conditions.push(eq(agentSessions.agentType, filters.agentType as any));
+    if (filters.status) conditions.push(eq(agentSessions.status, filters.status as any));
+
+    let query = db.select().from(agentSessions);
+    if (conditions.length > 0) query = query.where(and(...conditions)) as any;
+    return (query as any).orderBy(desc(agentSessions.startedAt)).limit(limit).offset(offset);
+  }
+
+  // ��─ Agent Messages ──
+
+  async createAgentMessage(data: InsertAgentMessage): Promise<AgentMessage> {
+    const [row] = await db.insert(agentMessages).values(data).returning();
+    return row;
+  }
+
+  async getAgentMessages(sessionId: number): Promise<AgentMessage[]> {
+    return db
+      .select()
+      .from(agentMessages)
+      .where(eq(agentMessages.sessionId, sessionId))
+      .orderBy(asc(agentMessages.createdAt));
+  }
+
+  // ── Agent Feedback ──
+
+  async createAgentFeedback(data: InsertAgentFeedback): Promise<AgentFeedbackRecord> {
+    const [row] = await db.insert(agentFeedback).values(data).returning();
+    return row;
+  }
+
+  async getAgentFeedback(sessionId: number): Promise<AgentFeedbackRecord | undefined> {
+    const [row] = await db.select().from(agentFeedback).where(eq(agentFeedback.sessionId, sessionId));
+    return row;
+  }
+
+  // ── Prompt Versions ──
+
+  async getActivePromptVersion(agentType: string): Promise<PromptVersion | undefined> {
+    const [row] = await db
+      .select()
+      .from(promptVersions)
+      .where(and(eq(promptVersions.agentType, agentType as any), eq(promptVersions.active, true)));
+    return row;
+  }
+
+  async listPromptVersions(agentType: string): Promise<PromptVersion[]> {
+    return db
+      .select()
+      .from(promptVersions)
+      .where(eq(promptVersions.agentType, agentType as any))
+      .orderBy(desc(promptVersions.createdAt));
+  }
+
+  async createPromptVersion(data: InsertPromptVersion): Promise<PromptVersion> {
+    const [row] = await db.insert(promptVersions).values(data).returning();
+    return row;
+  }
+
+  async activatePromptVersion(id: number): Promise<PromptVersion> {
+    // Get the version to know its agentType
+    const [target] = await db.select().from(promptVersions).where(eq(promptVersions.id, id));
+    if (!target) throw new Error("Prompt version not found");
+
+    // Deactivate all versions for this agent type
+    await db
+      .update(promptVersions)
+      .set({ active: false })
+      .where(eq(promptVersions.agentType, target.agentType));
+
+    // Activate the target
+    const [row] = await db
+      .update(promptVersions)
+      .set({ active: true })
+      .where(eq(promptVersions.id, id))
+      .returning();
+    return row;
+  }
+
+  async updatePromptVersionStats(
+    id: number,
+    deltas: { positive?: number; negative?: number; runs?: number; latencyMs?: number },
+  ): Promise<void> {
+    const sets: Record<string, any> = {};
+    if (deltas.positive) sets.positiveCount = sql`${promptVersions.positiveCount} + ${deltas.positive}`;
+    if (deltas.negative) sets.negativeCount = sql`${promptVersions.negativeCount} + ${deltas.negative}`;
+    if (deltas.runs) sets.totalRuns = sql`${promptVersions.totalRuns} + ${deltas.runs}`;
+    if (deltas.latencyMs) {
+      // Running average: ((old_avg * old_count) + new_latency) / (old_count + 1)
+      sets.avgLatencyMs = sql`((${promptVersions.avgLatencyMs} * ${promptVersions.totalRuns}) + ${deltas.latencyMs}) / (${promptVersions.totalRuns} + 1)`;
+    }
+    if (Object.keys(sets).length > 0) {
+      await db.update(promptVersions).set(sets).where(eq(promptVersions.id, id));
+    }
+  }
+
+  // ── Agent Usage Stats ──
+
+  async upsertAgentUsageStats(
+    userId: number,
+    agentType: string,
+    dateStr: string,
+    deltas: { requests?: number; inputTokens?: number; outputTokens?: number; sessions?: number; positive?: number; negative?: number },
+  ): Promise<void> {
+    await db
+      .insert(agentUsageStats)
+      .values({
+        userId,
+        agentType: agentType as any,
+        date: dateStr,
+        requestCount: deltas.requests ?? 0,
+        inputTokens: deltas.inputTokens ?? 0,
+        outputTokens: deltas.outputTokens ?? 0,
+        sessionCount: deltas.sessions ?? 0,
+        positiveRatings: deltas.positive ?? 0,
+        negativeRatings: deltas.negative ?? 0,
+      })
+      .onConflictDoUpdate({
+        target: [agentUsageStats.userId, agentUsageStats.agentType, agentUsageStats.date],
+        set: {
+          requestCount: sql`${agentUsageStats.requestCount} + ${deltas.requests ?? 0}`,
+          inputTokens: sql`${agentUsageStats.inputTokens} + ${deltas.inputTokens ?? 0}`,
+          outputTokens: sql`${agentUsageStats.outputTokens} + ${deltas.outputTokens ?? 0}`,
+          sessionCount: sql`${agentUsageStats.sessionCount} + ${deltas.sessions ?? 0}`,
+          positiveRatings: sql`${agentUsageStats.positiveRatings} + ${deltas.positive ?? 0}`,
+          negativeRatings: sql`${agentUsageStats.negativeRatings} + ${deltas.negative ?? 0}`,
+        },
+      });
+  }
+
+  async getAgentUsageStats(
+    filters: { userId?: number; agentType?: string; startDate?: string; endDate?: string },
+  ): Promise<AgentUsageStat[]> {
+    const conditions: any[] = [];
+    if (filters.userId) conditions.push(eq(agentUsageStats.userId, filters.userId));
+    if (filters.agentType) conditions.push(eq(agentUsageStats.agentType, filters.agentType as any));
+    if (filters.startDate) conditions.push(gte(agentUsageStats.date, filters.startDate));
+    if (filters.endDate) conditions.push(sql`${agentUsageStats.date} <= ${filters.endDate}`);
+
+    let query = db.select().from(agentUsageStats);
+    if (conditions.length > 0) query = query.where(and(...conditions)) as any;
+    return (query as any).orderBy(desc(agentUsageStats.date));
   }
 }
 

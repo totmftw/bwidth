@@ -161,6 +161,32 @@ export const contractEditStatusEnum = pgEnum("contract_edit_status", [
   "applied",
 ]);
 
+export const llmProviderEnum = pgEnum("llm_provider", [
+  "openai",
+  "anthropic",
+  "google",
+  "openrouter",
+  "ollama",
+]);
+
+export const agentTypeEnum = pgEnum("agent_type", [
+  "event_wizard",
+  "negotiation",
+]);
+
+export const agentSessionStatusEnum = pgEnum("agent_session_status", [
+  "active",
+  "completed",
+  "failed",
+  "cancelled",
+  "paused",
+]);
+
+export const feedbackRatingEnum = pgEnum("feedback_rating", [
+  "positive",
+  "negative",
+]);
+
 // ============================================================================
 // GEOGRAPHY & LOOKUP TABLES
 // ============================================================================
@@ -812,6 +838,147 @@ export const appSettings = pgTable("app_settings", {
 // RELATIONS
 // ============================================================================
 
+// ============================================================================
+// AI AGENTS
+// ============================================================================
+
+export const userLlmConfigs = pgTable("user_llm_configs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull().unique(),
+  provider: llmProviderEnum("provider").notNull(),
+  model: text("model").notNull(),
+  apiKeyEncrypted: text("api_key_encrypted"),
+  apiKeyIv: text("api_key_iv"),
+  apiKeyTag: text("api_key_tag"),
+  ollamaBaseUrl: text("ollama_base_url"),
+  openrouterModel: text("openrouter_model"),
+  isValid: boolean("is_valid").default(false),
+  lastValidatedAt: timestamp("last_validated_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const agentConfigs = pgTable("agent_configs", {
+  id: serial("id").primaryKey(),
+  agentType: agentTypeEnum("agent_type").notNull().unique(),
+  enabled: boolean("enabled").default(false).notNull(),
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  allowedRoles: jsonb("allowed_roles").default([]).notNull(),
+  defaultProvider: llmProviderEnum("default_provider"),
+  defaultModel: text("default_model"),
+  systemApiKeyEncrypted: text("system_api_key_encrypted"),
+  systemApiKeyIv: text("system_api_key_iv"),
+  systemApiKeyTag: text("system_api_key_tag"),
+  maxTokensPerRequest: integer("max_tokens_per_request").default(4096),
+  maxRequestsPerSession: integer("max_requests_per_session").default(50),
+  temperatureDefault: numeric("temperature_default", { precision: 3, scale: 2 }).default("0.70"),
+  config: jsonb("config").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedBy: integer("updated_by").references(() => users.id),
+});
+
+export const agentRateLimits = pgTable("agent_rate_limits", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  agentType: agentTypeEnum("agent_type").notNull(),
+  maxRequestsPerHour: integer("max_requests_per_hour").default(20),
+  maxRequestsPerDay: integer("max_requests_per_day").default(100),
+  maxTokensPerDay: integer("max_tokens_per_day").default(100000),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedBy: integer("updated_by").references(() => users.id),
+}, (table: any) => ({
+  uniqueUserAgent: uniqueIndex("agent_rate_limits_user_agent_idx").on(table.userId, table.agentType),
+}));
+
+export const agentSessions = pgTable("agent_sessions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  agentType: agentTypeEnum("agent_type").notNull(),
+  status: agentSessionStatusEnum("status").default("active").notNull(),
+  contextEntityType: text("context_entity_type"),
+  contextEntityId: integer("context_entity_id"),
+  provider: llmProviderEnum("provider").notNull(),
+  model: text("model").notNull(),
+  promptVersion: text("prompt_version"),
+  inputTokensUsed: integer("input_tokens_used").default(0),
+  outputTokensUsed: integer("output_tokens_used").default(0),
+  requestCount: integer("request_count").default(0),
+  memory: jsonb("memory").default({}),
+  result: jsonb("result"),
+  error: text("error"),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  lastActivityAt: timestamp("last_activity_at").defaultNow(),
+  metadata: jsonb("metadata").default({}),
+});
+
+export const agentMessages = pgTable("agent_messages", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").references(() => agentSessions.id, { onDelete: "cascade" }).notNull(),
+  role: text("role").notNull(),
+  content: text("content"),
+  toolCalls: jsonb("tool_calls"),
+  toolResults: jsonb("tool_results"),
+  inputTokens: integer("input_tokens").default(0),
+  outputTokens: integer("output_tokens").default(0),
+  latencyMs: integer("latency_ms"),
+  provider: llmProviderEnum("provider"),
+  model: text("model"),
+  promptVersion: text("prompt_version"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const agentFeedback = pgTable("agent_feedback", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").references(() => agentSessions.id, { onDelete: "cascade" }).notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  rating: feedbackRatingEnum("rating").notNull(),
+  comment: text("comment"),
+  agentType: agentTypeEnum("agent_type").notNull(),
+  promptVersion: text("prompt_version"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const promptVersions = pgTable("prompt_versions", {
+  id: serial("id").primaryKey(),
+  agentType: agentTypeEnum("agent_type").notNull(),
+  version: text("version").notNull(),
+  systemPrompt: text("system_prompt").notNull(),
+  contextTemplate: text("context_template"),
+  active: boolean("active").default(false).notNull(),
+  positiveCount: integer("positive_count").default(0),
+  negativeCount: integer("negative_count").default(0),
+  totalRuns: integer("total_runs").default(0),
+  avgLatencyMs: integer("avg_latency_ms").default(0),
+  notes: text("notes"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table: any) => ({
+  uniqueAgentVersion: uniqueIndex("prompt_versions_agent_version_idx").on(table.agentType, table.version),
+}));
+
+export const agentUsageStats = pgTable("agent_usage_stats", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  agentType: agentTypeEnum("agent_type").notNull(),
+  date: date("date").notNull(),
+  requestCount: integer("request_count").default(0),
+  inputTokens: integer("input_tokens").default(0),
+  outputTokens: integer("output_tokens").default(0),
+  sessionCount: integer("session_count").default(0),
+  positiveRatings: integer("positive_ratings").default(0),
+  negativeRatings: integer("negative_ratings").default(0),
+}, (table: any) => ({
+  uniqueUserAgentDate: uniqueIndex("agent_usage_stats_user_agent_date_idx").on(table.userId, table.agentType, table.date),
+}));
+
+// ============================================================================
+// RELATIONS
+// ============================================================================
+
 export const notificationsRelations = relations(notifications, ({ one }: any) => ({
   user: one(users, { fields: [notifications.userId], references: [users.id] }),
 }));
@@ -899,6 +1066,33 @@ export const bookingProposalsRelations = relations(bookingProposals, ({ one }: a
   creator: one(users, { fields: [bookingProposals.createdBy], references: [users.id] }),
 }));
 
+export const userLlmConfigsRelations = relations(userLlmConfigs, ({ one }: any) => ({
+  user: one(users, { fields: [userLlmConfigs.userId], references: [users.id] }),
+}));
+
+export const agentConfigsRelations = relations(agentConfigs, ({ one }: any) => ({
+  updater: one(users, { fields: [agentConfigs.updatedBy], references: [users.id] }),
+}));
+
+export const agentSessionsRelations = relations(agentSessions, ({ one, many }: any) => ({
+  user: one(users, { fields: [agentSessions.userId], references: [users.id] }),
+  messages: many(agentMessages),
+  feedback: many(agentFeedback),
+}));
+
+export const agentMessagesRelations = relations(agentMessages, ({ one }: any) => ({
+  session: one(agentSessions, { fields: [agentMessages.sessionId], references: [agentSessions.id] }),
+}));
+
+export const agentFeedbackRelations = relations(agentFeedback, ({ one }: any) => ({
+  session: one(agentSessions, { fields: [agentFeedback.sessionId], references: [agentSessions.id] }),
+  user: one(users, { fields: [agentFeedback.userId], references: [users.id] }),
+}));
+
+export const promptVersionsRelations = relations(promptVersions, ({ one }: any) => ({
+  creator: one(users, { fields: [promptVersions.createdBy], references: [users.id] }),
+}));
+
 // ============================================================================
 // TYPE EXPORTS
 // ============================================================================
@@ -955,6 +1149,23 @@ export type InsertNotificationType = typeof notificationTypes.$inferInsert;
 export type NotificationChannel = typeof notificationChannels.$inferSelect;
 export type InsertNotificationChannel = typeof notificationChannels.$inferInsert;
 
+export type UserLlmConfig = typeof userLlmConfigs.$inferSelect;
+export type InsertUserLlmConfig = typeof userLlmConfigs.$inferInsert;
+export type AgentConfig = typeof agentConfigs.$inferSelect;
+export type InsertAgentConfig = typeof agentConfigs.$inferInsert;
+export type AgentRateLimit = typeof agentRateLimits.$inferSelect;
+export type InsertAgentRateLimit = typeof agentRateLimits.$inferInsert;
+export type AgentSession = typeof agentSessions.$inferSelect;
+export type InsertAgentSession = typeof agentSessions.$inferInsert;
+export type AgentMessage = typeof agentMessages.$inferSelect;
+export type InsertAgentMessage = typeof agentMessages.$inferInsert;
+export type AgentFeedbackRecord = typeof agentFeedback.$inferSelect;
+export type InsertAgentFeedback = typeof agentFeedback.$inferInsert;
+export type PromptVersion = typeof promptVersions.$inferSelect;
+export type InsertPromptVersion = typeof promptVersions.$inferInsert;
+export type AgentUsageStat = typeof agentUsageStats.$inferSelect;
+export type InsertAgentUsageStat = typeof agentUsageStats.$inferInsert;
+
 // Aliases for compatibility with existing code
 export { promoters as organizers };
 export type Organizer = Promoter;
@@ -991,4 +1202,11 @@ export const selectArtistCategoryHistorySchema = createSelectSchema(artistCatego
 export const insertCommissionPolicySchema = createInsertSchema(commissionPolicies);
 export const selectCommissionPolicySchema = createSelectSchema(commissionPolicies);
 
-
+// Agent schemas
+export const insertUserLlmConfigSchema = createInsertSchema(userLlmConfigs);
+export const insertAgentConfigSchema = createInsertSchema(agentConfigs);
+export const insertAgentSessionSchema = createInsertSchema(agentSessions);
+export const insertAgentMessageSchema = createInsertSchema(agentMessages);
+export const insertAgentFeedbackSchema = createInsertSchema(agentFeedback);
+export const insertPromptVersionSchema = createInsertSchema(promptVersions);
+export const insertAgentUsageStatSchema = createInsertSchema(agentUsageStats);

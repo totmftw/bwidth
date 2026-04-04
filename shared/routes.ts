@@ -1098,6 +1098,352 @@ export const api = {
       },
     },
   },
+
+  // ─── AI Agents ─────────────────────────────────────────────────────────────
+  agents: {
+    config: {
+      method: 'GET' as const,
+      path: '/api/agents/config',
+      responses: {
+        200: z.object({
+          agents: z.array(z.object({
+            agentType: z.string(),
+            displayName: z.string(),
+            description: z.string().nullable(),
+            enabled: z.boolean(),
+            allowedRoles: z.array(z.string()),
+          })),
+          llmConfig: z.object({
+            provider: z.string(),
+            model: z.string(),
+            hasKey: z.boolean(),
+            ollamaBaseUrl: z.string().nullable(),
+            isValid: z.boolean().nullable(),
+          }).nullable(),
+        }),
+        401: errorSchemas.unauthorized,
+      },
+    },
+    llmConfig: {
+      update: {
+        method: 'PUT' as const,
+        path: '/api/agents/llm-config',
+        input: z.object({
+          provider: z.enum(["openai", "anthropic", "google", "openrouter", "ollama"]),
+          model: z.string().min(1),
+          apiKey: z.string().min(1).optional(),
+          ollamaBaseUrl: z.string().url().optional(),
+          openrouterModel: z.string().optional(),
+        }),
+        responses: {
+          200: z.object({ success: z.boolean() }),
+          400: errorSchemas.validation,
+          401: errorSchemas.unauthorized,
+        },
+      },
+      delete: {
+        method: 'DELETE' as const,
+        path: '/api/agents/llm-config',
+        responses: {
+          200: z.object({ success: z.boolean() }),
+          401: errorSchemas.unauthorized,
+        },
+      },
+      validate: {
+        method: 'POST' as const,
+        path: '/api/agents/llm-config/validate',
+        responses: {
+          200: z.object({ valid: z.boolean(), error: z.string().optional() }),
+          401: errorSchemas.unauthorized,
+        },
+      },
+    },
+    eventWizard: {
+      run: {
+        method: 'POST' as const,
+        path: '/api/agents/event-wizard/run',
+        input: z.object({
+          text: z.string().max(10000).optional(),
+        }).optional(),
+        responses: {
+          200: z.object({
+            sessionId: z.number(),
+            result: z.object({
+              title: z.string().optional(),
+              description: z.string().optional(),
+              date: z.string().optional(),
+              startTime: z.string().optional(),
+              endTime: z.string().optional(),
+              capacity: z.number().optional(),
+              visibility: z.enum(["public", "private"]).optional(),
+              stages: z.array(z.object({
+                name: z.string(),
+                startTime: z.string().optional(),
+                endTime: z.string().optional(),
+              })).optional(),
+              confidence: z.number().optional(),
+              suggestions: z.array(z.string()).optional(),
+            }),
+          }),
+          400: errorSchemas.validation,
+          401: errorSchemas.unauthorized,
+          403: z.object({ message: z.string() }),
+          429: z.object({ message: z.string() }),
+        },
+      },
+      refine: {
+        method: 'POST' as const,
+        path: '/api/agents/event-wizard/:sessionId/refine',
+        input: z.object({
+          instruction: z.string().min(1).max(2000),
+        }),
+        responses: {
+          200: z.object({
+            sessionId: z.number(),
+            result: z.object({
+              title: z.string().optional(),
+              description: z.string().optional(),
+              date: z.string().optional(),
+              startTime: z.string().optional(),
+              endTime: z.string().optional(),
+              capacity: z.number().optional(),
+              visibility: z.enum(["public", "private"]).optional(),
+              stages: z.array(z.object({
+                name: z.string(),
+                startTime: z.string().optional(),
+                endTime: z.string().optional(),
+              })).optional(),
+              confidence: z.number().optional(),
+              suggestions: z.array(z.string()).optional(),
+            }),
+          }),
+          400: errorSchemas.validation,
+          401: errorSchemas.unauthorized,
+          404: z.object({ message: z.string() }),
+        },
+      },
+    },
+    negotiation: {
+      start: {
+        method: 'POST' as const,
+        path: '/api/agents/negotiation/:bookingId/start',
+        input: z.object({
+          targetMinPrice: z.number().optional(),
+          targetMaxPrice: z.number().optional(),
+          preferredSchedule: z.string().optional(),
+          mustHaveRiders: z.array(z.string()).optional(),
+          strategy: z.enum(["aggressive", "balanced", "conservative"]).optional(),
+          notes: z.string().max(2000).optional(),
+        }),
+        responses: {
+          200: z.object({ sessionId: z.number(), status: z.string() }),
+          400: errorSchemas.validation,
+          401: errorSchemas.unauthorized,
+          403: z.object({ message: z.string() }),
+          409: z.object({ message: z.string() }),
+        },
+      },
+      setTargets: {
+        method: 'POST' as const,
+        path: '/api/agents/negotiation/:bookingId/set-targets',
+        input: z.object({
+          targetMinPrice: z.number().optional(),
+          targetMaxPrice: z.number().optional(),
+          preferredSchedule: z.string().optional(),
+          mustHaveRiders: z.array(z.string()).optional(),
+          strategy: z.enum(["aggressive", "balanced", "conservative"]).optional(),
+          notes: z.string().max(2000).optional(),
+        }),
+        responses: {
+          200: z.object({ success: z.boolean() }),
+          401: errorSchemas.unauthorized,
+          404: z.object({ message: z.string() }),
+        },
+      },
+      approve: {
+        method: 'POST' as const,
+        path: '/api/agents/negotiation/:bookingId/approve',
+        input: z.object({
+          draftId: z.number(),
+        }),
+        responses: {
+          200: z.object({ success: z.boolean(), proposalRound: z.number() }),
+          401: errorSchemas.unauthorized,
+          404: z.object({ message: z.string() }),
+        },
+      },
+      stop: {
+        method: 'POST' as const,
+        path: '/api/agents/negotiation/:bookingId/stop',
+        responses: {
+          200: z.object({ success: z.boolean() }),
+          401: errorSchemas.unauthorized,
+          404: z.object({ message: z.string() }),
+        },
+      },
+      status: {
+        method: 'GET' as const,
+        path: '/api/agents/negotiation/:bookingId/status',
+        responses: {
+          200: z.object({
+            active: z.boolean(),
+            sessionId: z.number().nullable(),
+            status: z.string(),
+            pendingDrafts: z.array(z.object({
+              id: z.number(),
+              proposal: z.any(),
+              reasoning: z.string().optional(),
+              createdAt: z.string(),
+            })),
+            lastActivityAt: z.string().nullable(),
+          }),
+          401: errorSchemas.unauthorized,
+          404: z.object({ message: z.string() }),
+        },
+      },
+    },
+    sessions: {
+      list: {
+        method: 'GET' as const,
+        path: '/api/agents/sessions',
+        responses: {
+          200: z.array(z.object({
+            id: z.number(),
+            agentType: z.string(),
+            status: z.string(),
+            contextEntityType: z.string().nullable(),
+            contextEntityId: z.number().nullable(),
+            requestCount: z.number().nullable(),
+            startedAt: z.string().nullable(),
+            completedAt: z.string().nullable(),
+          })),
+          401: errorSchemas.unauthorized,
+        },
+      },
+      get: {
+        method: 'GET' as const,
+        path: '/api/agents/sessions/:id',
+        responses: {
+          200: z.object({
+            session: z.any(),
+            messages: z.array(z.any()),
+            feedback: z.any().nullable(),
+          }),
+          401: errorSchemas.unauthorized,
+          404: z.object({ message: z.string() }),
+        },
+      },
+      feedback: {
+        method: 'POST' as const,
+        path: '/api/agents/sessions/:id/feedback',
+        input: z.object({
+          rating: z.enum(["positive", "negative"]),
+          comment: z.string().max(2000).optional(),
+        }),
+        responses: {
+          200: z.object({ success: z.boolean() }),
+          401: errorSchemas.unauthorized,
+          404: z.object({ message: z.string() }),
+          409: z.object({ message: z.string() }),
+        },
+      },
+    },
+    admin: {
+      configs: {
+        list: {
+          method: 'GET' as const,
+          path: '/api/admin/agents/configs',
+          responses: {
+            200: z.array(z.any()),
+          },
+        },
+        update: {
+          method: 'PUT' as const,
+          path: '/api/admin/agents/configs/:agentType',
+          input: z.object({
+            enabled: z.boolean().optional(),
+            displayName: z.string().optional(),
+            description: z.string().optional(),
+            allowedRoles: z.array(z.string()).optional(),
+            defaultProvider: z.enum(["openai", "anthropic", "google", "openrouter", "ollama"]).optional(),
+            defaultModel: z.string().optional(),
+            systemApiKey: z.string().optional(),
+            maxTokensPerRequest: z.number().optional(),
+            maxRequestsPerSession: z.number().optional(),
+            temperatureDefault: z.number().min(0).max(2).optional(),
+            config: z.record(z.any()).optional(),
+          }),
+          responses: {
+            200: z.any(),
+            400: errorSchemas.validation,
+          },
+        },
+      },
+      rateLimits: {
+        list: {
+          method: 'GET' as const,
+          path: '/api/admin/agents/rate-limits',
+          responses: { 200: z.array(z.any()) },
+        },
+        upsert: {
+          method: 'POST' as const,
+          path: '/api/admin/agents/rate-limits',
+          input: z.object({
+            userId: z.number(),
+            agentType: z.enum(["event_wizard", "negotiation"]),
+            maxRequestsPerHour: z.number().optional(),
+            maxRequestsPerDay: z.number().optional(),
+            maxTokensPerDay: z.number().optional(),
+          }),
+          responses: { 200: z.any(), 400: errorSchemas.validation },
+        },
+        delete: {
+          method: 'DELETE' as const,
+          path: '/api/admin/agents/rate-limits/:id',
+          responses: { 200: z.object({ success: z.boolean() }) },
+        },
+      },
+      usage: {
+        method: 'GET' as const,
+        path: '/api/admin/agents/usage',
+        responses: { 200: z.array(z.any()) },
+      },
+      sessions: {
+        method: 'GET' as const,
+        path: '/api/admin/agents/sessions',
+        responses: { 200: z.array(z.any()) },
+      },
+      feedback: {
+        method: 'GET' as const,
+        path: '/api/admin/agents/feedback',
+        responses: { 200: z.array(z.any()) },
+      },
+      prompts: {
+        list: {
+          method: 'GET' as const,
+          path: '/api/admin/agents/prompts',
+          responses: { 200: z.array(z.any()) },
+        },
+        create: {
+          method: 'POST' as const,
+          path: '/api/admin/agents/prompts',
+          input: z.object({
+            agentType: z.enum(["event_wizard", "negotiation"]),
+            version: z.string().min(1),
+            systemPrompt: z.string().min(1),
+            contextTemplate: z.string().optional(),
+            notes: z.string().optional(),
+          }),
+          responses: { 200: z.any(), 400: errorSchemas.validation },
+        },
+        activate: {
+          method: 'PUT' as const,
+          path: '/api/admin/agents/prompts/:id/activate',
+          responses: { 200: z.any(), 404: z.object({ message: z.string() }) },
+        },
+      },
+    },
+  },
 };
 
 export function buildUrl(path: string, params?: Record<string, string | number>): string {
