@@ -69,6 +69,27 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
   await notificationService.init();
 
+  // Daily research cache cleanup + fee multiplier retraining (self-learning)
+  const startDailyJobs = async () => {
+    try {
+      const { researchService } = await import("./services/research.service");
+      const { storage } = await import("./storage");
+      // Clean expired research cache
+      const deleted = await storage.deleteExpiredResearchCache();
+      if (deleted > 0) console.log(`[Daily] Cleaned ${deleted} expired research cache entries`);
+      // Retrain fee multipliers from negotiation outcomes
+      await researchService.retrainMultipliers();
+      console.log("[Daily] Fee multiplier retraining complete");
+    } catch (err) {
+      console.error("[Daily] Job failed:", err);
+    }
+  };
+  // Run daily (24h interval), first run after 1 hour to avoid startup load
+  setTimeout(() => {
+    startDailyJobs();
+    setInterval(startDailyJobs, 24 * 60 * 60 * 1000);
+  }, 60 * 60 * 1000);
+
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

@@ -10,6 +10,7 @@ import { storage } from "../storage";
 import { bookingService } from "./booking.service";
 import { contractService } from "./contract.service";
 import { emitDomainEvent } from "./event-bus";
+import { agentSessions } from "@shared/schema";
 import {
   type NegotiationSnapshot,
   type NegotiationActionInput,
@@ -524,6 +525,37 @@ export class NegotiationService {
         }, userId);
       }
 
+      // Record negotiation outcome for self-learning
+      try {
+        const agreedSnapshot = negotiationMeta.currentProposalSnapshot;
+        const finalFee = agreedSnapshot?.financial?.offerAmount ?? Number(booking.offerAmount || 0);
+        const activeAgentSession = await storage.getActiveAgentSession(userId, "negotiation", bookingId);
+        const suggestedFee = activeAgentSession?.memory
+          ? (activeAgentSession.memory as any)?.feeSuggestion?.suggested ?? null
+          : null;
+        const artistData = booking.artistId ? await storage.getArtist(booking.artistId) : null;
+        const eventData = booking.eventId ? await storage.getEvent(booking.eventId) : null;
+
+        await storage.createNegotiationOutcome({
+          bookingId,
+          artistId: booking.artistId,
+          organizerId: eventData?.organizerId ?? null,
+          suggestedFee: suggestedFee ? String(suggestedFee) : null,
+          finalFee: String(finalFee),
+          feeAccuracyDelta: suggestedFee ? String(finalFee - suggestedFee) : null,
+          roundsToAgreement: inferred.currentStep,
+          outcome: "signed",
+          genre: (artistData?.metadata as any)?.primaryGenre ?? null,
+          venueTier: eventData?.venue?.capacity
+            ? (eventData.venue.capacity < 200 ? "intimate" : eventData.venue.capacity <= 1000 ? "mid" : "large")
+            : null,
+          venueCapacity: eventData?.venue?.capacity ?? null,
+          agentSessionId: activeAgentSession?.id ?? null,
+        });
+      } catch (outcomeErr) {
+        console.error("Failed to record negotiation outcome:", outcomeErr);
+      }
+
       return this.getSummary(bookingId);
     }
 
@@ -605,6 +637,27 @@ export class NegotiationService {
         reason: payload.note || "Party walked away",
         actionUrl: `/bookings?bookingId=${bookingId}`,
       }, userId);
+
+      // Record walkaway outcome for self-learning
+      try {
+        const artistData = booking.artistId ? await storage.getArtist(booking.artistId) : null;
+        const eventData = booking.eventId ? await storage.getEvent(booking.eventId) : null;
+        await storage.createNegotiationOutcome({
+          bookingId,
+          artistId: booking.artistId,
+          organizerId: eventData?.organizerId ?? null,
+          finalFee: booking.offerAmount ? String(booking.offerAmount) : null,
+          roundsToAgreement: inferred.currentStep,
+          outcome: "walked_away",
+          genre: (artistData?.metadata as any)?.primaryGenre ?? null,
+          venueTier: eventData?.venue?.capacity
+            ? (eventData.venue.capacity < 200 ? "intimate" : eventData.venue.capacity <= 1000 ? "mid" : "large")
+            : null,
+          venueCapacity: eventData?.venue?.capacity ?? null,
+        });
+      } catch (outcomeErr) {
+        console.error("Failed to record walkaway outcome:", outcomeErr);
+      }
 
       return this.getSummary(bookingId);
     }
@@ -926,6 +979,59 @@ export class NegotiationService {
       );
 
     return this.getSummary(bookingId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent context — lightweight state for per-message AI processing
+  // ---------------------------------------------------------------------------
+
+  async getAgentContext(bookingId: number): Promise<{
+    currentStep: number;
+    stepState: string;
+    whoseTurn: string | null;
+    latestProposal: any;
+    deadline: string | null;
+    eventId: number | null;
+    artistId: number | null;
+    organizerId: number | null;
+    availableActions: string[];
+  }> {
+    const booking = await storage.getBooking(bookingId);
+    if (!booking) throw new Error(`Booking #${bookingId} not found`);
+
+    const meta = (booking.meta as any) ?? {};
+    const negotiationMeta = meta.negotiation ?? {};
+    const latestProposal = await storage.getLatestBookingProposal(bookingId);
+    const event = booking.eventId ? await storage.getEvent(booking.eventId) : null;
+
+    const currentStep = negotiationMeta.currentStep ?? 0;
+    const stepState = negotiationMeta.stepState ?? "applied";
+
+    let whoseTurn: string | null = null;
+    if (stepState === "awaiting_art") whoseTurn = "artist";
+    else if (stepState === "awaiting_org") whoseTurn = "organizer";
+
+    const availableActions: string[] = [];
+    if (!["locked", "walked_away", "expired"].includes(stepState)) {
+      if (stepState !== "applied" || currentStep > 0) {
+        availableActions.push("accept", "walkaway");
+        if (currentStep < 3) availableActions.push("edit");
+      } else {
+        availableActions.push("edit");
+      }
+    }
+
+    return {
+      currentStep,
+      stepState,
+      whoseTurn,
+      latestProposal: latestProposal?.proposedTerms ?? null,
+      deadline: negotiationMeta.stepDeadlineAt ?? booking.flowDeadlineAt?.toISOString() ?? null,
+      eventId: booking.eventId,
+      artistId: booking.artistId,
+      organizerId: event?.organizerId ?? null,
+      availableActions,
+    };
   }
 }
 

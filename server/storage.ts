@@ -8,6 +8,7 @@ import {
   bookingProposals,
   notifications, notificationTypes, notificationChannels,
   userLlmConfigs, agentConfigs, agentRateLimits, agentSessions, agentMessages, agentFeedback, promptVersions, agentUsageStats,
+  researchCache, negotiationOutcomes,
   type User, type Artist, type Organizer, type Venue, type Booking, type Event, type Contract, type AuditLog, type TemporaryVenue,
   type InsertUser, type InsertArtist, type InsertOrganizer, type InsertVenue, type InsertBooking, type InsertContract, type InsertAuditLog, type InsertEvent, type InsertTemporaryVenue,
   type ContractVersion, type InsertContractVersion,
@@ -27,6 +28,8 @@ import {
   type AgentFeedbackRecord, type InsertAgentFeedback,
   type PromptVersion, type InsertPromptVersion,
   type AgentUsageStat, type InsertAgentUsageStat,
+  type ResearchCacheEntry, type InsertResearchCacheEntry,
+  type NegotiationOutcome, type InsertNegotiationOutcome,
 } from "@shared/schema";
 
 export interface OrganizerDashboardStats {
@@ -253,6 +256,15 @@ export interface IStorage {
   // Agent Usage Stats
   upsertAgentUsageStats(userId: number, agentType: string, dateStr: string, deltas: { requests?: number; inputTokens?: number; outputTokens?: number; sessions?: number; positive?: number; negative?: number }): Promise<void>;
   getAgentUsageStats(filters: { userId?: number; agentType?: string; startDate?: string; endDate?: string }): Promise<AgentUsageStat[]>;
+
+  // Research Cache
+  getResearchCache(entityType: string, entityId: number, researchType: string): Promise<ResearchCacheEntry | undefined>;
+  upsertResearchCache(data: InsertResearchCacheEntry): Promise<ResearchCacheEntry>;
+  deleteExpiredResearchCache(): Promise<number>;
+
+  // Negotiation Outcomes
+  createNegotiationOutcome(data: InsertNegotiationOutcome): Promise<NegotiationOutcome>;
+  getNegotiationOutcomes(filters: { outcome?: string; artistId?: number; startDate?: string; endDate?: string; limit?: number }): Promise<NegotiationOutcome[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2165,6 +2177,70 @@ export class DatabaseStorage implements IStorage {
     let query = db.select().from(agentUsageStats);
     if (conditions.length > 0) query = query.where(and(...conditions)) as any;
     return (query as any).orderBy(desc(agentUsageStats.date));
+  }
+
+  // ─── Research Cache ─────────────────────────────────────────────────────────
+
+  async getResearchCache(entityType: string, entityId: number, researchType: string): Promise<ResearchCacheEntry | undefined> {
+    const rows = await db
+      .select()
+      .from(researchCache)
+      .where(
+        and(
+          eq(researchCache.entityType, entityType),
+          eq(researchCache.entityId, entityId),
+          eq(researchCache.researchType, researchType),
+          gte(researchCache.expiresAt, new Date()),
+        ),
+      )
+      .limit(1);
+    return rows[0];
+  }
+
+  async upsertResearchCache(data: InsertResearchCacheEntry): Promise<ResearchCacheEntry> {
+    const [row] = await db
+      .insert(researchCache)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [researchCache.entityType, researchCache.entityId, researchCache.researchType],
+        set: {
+          data: data.data,
+          confidenceScore: data.confidenceScore,
+          expiresAt: data.expiresAt,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  }
+
+  async deleteExpiredResearchCache(): Promise<number> {
+    const deleted = await db
+      .delete(researchCache)
+      .where(sql`${researchCache.expiresAt} < NOW()`)
+      .returning();
+    return deleted.length;
+  }
+
+  // ─── Negotiation Outcomes ───────────────────────────────────────────────────
+
+  async createNegotiationOutcome(data: InsertNegotiationOutcome): Promise<NegotiationOutcome> {
+    const [row] = await db.insert(negotiationOutcomes).values(data).returning();
+    return row;
+  }
+
+  async getNegotiationOutcomes(
+    filters: { outcome?: string; artistId?: number; startDate?: string; endDate?: string; limit?: number },
+  ): Promise<NegotiationOutcome[]> {
+    const conditions: any[] = [];
+    if (filters.outcome) conditions.push(eq(negotiationOutcomes.outcome, filters.outcome));
+    if (filters.artistId) conditions.push(eq(negotiationOutcomes.artistId, filters.artistId));
+    if (filters.startDate) conditions.push(gte(negotiationOutcomes.createdAt, new Date(filters.startDate)));
+    if (filters.endDate) conditions.push(sql`${negotiationOutcomes.createdAt} <= ${filters.endDate}`);
+
+    let query = db.select().from(negotiationOutcomes);
+    if (conditions.length > 0) query = query.where(and(...conditions)) as any;
+    return (query as any).orderBy(desc(negotiationOutcomes.createdAt)).limit(filters.limit ?? 100);
   }
 }
 

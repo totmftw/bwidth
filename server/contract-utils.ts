@@ -369,6 +369,7 @@ NOW, THEREFORE, IN CONSIDERATION OF THE MUTUAL PROMISES CONTAINED HEREIN, THE PA
 3.4. Balance: Remaining ${currency} ${balanceAmount.toLocaleString()} due one week before the first event date.
 3.5. Net Payments: All payments must be net of all fees, including but not limited to bank fees, currency conversion charges, and local taxes/levies.
 3.6. GST and Withholding Tax (TDS): Any Goods and Services Tax (GST) applicable under the Central Goods and Services Tax Act, 2017, and Tax Deducted at Source (TDS) under the Income Tax Act, 1961, shall be borne and complied with by the Booking Agent. The Booking Agent shall provide the necessary TDS certificates to the Artist within the statutory timelines.
+     The services under this Agreement are classified under SAC Code 999614 (Live performing arts event presentation and promotion services) for GST purposes.
 3.7. Bank Details: All payments must be made via bank wire transfer to the Platform's Escrow Account:
      - Account Holder: ${appBankHolder}
      - Bank Name: ${appBankName}
@@ -402,7 +403,9 @@ ${techRiderText.split('\n').map(line => '     ' + line).join('\n')}
 8. CANCELLATION & FORCE MAJEURE
 8.1. Promoter Cancellation: If the Promoter/Booking Agent cancels the event, all payments made to the Artist are non-refundable, and any outstanding balance becomes immediately due.
 8.2. Artist Cancellation: If the Artist cancels (excluding Force Majeure), payments received shall be fully refunded to the Promoter. The Artist reserves the right to cancel up to 90 days prior without penalty.
-8.3. Force Majeure: Neither Party shall be liable for any failure to perform its obligations where such failure is as a result of Acts of Nature (including fire, flood, earthquake, storm, hurricane, or other natural disaster), war, invasion, act of foreign enemies, hostilities, civil war, rebellion, revolution, insurrection, military or usurped power or confiscation, terrorist activities, nationalization, government sanction, blockage, embargo, labor dispute, strike, lockout, pandemic, epidemic, or failure of electricity/venue licensing issues.
+8.3. Force Majeure: Neither Party shall be liable for any failure to perform its obligations where such failure is as a result of Acts of Nature (including fire, flood, earthquake, storm, hurricane, or other natural disaster), war, invasion, act of foreign enemies, hostilities, civil war, rebellion, revolution, insurrection, military or usurped power or confiscation, terrorist activities, nationalization, government sanction or orders (including lockdown orders), blockage, embargo, labor dispute, strike, lockout, pandemic, epidemic, failure of electricity, revocation or non-renewal of venue licenses or permits, or failure of the Platform's technical infrastructure beyond reasonable control.
+8.4. The affected Party shall notify the other Party in writing within 48 hours of becoming aware of the Force Majeure event, providing details of the event and estimated duration.
+8.5. If the Force Majeure event continues for more than 30 consecutive days, either Party may terminate this Agreement by written notice without further liability.
 
 9. DISPUTE RESOLUTION & GOVERNING LAW
 9.1. This Agreement shall be governed by and construed in accordance with the laws of India.
@@ -410,11 +413,25 @@ ${techRiderText.split('\n').map(line => '     ' + line).join('\n')}
 9.3. The seat and venue of arbitration shall be ${city}, India. The language of the arbitration shall be English.
 9.4. Subject to the arbitration clause, the courts at ${city} shall have exclusive jurisdiction over any matters arising out of this Agreement.
 
-10. FINAL TERMS
-10.1. Confidentiality: The Artist fee and the terms of this Agreement are strictly confidential.
-10.2. Amendments: No amendments or modifications to this Agreement shall be valid unless made in writing and signed by both Parties.
-10.3. Liability: The Artist is not liable for any fines, damages, or legal issues resulting from the Promoter's misconduct, lack of necessary venue licenses, or illegal promotion.
-10.4. Relationship of Parties: This Agreement does not create a partnership, joint venture, or employer-employee relationship between the Parties. The Artist acts as an independent contractor.
+10. INDEMNIFICATION
+10.1. The Booking Agent shall indemnify and hold harmless the Artist and the Platform against any and all claims, damages, losses, costs, and expenses (including reasonable legal fees) arising out of: (a) the Booking Agent's breach of this Agreement; (b) any third-party claims related to the event, venue, or audience; or (c) the Booking Agent's failure to obtain necessary permits, licenses, or approvals.
+10.2. The Artist shall indemnify and hold harmless the Booking Agent and the Platform against any and all claims, damages, losses, costs, and expenses (including reasonable legal fees) arising out of: (a) the Artist's breach of this Agreement; or (b) any third-party intellectual property claims related to the Artist's performance content.
+
+11. PLATFORM AS FACILITATING AGENT
+11.1. ${appName} ("Platform") acts as a facilitating agent within the meaning of Sections 182–238 of the Indian Contract Act, 1872, and does not assume the obligations of either Party under this Agreement.
+11.2. The Platform's role is limited to: (a) facilitating communication between the Parties; (b) providing AI-assisted negotiation mediation; (c) generating and hosting this Agreement; and (d) processing payments through its escrow system.
+11.3. In the event that the Platform becomes unable to facilitate the transaction due to technical failure, regulatory action, or cessation of operations, the obligations between the Booking Agent and Artist under this Agreement shall survive and remain enforceable independently of the Platform.
+
+12. DATA PROTECTION
+12.1. Personal data collected during this engagement shall be processed in accordance with the Digital Personal Data Protection Act, 2023 ("DPDPA") and any rules made thereunder.
+12.2. Each Party consents to the Platform collecting, storing, and processing personal data (including name, contact information, PAN, GSTIN, and bank details) solely for the purpose of facilitating and enforcing this Agreement.
+12.3. The Platform shall implement reasonable security safeguards as required under Section 8 of the DPDPA to protect personal data from unauthorized access, disclosure, or destruction.
+
+13. FINAL TERMS
+13.1. Confidentiality: The Artist fee and the terms of this Agreement are strictly confidential.
+13.2. Amendments: No amendments or modifications to this Agreement shall be valid unless made in writing and signed by both Parties.
+13.3. Liability: The Artist is not liable for any fines, damages, or legal issues resulting from the Promoter's misconduct, lack of necessary venue licenses, or illegal promotion.
+13.4. Relationship of Parties: This Agreement does not create a partnership, joint venture, or employer-employee relationship between the Parties. The Artist acts as an independent contractor.
 
 IN WITNESS WHEREOF, the Parties hereto have executed this Agreement digitally under the provisions of the Information Technology Act, 2000 as of the Effective Date.
 

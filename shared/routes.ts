@@ -1321,6 +1321,11 @@ export const api = {
           404: z.object({ message: z.string() }),
         },
       },
+      // Agent-mediated negotiation message
+      negotiationMessage: {
+        method: 'POST' as const,
+        path: '/api/agents/negotiation/:bookingId/message',
+      },
     },
     sessions: {
       list: {
@@ -1461,6 +1466,28 @@ export const api = {
           path: '/api/admin/agents/prompts/:id/activate',
           responses: { 200: z.any(), 404: z.object({ message: z.string() }) },
         },
+      },
+      // Research configuration
+      researchConfig: {
+        method: 'GET' as const,
+        path: '/api/admin/agents/research/config',
+      },
+      researchConfigUpdate: {
+        method: 'PUT' as const,
+        path: '/api/admin/agents/research/config',
+      },
+      researchCacheClear: {
+        method: 'POST' as const,
+        path: '/api/admin/agents/research/cache/clear',
+      },
+      // Negotiation analytics
+      negotiationAnalytics: {
+        method: 'GET' as const,
+        path: '/api/admin/negotiation/analytics',
+      },
+      negotiationOutcomes: {
+        method: 'GET' as const,
+        path: '/api/admin/negotiation/outcomes',
       },
     },
   },

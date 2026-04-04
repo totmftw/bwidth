@@ -1,9 +1,10 @@
 import { db } from "../db";
-import { bookings, contracts, artists, promoters, auditLogs } from "../../shared/schema";
+import { bookings, contracts, artists, promoters, auditLogs, events } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 import { commissionPolicyService } from "./commissionPolicy.service";
 import { generateContractText, buildTermsFromBooking } from "../contract-utils";
 import { emitDomainEvent } from "./event-bus";
+import { storage } from "../storage";
 
 export class BookingService {
   async expireBookingFlow(bookingId: number, reason: string, userId?: number): Promise<boolean> {
@@ -43,6 +44,29 @@ export class BookingService {
         reason,
         actionUrl: `/bookings?bookingId=${bookingId}`,
       }, userId || null);
+
+      // Record expiry outcome for self-learning
+      try {
+        const [booking] = await db.select().from(bookings).where(eq(bookings.id, bookingId));
+        if (booking) {
+          const artistData = booking.artistId ? await storage.getArtist(booking.artistId) : null;
+          const eventData = booking.eventId ? await storage.getEvent(booking.eventId) : null;
+          await storage.createNegotiationOutcome({
+            bookingId,
+            artistId: booking.artistId,
+            organizerId: eventData?.organizerId ?? null,
+            finalFee: booking.offerAmount ? String(booking.offerAmount) : null,
+            outcome: "expired",
+            genre: (artistData?.metadata as any)?.primaryGenre ?? null,
+            venueTier: eventData?.venue?.capacity
+              ? (eventData.venue.capacity < 200 ? "intimate" : eventData.venue.capacity <= 1000 ? "mid" : "large")
+              : null,
+            venueCapacity: eventData?.venue?.capacity ?? null,
+          });
+        }
+      } catch (outcomeErr) {
+        console.error("Failed to record expiry outcome:", outcomeErr);
+      }
 
       return true;
     } catch (error) {

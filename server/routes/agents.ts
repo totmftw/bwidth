@@ -507,6 +507,64 @@ router.post("/negotiation/:bookingId/stop", async (req, res) => {
   }
 });
 
+// POST /negotiation/:bookingId/message — agent-mediated negotiation message
+// Processes a raw message through the NegotiationAgent and returns the
+// agent's action (relay/filter/suggest) along with the processed content.
+// Unlike the conversation message endpoint, this does NOT insert into the
+// messages table — it only runs the agent pipeline and returns the result.
+router.post("/negotiation/:bookingId/message", async (req, res) => {
+  if (!req.isAuthenticated()) return res.sendStatus(401);
+  const user = req.user as any;
+  const bookingId = parseInt(req.params.bookingId);
+  const { message } = req.body;
+
+  if (!message || typeof message !== "string") {
+    return res.status(400).json({ message: "Message text is required" });
+  }
+
+  try {
+    // Validate booking exists and user is a participant
+    const booking = await storage.getBooking(bookingId);
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+    if (!(await isBookingParticipant(booking, user.id, user.role))) {
+      return res.status(403).json({ message: "Not a participant in this booking" });
+    }
+
+    // Find active agent session for this user + booking
+    const activeSession = await storage.getActiveAgentSession(user.id, "negotiation", bookingId);
+    if (!activeSession) {
+      return res.status(400).json({ message: "No active agent session for this booking. Start the agent first." });
+    }
+
+    // Determine sender role from booking participant data
+    const bookingDetails = await storage.getBookingWithDetails(bookingId);
+    const senderRole = bookingDetails?.artist?.userId === user.id ? "artist" : "organizer";
+
+    // Process through negotiation agent
+    const { NegotiationAgent } = await import("../services/agents/negotiation.agent");
+    const agent = new NegotiationAgent();
+    const result = await agent.processMessage({
+      sessionId: activeSession.id,
+      userId: user.id,
+      bookingId,
+      rawMessage: message,
+      senderRole: senderRole as "artist" | "organizer",
+    });
+
+    res.json({
+      action: result.action,
+      processedContent: result.processedContent,
+      originalContent: result.originalContent,
+      filterReason: result.filterReason,
+      suggestions: result.suggestions,
+    });
+  } catch (err: any) {
+    console.error("Agent message processing error:", err);
+    res.status(500).json({ message: err.message || "Failed to process message" });
+  }
+});
+
 // GET /negotiation/:bookingId/status — agent status + pending drafts
 router.get("/negotiation/:bookingId/status", async (req, res) => {
   try {

@@ -773,6 +773,15 @@ export const messages = pgTable("messages", {
   actionKey: text("action_key"),
   round: integer("round"),
   attachments: jsonb("attachments"),
+  // Agent-mediated negotiation fields
+  processedBody: text("processed_body"),
+  agentFilterAction: text("agent_filter_action"),  // "relay" | "filter" | "suggest" | null
+  agentFilterReason: text("agent_filter_reason"),
+  isAgentGenerated: boolean("is_agent_generated").default(false),
+  // Per-message feedback for reinforcement learning
+  feedbackRating: text("feedback_rating"),    // "positive" | "negative" | null
+  feedbackAt: timestamp("feedback_at"),
+  feedbackUserId: integer("feedback_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
   editedAt: timestamp("edited_at"),
 });
@@ -877,6 +886,7 @@ export const agentConfigs = pgTable("agent_configs", {
   maxRequestsPerSession: integer("max_requests_per_session").default(50),
   temperatureDefault: numeric("temperature_default", { precision: 3, scale: 2 }).default("0.70"),
   config: jsonb("config").default({}),
+  researchConfig: jsonb("research_config").default({}),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   updatedBy: integer("updated_by").references(() => users.id),
@@ -977,6 +987,43 @@ export const agentUsageStats = pgTable("agent_usage_stats", {
 }, (table: any) => ({
   uniqueUserAgentDate: uniqueIndex("agent_usage_stats_user_agent_date_idx").on(table.userId, table.agentType, table.date),
 }));
+
+// ============================================================================
+// RESEARCH & SELF-LEARNING
+// ============================================================================
+
+export const researchCache = pgTable("research_cache", {
+  id: serial("id").primaryKey(),
+  entityType: text("entity_type").notNull(),          // "artist" | "organizer" | "venue" | "booking_pair"
+  entityId: integer("entity_id").notNull(),
+  researchType: text("research_type").notNull(),       // "profile_intel" | "fee_suggestion" | "market_rates"
+  data: jsonb("data").notNull(),
+  confidenceScore: numeric("confidence_score", { precision: 5, scale: 2 }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table: any) => ({
+  uniqueEntityResearch: uniqueIndex("research_cache_entity_type_idx").on(table.entityType, table.entityId, table.researchType),
+}));
+
+export const negotiationOutcomes = pgTable("negotiation_outcomes", {
+  id: serial("id").primaryKey(),
+  bookingId: integer("booking_id").references(() => bookings.id).notNull(),
+  artistId: integer("artist_id").references(() => artists.id),
+  organizerId: integer("organizer_id"),
+  suggestedFee: numeric("suggested_fee", { precision: 12, scale: 2 }),
+  finalFee: numeric("final_fee", { precision: 12, scale: 2 }),
+  feeAccuracyDelta: numeric("fee_accuracy_delta", { precision: 12, scale: 2 }),
+  roundsToAgreement: integer("rounds_to_agreement"),
+  outcome: text("outcome").notNull(),                   // "signed" | "rejected" | "expired" | "walked_away"
+  genre: text("genre"),
+  venueTier: text("venue_tier"),
+  venueCapacity: integer("venue_capacity"),
+  agentSessionId: integer("agent_session_id").references(() => agentSessions.id),
+  satisfactionRating: integer("satisfaction_rating"),    // 1-5
+  durationMinutes: integer("duration_minutes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
 
 // ============================================================================
 // RELATIONS
@@ -1096,6 +1143,12 @@ export const promptVersionsRelations = relations(promptVersions, ({ one }: any) 
   creator: one(users, { fields: [promptVersions.createdBy], references: [users.id] }),
 }));
 
+export const negotiationOutcomesRelations = relations(negotiationOutcomes, ({ one }: any) => ({
+  booking: one(bookings, { fields: [negotiationOutcomes.bookingId], references: [bookings.id] }),
+  artist: one(artists, { fields: [negotiationOutcomes.artistId], references: [artists.id] }),
+  agentSession: one(agentSessions, { fields: [negotiationOutcomes.agentSessionId], references: [agentSessions.id] }),
+}));
+
 // ============================================================================
 // TYPE EXPORTS
 // ============================================================================
@@ -1168,6 +1221,10 @@ export type PromptVersion = typeof promptVersions.$inferSelect;
 export type InsertPromptVersion = typeof promptVersions.$inferInsert;
 export type AgentUsageStat = typeof agentUsageStats.$inferSelect;
 export type InsertAgentUsageStat = typeof agentUsageStats.$inferInsert;
+export type ResearchCacheEntry = typeof researchCache.$inferSelect;
+export type InsertResearchCacheEntry = typeof researchCache.$inferInsert;
+export type NegotiationOutcome = typeof negotiationOutcomes.$inferSelect;
+export type InsertNegotiationOutcome = typeof negotiationOutcomes.$inferInsert;
 
 // Aliases for compatibility with existing code
 export { promoters as organizers };
@@ -1213,3 +1270,5 @@ export const insertAgentMessageSchema = createInsertSchema(agentMessages);
 export const insertAgentFeedbackSchema = createInsertSchema(agentFeedback);
 export const insertPromptVersionSchema = createInsertSchema(promptVersions);
 export const insertAgentUsageStatSchema = createInsertSchema(agentUsageStats);
+export const insertResearchCacheSchema = createInsertSchema(researchCache);
+export const insertNegotiationOutcomeSchema = createInsertSchema(negotiationOutcomes);

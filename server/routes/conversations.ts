@@ -37,6 +37,7 @@ import {
 import { workflow } from "../services/workflow";
 import { negotiationService } from "../services/negotiation.service";
 import { broadcastToRoom } from "../ws-server";
+import { NegotiationAgent } from "../services/agents/negotiation.agent";
 
 const router = Router();
 
@@ -338,19 +339,25 @@ router.post("/conversations/:id/actions", async (req, res) => {
 /**
  * POST /conversations/:id/messages
  *
- * Sends a free-text message in a conversation. This endpoint is blocked
- * for negotiation-type conversations, which are strictly action-driven
- * (users must use the /actions endpoint instead).
+ * Sends a message in a conversation. For negotiation-type conversations
+ * with an active AI agent session, messages are routed through the
+ * NegotiationAgent's processMessage() for moderation, rephrasing, and
+ * enrichment before being relayed to the other party.
  *
- * For non-negotiation conversations (e.g. general chat, support), the
- * message is inserted and `lastMessageAt` is bumped on the conversation.
+ * Agent-mediated behaviour:
+ *   - "relay"    — broadcast the agent-processed version to the room.
+ *   - "filter"   — store the message but only notify the sender (not relayed).
+ *   - "suggest"  — relay processed message AND insert a separate agent suggestion.
+ *   - "acknowledge" / no agent — fall through to direct relay.
+ *
+ * For non-negotiation conversations or when no active agent session exists,
+ * the message is inserted and broadcast directly (original behaviour).
  *
  * @param id - Conversation ID (integer path param).
  * @body  { body: string, clientMsgId?: string }
  *        - body:        The message text content.
  *        - clientMsgId: Optional client-generated dedup ID.
  * @returns {Message} The newly created message.
- * @throws  400 if the conversation is a negotiation (free text not allowed).
  */
 router.post("/conversations/:id/messages", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
@@ -359,13 +366,52 @@ router.post("/conversations/:id/messages", async (req, res) => {
     const { body, clientMsgId } = req.body;
 
     try {
-        // Insert the text message
+        // Check if this is a negotiation conversation with an active agent
+        const convo = await db.query.conversations.findFirst({
+            where: eq(conversations.id, conversationId),
+        });
+
+        let processedBody: string | null = null;
+        let agentFilterAction: string | null = null;
+        let agentFilterReason: string | null = null;
+
+        if (convo?.conversationType === "negotiation" && convo.entityType === "booking" && convo.entityId) {
+            const activeSession = await storage.getActiveAgentSession(user.id, "negotiation", convo.entityId);
+            if (activeSession) {
+                try {
+                    // Determine sender role from booking participant data
+                    const bookingDetails = await storage.getBookingWithDetails(convo.entityId);
+                    const senderRole = bookingDetails?.artist?.userId === user.id ? "artist" : "organizer";
+
+                    const agent = new NegotiationAgent();
+                    const result = await agent.processMessage({
+                        sessionId: activeSession.id,
+                        userId: user.id,
+                        bookingId: convo.entityId,
+                        rawMessage: body,
+                        senderRole: senderRole as "artist" | "organizer",
+                    });
+
+                    processedBody = result.processedContent;
+                    agentFilterAction = result.action;
+                    agentFilterReason = result.filterReason || null;
+                } catch (agentErr) {
+                    console.error("Agent message processing failed, falling through:", agentErr);
+                    // Fall through to direct relay on agent failure
+                }
+            }
+        }
+
+        // Insert the message with both raw and agent-processed content
         const [msg] = await db.insert(messages).values({
             conversationId,
             senderId: user.id,
             body,
-            messageType: 'text',
-            clientMsgId
+            processedBody,
+            agentFilterAction,
+            agentFilterReason,
+            messageType: agentFilterAction ? "agent_relay" : "text",
+            clientMsgId,
         }).returning();
 
         // Bump the conversation's lastMessageAt for sort ordering
@@ -373,13 +419,106 @@ router.post("/conversations/:id/messages", async (req, res) => {
             .set({ lastMessageAt: new Date() })
             .where(eq(conversations.id, conversationId));
 
-        // Broadcast to all WebSocket clients subscribed to this conversation
-        broadcastToRoom(conversationId, { type: 'message', data: msg });
+        if (agentFilterAction === "filter") {
+            // Don't broadcast filtered messages to room, only notify sender
+            broadcastToRoom(conversationId, {
+                type: "message_filtered",
+                data: { messageId: msg.id, reason: agentFilterReason },
+                targetUserId: user.id,
+            });
+        } else if (agentFilterAction === "respond") {
+            // Agent responds directly to user — don't relay to other party
+            // Show user's original message to themselves only
+            broadcastToRoom(conversationId, {
+                type: "message",
+                data: msg,
+                targetUserId: user.id,
+            });
+            // Insert agent's response as a separate message visible only to the asking user
+            if (processedBody) {
+                const [agentReply] = await db.insert(messages).values({
+                    conversationId,
+                    senderId: null,
+                    body: processedBody,
+                    processedBody,
+                    messageType: "agent_response",
+                    isAgentGenerated: true,
+                    agentFilterAction: "respond",
+                }).returning();
+                broadcastToRoom(conversationId, { type: "agent_message", data: agentReply });
+            }
+        } else {
+            // Broadcast the message (use processedBody if available)
+            const broadcastMsg = processedBody ? { ...msg, displayBody: processedBody } : msg;
+            broadcastToRoom(conversationId, { type: "message", data: broadcastMsg });
+        }
+
+        // If agent action is "suggest", insert a separate agent-generated suggestion message
+        if (agentFilterAction === "suggest" && processedBody) {
+            const [agentMsg] = await db.insert(messages).values({
+                conversationId,
+                senderId: null,
+                body: "AI Suggestion based on market data",
+                processedBody,
+                messageType: "agent_suggestion",
+                isAgentGenerated: true,
+            }).returning();
+            broadcastToRoom(conversationId, { type: "agent_message", data: agentMsg });
+        }
 
         res.json(msg);
     } catch (error) {
         console.error("Message error:", error);
         res.status(500).json({ message: "Failed to send message" });
+    }
+});
+
+/**
+ * PUT /conversations/:id/messages/:messageId/feedback
+ *
+ * Per-message thumbs up/down feedback for reinforcement learning.
+ * Only works on agent-generated or agent-relayed messages.
+ */
+router.put("/conversations/:id/messages/:messageId/feedback", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const user = req.user as any;
+    const messageId = parseInt(req.params.messageId);
+    const { rating } = req.body;
+
+    if (!rating || !["positive", "negative"].includes(rating)) {
+        return res.status(400).json({ message: "rating must be 'positive' or 'negative'" });
+    }
+
+    try {
+        const msg = await db.query.messages.findFirst({
+            where: eq(messages.id, messageId),
+        });
+
+        if (!msg) return res.status(404).json({ message: "Message not found" });
+
+        // Only allow feedback on agent-processed messages
+        if (!msg.isAgentGenerated && !msg.agentFilterAction) {
+            return res.status(400).json({ message: "Feedback only available on agent-processed messages" });
+        }
+
+        // Prevent double-voting
+        if (msg.feedbackRating) {
+            return res.status(400).json({ message: "Already rated this message" });
+        }
+
+        const [updated] = await db.update(messages)
+            .set({
+                feedbackRating: rating,
+                feedbackAt: new Date(),
+                feedbackUserId: user.id,
+            })
+            .where(eq(messages.id, messageId))
+            .returning();
+
+        res.json({ success: true, rating: updated.feedbackRating });
+    } catch (error) {
+        console.error("Message feedback error:", error);
+        res.status(500).json({ message: "Failed to save feedback" });
     }
 });
 

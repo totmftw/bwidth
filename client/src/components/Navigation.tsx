@@ -91,6 +91,12 @@ export function Sidebar() {
         badge: 0
       },
       {
+        label: "Bookings",
+        href: "/bookings",
+        icon: Calendar,
+        show: true
+      },
+      {
         label: "Find Artists",
         href: "/explore",
         icon: Search,

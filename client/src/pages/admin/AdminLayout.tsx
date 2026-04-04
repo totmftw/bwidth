@@ -21,6 +21,7 @@ import {
   Bot,
   Gauge,
   BarChart3,
+  TrendingUp,
 } from "lucide-react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: "Rate Limits", path: "/admin/agents/rate-limits", icon: Gauge },
       { label: "Prompts", path: "/admin/agents/prompts", icon: FileText },
       { label: "Usage", path: "/admin/agents/usage", icon: BarChart3 },
+      { label: "Analytics", path: "/admin/agents/analytics", icon: TrendingUp },
     ],
   },
   {

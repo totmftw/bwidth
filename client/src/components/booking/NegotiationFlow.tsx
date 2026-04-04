@@ -34,6 +34,7 @@ import {
   CheckCheck,
   X,
   ThumbsUp,
+  ThumbsDown,
   ArrowLeftRight,
   Loader2,
   Info,
@@ -128,6 +129,24 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
     e.preventDefault();
     if (!chatMessage.trim() || sendChatMutation.isPending) return;
     sendChatMutation.mutate(chatMessage.trim());
+  };
+
+  // Per-message feedback (thumbs up/down) for reinforcement learning
+  const rateMessage = async (messageId: number, rating: "positive" | "negative") => {
+    if (!conversationId) return;
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}/messages/${messageId}/feedback`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ rating }),
+      });
+      if (res.ok) {
+        queryClient.invalidateQueries({ queryKey: [`/api/conversations/${conversationId}/messages`] });
+      }
+    } catch {
+      // Non-critical — silent fail
+    }
   };
 
   // Single unified mutation replacing all previous propose/accept/walkaway/rider mutations
@@ -519,23 +538,120 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
                   Chat
                 </h3>
               </div>
-              <div className="h-36 overflow-y-auto px-4 pb-2 space-y-2 shrink-0">
-                {chatMessages.filter((m: any) => m.messageType === "text").map((msg: any) => {
+              <div className="h-48 overflow-y-auto px-4 pb-2 space-y-2 shrink-0">
+                {chatMessages.filter((m: any) => ["text", "agent_relay", "agent_suggestion", "agent_response"].includes(m.messageType)).map((msg: any) => {
                   const isMe = msg.senderId === user?.id;
+                  const isAgent = msg.isAgentGenerated || ["agent_suggestion", "agent_response"].includes(msg.messageType);
+                  const displayText = msg.processedBody || msg.body;
+                  const wasFiltered = msg.agentFilterAction === "filter" && isMe;
+                  const canRate = (isAgent || msg.agentFilterAction) && !msg.feedbackRating;
+                  const hasRated = !!msg.feedbackRating;
+
+                  if (wasFiltered) {
+                    return (
+                      <div key={msg.id} className="flex flex-col items-end">
+                        <div className="max-w-[85%] rounded-lg px-3 py-1.5 text-xs bg-amber-50 border border-amber-200 text-amber-800">
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <Info className="w-3 h-3" />
+                            <span className="font-medium">Blocked by AI moderator</span>
+                          </div>
+                          {msg.agentFilterReason || "This message was blocked as it doesn't relate to the booking."}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (isAgent) {
+                    return (
+                      <div key={msg.id} className="flex flex-col items-start">
+                        <span className="text-[10px] text-muted-foreground mb-0.5 flex items-center gap-1">
+                          <Bot className="w-3 h-3" />
+                          {msg.messageType === "agent_response" ? "AI Assistant (to you)" : "AI Assistant"}
+                          {msg.createdAt && ` · ${format(new Date(msg.createdAt), "h:mm a")}`}
+                        </span>
+                        <div className="max-w-[85%] rounded-lg px-3 py-1.5 text-xs bg-purple-50 border border-purple-200 text-purple-900">
+                          {displayText}
+                        </div>
+                        {/* Per-message feedback buttons */}
+                        <div className="flex items-center gap-1 mt-0.5 ml-1">
+                          {hasRated ? (
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                              {msg.feedbackRating === "positive"
+                                ? <ThumbsUp className="w-2.5 h-2.5 text-green-600" />
+                                : <ThumbsDown className="w-2.5 h-2.5 text-red-500" />}
+                              Rated
+                            </span>
+                          ) : canRate ? (
+                            <>
+                              <button
+                                onClick={() => rateMessage(msg.id, "positive")}
+                                className="p-0.5 rounded hover:bg-green-100 transition-colors"
+                                title="Good response"
+                              >
+                                <ThumbsUp className="w-2.5 h-2.5 text-muted-foreground hover:text-green-600" />
+                              </button>
+                              <button
+                                onClick={() => rateMessage(msg.id, "negative")}
+                                className="p-0.5 rounded hover:bg-red-100 transition-colors"
+                                title="Poor response"
+                              >
+                                <ThumbsDown className="w-2.5 h-2.5 text-muted-foreground hover:text-red-500" />
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div key={msg.id} className={cn("flex flex-col", isMe ? "items-end" : "items-start")}>
                       <span className="text-[10px] text-muted-foreground mb-0.5">
                         {msg.sender?.displayName || msg.sender?.username || "—"}{" "}
-                        {format(new Date(msg.createdAt), "h:mm a")}
+                        {msg.createdAt && format(new Date(msg.createdAt), "h:mm a")}
+                        {msg.agentFilterAction === "relay" && (
+                          <span className="ml-1 text-purple-500" title="Professionally relayed by AI">
+                            <Bot className="w-2.5 h-2.5 inline" />
+                          </span>
+                        )}
                       </span>
                       <div className={cn("max-w-[80%] rounded-lg px-3 py-1.5 text-xs", isMe ? "bg-primary text-primary-foreground" : "bg-muted")}>
-                        {msg.body}
+                        {displayText}
                       </div>
+                      {/* Feedback on agent-relayed messages too */}
+                      {msg.agentFilterAction === "relay" && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          {hasRated ? (
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                              {msg.feedbackRating === "positive"
+                                ? <ThumbsUp className="w-2.5 h-2.5 text-green-600" />
+                                : <ThumbsDown className="w-2.5 h-2.5 text-red-500" />}
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => rateMessage(msg.id, "positive")}
+                                className="p-0.5 rounded hover:bg-green-100 transition-colors"
+                                title="Good relay"
+                              >
+                                <ThumbsUp className="w-2.5 h-2.5 text-muted-foreground hover:text-green-600" />
+                              </button>
+                              <button
+                                onClick={() => rateMessage(msg.id, "negative")}
+                                className="p-0.5 rounded hover:bg-red-100 transition-colors"
+                                title="Poor relay"
+                              >
+                                <ThumbsDown className="w-2.5 h-2.5 text-muted-foreground hover:text-red-500" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
-                {chatMessages.filter((m: any) => m.messageType === "text").length === 0 && (
-                  <p className="text-[11px] text-muted-foreground text-center pt-2">No messages yet</p>
+                {chatMessages.filter((m: any) => ["text", "agent_relay", "agent_suggestion", "agent_response"].includes(m.messageType)).length === 0 && (
+                  <p className="text-[11px] text-muted-foreground text-center pt-2">No messages yet. Ask the agent about fees, timing, or send a message to the other party.</p>
                 )}
                 <div ref={chatEndRef} />
               </div>
@@ -544,7 +660,7 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
                   <Input
                     value={chatMessage}
                     onChange={(e) => setChatMessage(e.target.value)}
-                    placeholder={userRole === "artist" ? "Message the organizer..." : "Message the artist..."}
+                    placeholder="Ask the agent or message the other party..."
                     className="flex-1 h-8 text-xs"
                     disabled={sendChatMutation.isPending}
                   />
@@ -552,6 +668,7 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
                     {sendChatMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
                   </Button>
                 </form>
+                <p className="text-[9px] text-muted-foreground mt-1">Tip: Ask "@agent what's a fair fee?" or message the other party directly</p>
               </div>
               <Separator />
             </>

@@ -427,3 +427,26 @@ export function useAgentFeedback() {
     },
   });
 }
+
+// ============================================================================
+// NEGOTIATION MESSAGING
+// ============================================================================
+
+export function useNegotiationMessage(bookingId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (message: string) => {
+      const res = await fetch(`/api/agents/negotiation/${bookingId}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ message }),
+      });
+      if (!res.ok) throw new Error((await res.json()).message || "Failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/conversations`] });
+    },
+  });
+}

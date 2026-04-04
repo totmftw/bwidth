@@ -1040,4 +1040,132 @@ router.put("/agents/prompts/:id/activate", async (req, res) => {
   }
 });
 
+// ============================================================================
+// RESEARCH CONFIGURATION
+// ============================================================================
+
+router.get("/agents/research/config", async (req, res) => {
+  try {
+    const configs = await storage.listAgentConfigs();
+    const negotiationConfig = configs.find((c: any) => c.agentType === "negotiation");
+    res.json({
+      researchConfig: negotiationConfig?.researchConfig ?? {
+        feeSuggestionEnabled: true,
+        externalResearchEnabled: false,
+        cacheTtlHours: 24,
+        minSampleSize: 10,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.put("/agents/research/config", async (req, res) => {
+  try {
+    const { researchConfig } = req.body;
+    if (!researchConfig) return res.status(400).json({ message: "researchConfig is required" });
+
+    await storage.upsertAgentConfig("negotiation", {
+      displayName: "Negotiation Agent",
+      researchConfig,
+    });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.post("/agents/research/cache/clear", async (req, res) => {
+  try {
+    // Import and use Drizzle directly for bulk delete
+    const { db } = await import("../db");
+    const { researchCache } = await import("@shared/schema");
+    const deleted = await db.delete(researchCache).returning();
+    res.json({ cleared: deleted.length });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ============================================================================
+// NEGOTIATION ANALYTICS
+// ============================================================================
+
+router.get("/negotiation/analytics", async (req, res) => {
+  try {
+    const outcomes = await storage.getNegotiationOutcomes({});
+
+    // Compute aggregate stats
+    const total = outcomes.length;
+    const signed = outcomes.filter(o => o.outcome === "signed").length;
+    const rejected = outcomes.filter(o => o.outcome === "rejected" || o.outcome === "walked_away").length;
+    const expired = outcomes.filter(o => o.outcome === "expired").length;
+
+    // Fee accuracy
+    const withFeeData = outcomes.filter(o => o.feeAccuracyDelta !== null);
+    const avgFeeAccuracy = withFeeData.length > 0
+      ? withFeeData.reduce((sum, o) => sum + Math.abs(Number(o.feeAccuracyDelta)), 0) / withFeeData.length
+      : null;
+
+    // Rounds distribution
+    const roundsDist: Record<number, number> = {};
+    outcomes.filter(o => o.roundsToAgreement !== null).forEach(o => {
+      const r = o.roundsToAgreement!;
+      roundsDist[r] = (roundsDist[r] || 0) + 1;
+    });
+
+    // Avg rounds to agreement (for signed only)
+    const signedWithRounds = outcomes.filter(o => o.outcome === "signed" && o.roundsToAgreement !== null);
+    const avgRounds = signedWithRounds.length > 0
+      ? signedWithRounds.reduce((sum, o) => sum + o.roundsToAgreement!, 0) / signedWithRounds.length
+      : null;
+
+    // Genre breakdown
+    const byGenre: Record<string, { count: number; avgFee: number | null }> = {};
+    outcomes.filter(o => o.genre).forEach(o => {
+      if (!byGenre[o.genre!]) byGenre[o.genre!] = { count: 0, avgFee: null };
+      byGenre[o.genre!].count++;
+      if (o.finalFee) {
+        const prev = byGenre[o.genre!].avgFee || 0;
+        byGenre[o.genre!].avgFee = prev + Number(o.finalFee);
+      }
+    });
+    // Finalize averages
+    Object.keys(byGenre).forEach(g => {
+      if (byGenre[g].avgFee && byGenre[g].count > 0) {
+        byGenre[g].avgFee = Math.round(byGenre[g].avgFee! / byGenre[g].count);
+      }
+    });
+
+    res.json({
+      total,
+      outcomes: { signed, rejected, expired },
+      avgFeeAccuracy: avgFeeAccuracy ? Math.round(avgFeeAccuracy) : null,
+      avgRoundsToAgreement: avgRounds ? Math.round(avgRounds * 10) / 10 : null,
+      roundsDistribution: roundsDist,
+      byGenre,
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.get("/negotiation/outcomes", async (req, res) => {
+  try {
+    const { outcome, artistId, startDate, endDate, limit } = req.query;
+    const outcomes = await storage.getNegotiationOutcomes({
+      outcome: outcome as string | undefined,
+      artistId: artistId ? parseInt(artistId as string) : undefined,
+      startDate: startDate as string | undefined,
+      endDate: endDate as string | undefined,
+      limit: limit ? parseInt(limit as string) : 50,
+    });
+    res.json(outcomes);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 export default router;

@@ -78,6 +78,7 @@ import AdminAgentConfig from "@/pages/admin/AdminAgentConfig";
 import AdminAgentRateLimits from "@/pages/admin/AdminAgentRateLimits";
 import AdminAgentPrompts from "@/pages/admin/AdminAgentPrompts";
 import AdminAgentUsage from "@/pages/admin/AdminAgentUsage";
+import AdminNegotiationAnalytics from "@/pages/admin/AdminNegotiationAnalytics";
 import AgentSettings from "@/pages/settings/AgentSettings";
 import NotificationsPage from "@/pages/Notifications";
 
@@ -407,7 +408,7 @@ function RoleBasedBookings() {
       return <OrganizerBookings />;
     case "venue":
     case "venue_manager":
-      return <VenueApplications />;
+      return <VenueBookings />;
     default:
       return <Bookings />;
   }
@@ -614,6 +615,9 @@ function Router() {
       </Route>
       <Route path="/admin/agents/usage">
         <AdminLayout><AdminAgentUsage /></AdminLayout>
+      </Route>
+      <Route path="/admin/agents/analytics">
+        <AdminLayout><AdminNegotiationAnalytics /></AdminLayout>
       </Route>
 
       <Route component={NotFound} />
