@@ -125,6 +125,7 @@ export class NegotiationService {
     if (!details) throw new Error("Booking not found");
     if (details.artist?.userId === userId) return "artist";
     if (details.organizer?.userId === userId) return "organizer";
+    if (details.venue?.userId === userId) return "organizer";
     throw new Error("User is not a participant in this negotiation");
   }
 
@@ -452,6 +453,7 @@ export class NegotiationService {
           .update(bookings)
           .set({
             status: "contracting" as any,
+            finalAmount: String(currentSnapshot.financial.offerAmount),
             meta: {
               ...meta,
               negotiation: {
@@ -781,6 +783,8 @@ export class NegotiationService {
     let organizerUserId: number | null = null;
     if (booking.organizer?.userId) {
       organizerUserId = booking.organizer.userId;
+    } else if (booking.venue?.userId) {
+      organizerUserId = booking.venue.userId;
     }
 
     if (!organizerUserId) {

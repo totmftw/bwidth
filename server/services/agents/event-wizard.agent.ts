@@ -64,25 +64,7 @@ export class EventWizardAgent extends BaseAgent {
 
   // ── Main execution ──────────────────────────────────────────────────────
 
-  protected async execute(context: AgentContext): Promise<EventWizardOutput> {
-    const input: string =
-      context.params.input?.documentText ?? context.params.input?.text ?? "";
 
-    if (!input.trim()) {
-      throw new Error("No input text provided for the event wizard.");
-    }
-
-    await this.saveUserMessage(context, input);
-
-    const systemPrompt = this.buildSystemPrompt(context);
-    const messages: LlmMessage[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: input },
-    ];
-
-    const response = await this.callLlm(context, messages);
-    return this.parseResponse(response.content);
-  }
 
   // ── System prompt ───────────────────────────────────────────────────────
 

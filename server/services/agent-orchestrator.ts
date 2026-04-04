@@ -22,7 +22,7 @@ class AgentOrchestrator {
   }
 
   listRegistered(): string[] {
-    return [...this.agents.keys()];
+    return Array.from(this.agents.keys());
   }
 
   async startSession(params: AgentRunParams & { agentType: string }): Promise<AgentRunResult> {

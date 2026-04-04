@@ -93,12 +93,34 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
     }, [contract]);
 
     // ─── Determine current step ─────────────────────────────────────────
+    const editPhase = contract?.editPhase || "organizer_review";
+    let currentPhase = "organizer_review";
+    if (contract?.status === "voided") currentPhase = "voided";
+    else if (contract?.status === "signed" || contract?.status === "completed") currentPhase = "complete";
+    else if (contract?.status === "admin_review") currentPhase = "admin_review";
+    else if (contract?.signedByPromoter || contract?.signedByArtist) currentPhase = "signing";
+    else if (editPhase === "ready_to_sign") currentPhase = "signing";
+    else if (editPhase === "artist_review") currentPhase = "artist_review";
+    else currentPhase = "organizer_review";
+
+    const isMyPhase =
+        (role === "promoter" && currentPhase === "organizer_review") ||
+        (role === "artist" && currentPhase === "artist_review") ||
+        currentPhase === "signing" ||
+        currentPhase === "complete" ||
+        currentPhase === "admin_review" ||
+        currentPhase === "voided";
+
     useEffect(() => {
         if (!contract) return;
-
         if (contract.status === "voided") { setActiveStep("voided"); return; }
         if (contract.status === "signed") { setActiveStep("complete"); return; }
         if (contract.status === "admin_review") { setActiveStep("admin_review"); return; }
+
+        if (!isMyPhase && currentPhase === "organizer_review") {
+            setActiveStep("review"); // We'll show a waiting UI below
+            return;
+        }
 
         const myAccepted = role === "artist" ? contract.artistAcceptedAt : contract.promoterAcceptedAt;
         const mySigned = role === "artist" ? contract.signedByArtist : contract.signedByPromoter;
@@ -108,7 +130,7 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
         else if (myAccepted) setActiveStep("sign");
         else if (myReviewDone) setActiveStep("accept");
         else setActiveStep("review");
-    }, [contract, role]);
+    }, [contract, role, isMyPhase, currentPhase]);
 
     // ─── 3. Review (accept-as-is / propose edits) ──────────────────────
     const { mutate: reviewAction, isPending: isReviewing } = useMutation({
@@ -987,7 +1009,14 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                     </div>
                 ) : (
                     <div className="space-y-3">
-                        {/* STEP: REVIEW */}
+                        {!isMyPhase ? (
+                            <div className="flex justify-between items-center text-amber-400 text-sm p-4 bg-amber-500/10 rounded-lg">
+                                <span>Waiting for the other party to complete their current step...</span>
+                                <Button variant="outline" onClick={onClose} className="text-white border-white/20">Close</Button>
+                            </div>
+                        ) : (
+                            <>
+                                {/* STEP: REVIEW */}
                         {activeStep === "review" && !pendingEditRequest && (
                             <div className="flex items-center gap-3">
                                 {!hasReadContract ? (
@@ -1089,6 +1118,8 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
                                 <span className="text-sm text-amber-400">Edit request pending resolution...</span>
                                 <Button variant="ghost" onClick={onClose}>Close</Button>
                             </div>
+                        )}
+                            </>
                         )}
                     </div>
                 )}

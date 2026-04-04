@@ -253,8 +253,8 @@ export default function OrganizerDiscover() {
       })
     : [];
 
-  // Get organizer ID from user metadata
-  const organizerId = user?.metadata ? (user.metadata as any).organizerId : undefined;
+  // Get organizer ID
+  const organizerId = user?.organizer?.id || (user?.metadata as any)?.organizerId;
 
   return (
     <div className="container mx-auto py-6 space-y-6">
