@@ -53,8 +53,6 @@ export default function AuthPage() {
     const roleLabel = roleLabelMap[user.role || ""] || user.role || "User";
     const dashboardPath =
       user.role === "artist" ? "/dashboard" :
-      user.role === "organizer" ? "/organizer/dashboard" :
-      (user.role === "venue_manager" || user.role === "venue") ? "/venue/dashboard" :
       (user.role === "admin" || user.role === "platform_admin") ? "/admin" :
       "/dashboard";
     const initials = (user.name || user.username || "U").charAt(0).toUpperCase();

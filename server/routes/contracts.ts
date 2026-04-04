@@ -9,6 +9,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { generateContractText, buildTermsFromBooking } from "../contract-utils";
 import { bookingService } from "../services/booking.service";
+import { emitDomainEvent } from "../services/event-bus";
 import PDFDocument from "pdfkit";
 
 const router = Router();
@@ -433,9 +434,10 @@ router.get("/bookings/:bookingId/contract", async (req, res) => {
 // ============================================================================
 
 const reviewSchema = z.object({
-    action: z.enum(["ACCEPT_AS_IS", "PROPOSE_EDITS"]),
+    action: z.enum(["ACCEPT_AS_IS", "PROPOSE_EDITS", "WALKAWAY"]),
     changes: z.any().optional(),
     note: z.string().optional(),
+    reason: z.string().optional(),
 });
 
 router.post("/contracts/:id/review", async (req, res) => {
@@ -585,6 +587,44 @@ router.post("/contracts/:id/review", async (req, res) => {
                 message: `Edits applied. Contract updated to version ${newVersionNum}.`,
                 contract: details,
                 editRequest
+            });
+
+        } else if (body.action === "WALKAWAY") {
+            // Void the contract
+            await storage.updateContract(contractId, {
+                status: 'voided',
+                updatedAt: new Date(),
+            });
+
+            // Cancel the booking
+            await storage.updateBooking(contract.bookingId!, {
+                status: 'cancelled' as any,
+                meta: {
+                    cancelReason: body.reason || 'Contract walk-away',
+                    cancelledAt: new Date().toISOString(),
+                    cancelledBy: user.id,
+                }
+            });
+
+            // Post system message
+            const roleLabel = isArtist ? 'Artist' : 'Promoter';
+            const reasonText = body.reason ? ` Reason: "${body.reason}"` : '';
+            await postContractSystemMessage(contract.bookingId!,
+                `🚪 ${roleLabel} has walked away from the contract. The booking is cancelled.${reasonText}`
+            );
+
+            // Audit log
+            await storage.createAuditLog({
+                who: user.id,
+                action: "contract_walkaway",
+                entityType: "contract",
+                entityId: contractId,
+                context: { role, reason: body.reason || 'Contract walk-away', bookingId: contract.bookingId }
+            });
+
+            return res.json({
+                success: true,
+                message: 'Contract voided. Booking cancelled.',
             });
         }
     } catch (error: any) {
@@ -1014,6 +1054,32 @@ router.post("/contracts/:id/sign", async (req, res) => {
         });
 
         const details = await storage.getContractWithDetails(contractId);
+
+        // Emit notifications
+        const signBookingDetails = await storage.getBookingWithDetails(contract.bookingId!);
+        const signEventTitle = signBookingDetails?.event?.title || "Event";
+
+        emitDomainEvent("contract.signed", {
+          bookingId: contract.bookingId,
+          contractId,
+          entityType: "contract",
+          entityId: contractId,
+          eventTitle: signEventTitle,
+          actorName: isArtist ? "Artist" : "Organizer",
+          actionUrl: `/contract/${contractId}`,
+        }, user.id);
+
+        if (fullyExecuted) {
+          emitDomainEvent("contract.fully_signed", {
+            bookingId: contract.bookingId,
+            contractId,
+            entityType: "contract",
+            entityId: contractId,
+            eventTitle: signEventTitle,
+            actionUrl: `/contract/${contractId}`,
+          }, null);
+        }
+
         res.json({
             success: true,
             message: fullyExecuted
@@ -1075,6 +1141,17 @@ export async function checkContractDeadlines() {
                     deadline: contract.deadlineAt?.toISOString()
                 }
             });
+
+            // Notify both parties about voided contract
+            emitDomainEvent("contract.voided", {
+              bookingId: contract.bookingId,
+              contractId: contract.id,
+              entityType: "contract",
+              entityId: contract.id,
+              eventTitle: "Event",
+              reason: "Contract not signed within 48-hour deadline",
+              actionUrl: `/contract/${contract.id}`,
+            }, null);
 
             voided++;
         }

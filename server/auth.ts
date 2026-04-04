@@ -138,23 +138,41 @@ export function setupAuth(app: Express) {
       }
 
       // Handle role-specific data creation (use normalizedRole for all checks)
-      if (normalizedRole === 'artist' && req.body.roleData) {
-        await storage.createArtist({ ...req.body.roleData, userId: user.id });
-      } else if (normalizedRole === 'organizer') {
-        // Always create organizer record, even without roleData
-        const existingOrg = await storage.getOrganizerByUserId(user.id);
-        if (!existingOrg) {
-          await storage.createOrganizer({
-            userId: user.id,
-            name: req.body.name || user.displayName || 'Organizer',
-            ...(req.body.roleData || {}),
-          });
+      try {
+        if (normalizedRole === 'artist') {
+          const existingArtist = await storage.getArtistByUserId(user.id);
+          if (!existingArtist) {
+            console.log(`Creating artist profile for user ${user.id}`);
+            await storage.createArtist({
+              userId: user.id,
+              name: req.body.name || user.displayName || user.username || 'Artist',
+              ...(req.body.roleData || {}),
+            });
+          }
+        } else if (normalizedRole === 'organizer' && req.body.roleData) {
+          const existingOrganizer = await storage.getOrganizerByUserId(user.id);
+          if (!existingOrganizer) {
+            console.log(`Creating organizer profile for user ${user.id}`);
+            await storage.createOrganizer({
+              userId: user.id,
+              name: req.body.name || user.displayName || user.username || 'Organizer',
+              ...(req.body.roleData || {}),
+            });
+          }
+        } else if (normalizedRole === 'venue_manager' && req.body.roleData) {
+          const existingVenue = await storage.getVenueByUserId(user.id);
+          if (!existingVenue) {
+            console.log(`Creating venue profile for user ${user.id}`);
+            await storage.createVenue({
+              ...req.body.roleData,
+              userId: user.id,
+            });
+          }
         }
-      } else if (normalizedRole === 'venue_manager' && req.body.roleData) {
-        await storage.createVenue({ ...req.body.roleData, userId: user.id });
-      }
-
-      // Fetch profiles to include in registration response
+      } catch (profileErr) {
+        console.error("Profile creation failed during registration:", profileErr);
+        // We continue anyway, as the user account is created
+      } // Fetch profiles to include in registration response
       const artist = await storage.getArtistByUserId(user.id);
       const organizer = await storage.getOrganizerByUserId(user.id);
       const venue = await storage.getVenueByUserId(user.id);

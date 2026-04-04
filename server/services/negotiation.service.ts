@@ -9,6 +9,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { storage } from "../storage";
 import { bookingService } from "./booking.service";
 import { contractService } from "./contract.service";
+import { emitDomainEvent } from "./event-bus";
 import {
   type NegotiationSnapshot,
   type NegotiationActionInput,
@@ -372,6 +373,17 @@ export class NegotiationService {
           .where(eq(bookings.id, bookingId));
       });
 
+      // Notify other party about new proposal
+      const editEvent = await storage.getBookingWithDetails(bookingId);
+      emitDomainEvent("negotiation.proposal_received", {
+        bookingId,
+        entityType: "booking",
+        entityId: bookingId,
+        eventTitle: editEvent?.event?.title || "Event",
+        actorName: editEvent?.artist?.name || editEvent?.organizer?.name || "Participant",
+        actionUrl: `/bookings?bookingId=${bookingId}`,
+      }, userId);
+
       return this.getSummary(bookingId);
     }
 
@@ -486,6 +498,30 @@ export class NegotiationService {
         );
       }
 
+      // Notify both parties about acceptance
+      const acceptEvent = await storage.getBookingWithDetails(bookingId);
+      emitDomainEvent("negotiation.accepted", {
+        bookingId,
+        entityType: "booking",
+        entityId: bookingId,
+        eventTitle: acceptEvent?.event?.title || "Event",
+        actorName: acceptEvent?.artist?.name || acceptEvent?.organizer?.name || "Participant",
+        actionUrl: `/bookings?bookingId=${bookingId}`,
+      }, userId);
+
+      // Also emit contract generated if it was created
+      const genContract = await storage.getContractByBookingId(bookingId);
+      if (genContract) {
+        emitDomainEvent("contract.generated", {
+          bookingId,
+          contractId: genContract.id,
+          entityType: "contract",
+          entityId: genContract.id,
+          eventTitle: acceptEvent?.event?.title || "Event",
+          actionUrl: `/contract/${genContract.id}`,
+        }, userId);
+      }
+
       return this.getSummary(bookingId);
     }
 
@@ -555,6 +591,18 @@ export class NegotiationService {
           })
           .where(eq(bookings.id, bookingId));
       });
+
+      // Notify both parties about walkaway
+      const walkEvent = await storage.getBookingWithDetails(bookingId);
+      emitDomainEvent("negotiation.declined", {
+        bookingId,
+        entityType: "booking",
+        entityId: bookingId,
+        eventTitle: walkEvent?.event?.title || "Event",
+        actorName: walkEvent?.artist?.name || walkEvent?.organizer?.name || "Participant",
+        reason: payload.note || "Party walked away",
+        actionUrl: `/bookings?bookingId=${bookingId}`,
+      }, userId);
 
       return this.getSummary(bookingId);
     }

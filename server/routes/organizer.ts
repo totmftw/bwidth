@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { organizerOnboardingSchema, organizerProfileUpdateSchema, createEventSchema, completionConfirmSchema } from "@shared/routes";
 import { storage } from "../storage";
+import { emitDomainEvent } from "../services/event-bus";
 
 const router = Router();
 
@@ -465,6 +466,19 @@ router.post("/organizer/bookings/:id/complete", async (req: Request, res: Respon
     }
 
     const updated = await storage.updateBooking(bookingId, updateData);
+
+    if (bothConfirmed) {
+      const completedDetails = await storage.getBookingWithDetails(bookingId);
+      emitDomainEvent("booking.confirmed", {
+        bookingId,
+        entityType: "booking",
+        entityId: bookingId,
+        eventTitle: completedDetails?.event?.title || "Event",
+        newStatus: "completed",
+        actionUrl: `/bookings?bookingId=${bookingId}`,
+      }, (req.user as any).id);
+    }
+
     return res.json(updated);
   } catch (error) {
     return res.status(500).json({ message: "Failed to confirm completion" });

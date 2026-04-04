@@ -388,13 +388,28 @@ export function NegotiationFlow({ booking, onClose, onStartContract }: Negotiati
                     <div className="font-medium">{displaySnapshot.schedule.stageName}</div>
                   )}
                   <div>
-                    {displaySnapshot.schedule?.startsAt
-                      ? format(new Date(displaySnapshot.schedule.startsAt), "MMM d, h:mm a")
-                      : "TBD"}
-                    {" – "}
-                    {displaySnapshot.schedule?.endsAt
-                      ? format(new Date(displaySnapshot.schedule.endsAt), "h:mm a")
-                      : "TBD"}
+                    {(() => {
+                      const startsAt = displaySnapshot.schedule?.startsAt;
+                      const endsAt = displaySnapshot.schedule?.endsAt;
+                      const stageId = displaySnapshot.schedule?.stageId;
+                      // Fallback: look up stage from eventStages if snapshot times are missing
+                      const fallbackStage = (!startsAt || !endsAt) && stageId
+                        ? (summary.eventStages ?? []).find((s: any) => s.id === stageId)
+                        : null;
+                      const resolvedStart = startsAt || fallbackStage?.startTime;
+                      const resolvedEnd = endsAt || fallbackStage?.endTime;
+                      return (
+                        <>
+                          {resolvedStart
+                            ? format(new Date(resolvedStart), "MMM d, h:mm a")
+                            : "TBD"}
+                          {" – "}
+                          {resolvedEnd
+                            ? format(new Date(resolvedEnd), "h:mm a")
+                            : "TBD"}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -696,7 +711,7 @@ function ProposeForm({ currentSnapshot, eventStages, event, onCancel, onSubmit, 
     if (currentSnapshot?.schedule?.stageId) return String(currentSnapshot.schedule.stageId);
     if (eventStages.length === 1) return String(eventStages[0].id);
     if (eventStages.length === 0 && event) return "__event__";
-    return "";
+    return "__none__";
   })();
 
   const [amount, setAmount] = useState(defaultAmount);
@@ -728,7 +743,7 @@ function ProposeForm({ currentSnapshot, eventStages, event, onCancel, onSubmit, 
         soundCheckAt: null,
       };
     }
-    // No slot selected — preserve existing schedule or null
+    // No slot selected or "__none__" — preserve existing schedule or null
     return currentSnapshot?.schedule ?? null;
   };
 
@@ -773,7 +788,7 @@ function ProposeForm({ currentSnapshot, eventStages, event, onCancel, onSubmit, 
               <SelectValue placeholder="Select a stage / time slot…" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">No preference (TBD)</SelectItem>
+              <SelectItem value="__none__">No preference (TBD)</SelectItem>
               {eventStages.length > 0
                 ? eventStages.map((stage) => (
                     <SelectItem key={stage.id} value={String(stage.id)}>

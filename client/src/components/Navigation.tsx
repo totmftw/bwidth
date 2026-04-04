@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { NotificationBell } from "@/components/NotificationBell";
 
 export function Sidebar() {
   const [location] = useLocation();
@@ -133,11 +134,14 @@ export function Sidebar() {
 
   return (
     <div className="hidden md:flex h-screen w-64 flex-col border-r border-border/50 bg-card/30 backdrop-blur-xl fixed left-0 top-0">
-      <div className="p-6">
-        <h1 className="text-2xl font-bold font-display text-transparent bg-clip-text bg-gradient-to-r from-primary to-purple-400">
-          BANDWIDTH
-        </h1>
-        <p className="text-xs text-muted-foreground mt-1 capitalize">{role} Account</p>
+      <div className="p-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold font-display text-transparent bg-clip-text bg-gradient-to-r from-primary to-purple-400">
+            BANDWIDTH
+          </h1>
+          <p className="text-xs text-muted-foreground mt-1 capitalize">{role} Account</p>
+        </div>
+        <NotificationBell />
       </div>
 
       <nav className="flex-1 px-4 space-y-2">
@@ -199,6 +203,7 @@ export function MobileHeader() {
   return (
     <div className="md:hidden flex items-center justify-between p-4 border-b border-border/50 bg-background/80 backdrop-blur-md sticky top-0 z-50">
       <span className="font-bold font-display text-primary">BANDWIDTH</span>
+      <NotificationBell />
     </div>
   );
 }

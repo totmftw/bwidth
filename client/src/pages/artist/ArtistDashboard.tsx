@@ -1,5 +1,7 @@
 import { useAuth } from "@/hooks/use-auth";
 import { useBookings } from "@/hooks/use-bookings";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +35,39 @@ export default function ArtistDashboard() {
     const { data: bookings, isLoading } = useBookings();
 
     if (!user) return null;
+
+    const { toast } = useToast();
+    const queryClient = useQueryClient();
+
+    const respondToBooking = useMutation({
+        mutationFn: async ({ bookingId, action }: { bookingId: number; action: "accept" | "walkaway" }) => {
+            const res = await fetch(`/api/bookings/${bookingId}/negotiation/action`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ action }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || "Action failed");
+            }
+            return res.json();
+        },
+        onSuccess: (_, { action }) => {
+            toast({
+                title: action === "accept" ? "Booking accepted!" : "Booking declined",
+                description: action === "accept" ? "The organizer has been notified." : "The organizer has been notified.",
+            });
+            queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
+        },
+        onError: (error: Error) => {
+            toast({
+                title: "Action failed",
+                description: error.message || "Please try again.",
+                variant: "destructive",
+            });
+        },
+    });
 
     const artist = user.artist;
 
@@ -308,7 +343,9 @@ export default function ArtistDashboard() {
                                             <div key={booking.id} className="p-3 rounded-lg bg-yellow-500/5 border border-yellow-500/20">
                                                 <div className="flex justify-between items-start mb-2">
                                                     <p className="font-medium text-sm">
-                                                        {booking.organizer?.organizationName || "New Request"}
+                                                        {booking.organizer?.organizationName && booking.organizer.organizationName !== 'Unknown'
+                                                        ? booking.organizer.organizationName
+                                                        : (booking.venue?.name || "New Request")}
                                                     </p>
                                                     <Badge variant="outline" className="bg-yellow-500/10 text-yellow-500 text-xs">
                                                         {booking.status}
@@ -318,11 +355,22 @@ export default function ArtistDashboard() {
                                                     {format(new Date(booking.eventDate), "MMM d, yyyy")} • ₹{Number(booking.offerAmount).toLocaleString('en-IN')}
                                                 </p>
                                                 <div className="flex gap-2">
-                                                    <Button size="sm" variant="outline" className="h-7 text-xs flex-1">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="h-7 text-xs flex-1"
+                                                        disabled={respondToBooking.isPending}
+                                                        onClick={() => respondToBooking.mutate({ bookingId: booking.id, action: "walkaway" })}
+                                                    >
                                                         Decline
                                                     </Button>
-                                                    <Button size="sm" className="h-7 text-xs flex-1 bg-green-600 hover:bg-green-500">
-                                                        Accept
+                                                    <Button
+                                                        size="sm"
+                                                        className="h-7 text-xs flex-1 bg-green-600 hover:bg-green-500"
+                                                        disabled={respondToBooking.isPending}
+                                                        onClick={() => respondToBooking.mutate({ bookingId: booking.id, action: "accept" })}
+                                                    >
+                                                        {respondToBooking.isPending ? "..." : "Accept"}
                                                     </Button>
                                                 </div>
                                             </div>

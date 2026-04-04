@@ -3,6 +3,8 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { appSettings, systemSettings } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
+import { notificationService } from "../services/notification.service";
+import { emitDomainEvent } from "../services/event-bus";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 
@@ -214,6 +216,33 @@ router.delete("/users/:id", async (req, res) => {
 });
 
 // ============================================================================
+// ROLES
+// ============================================================================
+
+// Get role summary with user counts
+router.get("/roles", async (req, res) => {
+  try {
+    const roleSummary = await storage.getRoleSummary();
+    res.json(roleSummary);
+  } catch (error) {
+    console.error("Error fetching role summary:", error);
+    res.status(500).json({ message: "Failed to fetch role summary" });
+  }
+});
+
+// Get users by role
+router.get("/roles/:roleName/users", async (req, res) => {
+  try {
+    const { roleName } = req.params;
+    const users = await storage.getUsersByRole(roleName);
+    res.json(users);
+  } catch (error) {
+    console.error("Error fetching users by role:", error);
+    res.status(500).json({ message: "Failed to fetch users by role" });
+  }
+});
+
+// ============================================================================
 // ARTISTS
 // ============================================================================
 
@@ -322,7 +351,7 @@ router.get("/venues", async (req, res) => {
 router.get("/venues/:id", async (req, res) => {
   try {
     const venueId = parseInt(req.params.id);
-    const venue = await storage.getVenue(venueId);
+    const venue = await storage.getAdminVenueDetail(venueId);
     if (!venue) return res.status(404).json({ message: "Venue not found" });
     res.json(venue);
   } catch (error) {
@@ -566,6 +595,18 @@ router.post("/contracts/:id/review", async (req, res) => {
       context: { status, note },
     });
 
+    // Notify both parties about admin review result
+    if (status === "approved") {
+      emitDomainEvent("contract.admin_approved", {
+        bookingId: updated.bookingId,
+        contractId,
+        entityType: "contract",
+        entityId: contractId,
+        eventTitle: "Event",
+        actionUrl: `/contract/${contractId}`,
+      }, (req.user as any).id);
+    }
+
     res.json(updated);
   } catch (error) {
     console.error("Error reviewing contract:", error);
@@ -703,6 +744,136 @@ router.get("/audit", async (req, res) => {
   } catch (error) {
     console.error("Error fetching audit logs:", error);
     res.status(500).json({ message: "Failed to fetch audit logs" });
+  }
+});
+
+// ============================================================================
+// NOTIFICATION MANAGEMENT
+// ============================================================================
+
+// GET /api/admin/notification-types — list all notification types
+router.get("/notification-types", async (req, res) => {
+  try {
+    const types = await storage.getNotificationTypes();
+    res.json(types);
+  } catch (error) {
+    console.error("Error fetching notification types:", error);
+    res.status(500).json({ message: "Failed to fetch notification types" });
+  }
+});
+
+// POST /api/admin/notification-types — create new notification type
+router.post("/notification-types", async (req, res) => {
+  try {
+    const { key, category, label, description, titleTemplate, bodyTemplate, targetRoles, channels, enabled, priority } = req.body;
+    if (!key || !category || !label || !titleTemplate || !bodyTemplate || !targetRoles) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+    const type = await storage.createNotificationType({
+      key, category, label, description, titleTemplate, bodyTemplate,
+      targetRoles, channels: channels || ["in_app"], enabled: enabled ?? true,
+      priority: priority || "normal",
+    });
+    await notificationService.refreshTypeCache();
+    await storage.createAuditLog({
+      who: (req.user as any).id,
+      action: "notification_type_created",
+      entityType: "notification_type",
+      entityId: type.id,
+      context: { key },
+    });
+    res.status(201).json(type);
+  } catch (error) {
+    console.error("Error creating notification type:", error);
+    res.status(500).json({ message: "Failed to create notification type" });
+  }
+});
+
+// PUT /api/admin/notification-types/:id — update notification type
+router.put("/notification-types/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const type = await storage.updateNotificationType(id, req.body);
+    await notificationService.refreshTypeCache();
+    await storage.createAuditLog({
+      who: (req.user as any).id,
+      action: "notification_type_updated",
+      entityType: "notification_type",
+      entityId: id,
+      context: { changes: req.body },
+    });
+    res.json(type);
+  } catch (error) {
+    console.error("Error updating notification type:", error);
+    res.status(500).json({ message: "Failed to update notification type" });
+  }
+});
+
+// DELETE /api/admin/notification-types/:id — disable notification type
+router.delete("/notification-types/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const type = await storage.updateNotificationType(id, { enabled: false });
+    await notificationService.refreshTypeCache();
+    res.json(type);
+  } catch (error) {
+    console.error("Error disabling notification type:", error);
+    res.status(500).json({ message: "Failed to disable notification type" });
+  }
+});
+
+// GET /api/admin/notification-channels — list all channels
+router.get("/notification-channels", async (req, res) => {
+  try {
+    const channels = await storage.getNotificationChannels();
+    res.json(channels);
+  } catch (error) {
+    console.error("Error fetching notification channels:", error);
+    res.status(500).json({ message: "Failed to fetch notification channels" });
+  }
+});
+
+// PUT /api/admin/notification-channels/:id — update channel config
+router.put("/notification-channels/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const channel = await storage.updateNotificationChannel(id, req.body);
+    await notificationService.refreshChannelCache();
+    await storage.createAuditLog({
+      who: (req.user as any).id,
+      action: "notification_channel_updated",
+      entityType: "notification_channel",
+      entityId: id,
+      context: { changes: req.body },
+    });
+    res.json(channel);
+  } catch (error) {
+    console.error("Error updating notification channel:", error);
+    res.status(500).json({ message: "Failed to update notification channel" });
+  }
+});
+
+// POST /api/admin/notifications/test — send a test notification
+router.post("/notifications/test", async (req, res) => {
+  try {
+    const { userId, title, body } = req.body;
+    if (!userId || !title) return res.status(400).json({ message: "userId and title are required" });
+
+    emitDomainEvent("system.announcement", {
+      entityType: "system",
+      entityId: 0,
+      targetUserId: userId,
+      title: title || "Test Notification",
+      message: body || "This is a test notification from admin.",
+    }, (req.user as any).id);
+
+    res.json({ success: true, message: "Test notification sent" });
+  } catch (error) {
+    console.error("Error sending test notification:", error);
+    res.status(500).json({ message: "Failed to send test notification" });
   }
 });
 

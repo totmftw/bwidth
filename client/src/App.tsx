@@ -54,6 +54,7 @@ import { AdminLayout } from "@/pages/admin/AdminLayout";
 import AdminDashboard from "@/pages/admin/AdminDashboard";
 import AdminUsers from "@/pages/admin/AdminUsers";
 import AdminUserDetail from "@/pages/admin/AdminUserDetail";
+import AdminRoles from "@/pages/admin/AdminRoles";
 import AdminArtists from "@/pages/admin/AdminArtists";
 import AdminArtistEdit from "@/pages/admin/AdminArtistEdit";
 import AdminOrganizers from "@/pages/admin/AdminOrganizers";
@@ -70,6 +71,9 @@ import AdminChats from "@/pages/admin/AdminChats";
 import AdminChatView from "@/pages/admin/AdminChatView";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminAuditLog from "@/pages/admin/AdminAuditLog";
+import AdminNotificationTypes from "@/pages/admin/AdminNotificationTypes";
+import AdminNotificationChannels from "@/pages/admin/AdminNotificationChannels";
+import NotificationsPage from "@/pages/Notifications";
 
 // Hook to check profile completion status
 function useProfileStatus() {
@@ -277,6 +281,50 @@ function PrivateRoute({ component: Component }: { component: React.ComponentType
   );
 }
 
+function VenueRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user, isLoading } = useAuth();
+  const { toast } = useToast();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!isLoading && user) {
+      const role = getUserRole(user);
+      if (role !== "venue_manager" && role !== "venue") {
+        toast({ title: "Access denied", description: "You don't have permission to view this page.", variant: "destructive" });
+        setLocation("/dashboard");
+      }
+    }
+  }, [user, isLoading]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-primary">
+        <Loader2 className="w-10 h-10 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) return <Redirect to="/auth" />;
+
+  const role = getUserRole(user);
+  if (role !== "venue_manager" && role !== "venue") return null;
+
+  return (
+    <div className="flex min-h-screen bg-background text-foreground">
+      <Sidebar />
+      <div className="flex-1 flex flex-col md:pl-64">
+        <MobileHeader />
+        <main className="flex-1 p-6 md:p-8 lg:p-10 overflow-y-auto pb-16 md:pb-0">
+          <div className="max-w-7xl mx-auto w-full">
+            <Component />
+          </div>
+        </main>
+        <MobileBottomNav />
+      </div>
+    </div>
+  );
+}
+
 // Artist Profile Setup Route (no sidebar)
 function ProfileSetupRoute() {
   const { user, isLoading } = useAuth();
@@ -387,6 +435,9 @@ function Router() {
     <Switch>
       <Route path="/" component={Landing} />
       <Route path="/auth" component={AuthPage} />
+      <Route path="/login">
+        <Redirect to="/auth" />
+      </Route>
 
       {/* Profile Setup (no sidebar) */}
       <Route path="/profile/setup">
@@ -398,16 +449,16 @@ function Router() {
         <VenueSetupRoute />
       </Route>
       <Route path="/venue/dashboard">
-        <PrivateRoute component={VenueDashboard} />
+        <VenueRoute component={VenueDashboard} />
       </Route>
       <Route path="/venue/applications">
-        <PrivateRoute component={VenueApplications} />
+        <VenueRoute component={VenueApplications} />
       </Route>
       <Route path="/venue/profile">
-        <PrivateRoute component={VenueProfile} />
+        <VenueRoute component={VenueProfile} />
       </Route>
       <Route path="/venue/events/create">
-        <PrivateRoute component={CreateEvent} />
+        <VenueRoute component={CreateEvent} />
       </Route>
 
       {/* Organizer-specific Routes */}
@@ -455,6 +506,9 @@ function Router() {
       <Route path="/contract/:id">
         <ContractPage />
       </Route>
+      <Route path="/notifications">
+        <PrivateRoute component={NotificationsPage} />
+      </Route>
 
       {/* Admin Login - isolated, no layout */}
       <Route path="/admin" component={AdminLogin} />
@@ -468,6 +522,9 @@ function Router() {
       </Route>
       <Route path="/admin/users/:id">
         <AdminLayout><AdminUserDetail /></AdminLayout>
+      </Route>
+      <Route path="/admin/roles">
+        <AdminLayout><AdminRoles /></AdminLayout>
       </Route>
       <Route path="/admin/artists">
         <AdminLayout><AdminArtists /></AdminLayout>
@@ -505,6 +562,17 @@ function Router() {
       <Route path="/admin/contracts/:id">
         <AdminLayout><AdminContractEdit /></AdminLayout>
       </Route>
+      {/* Redirect legacy admin paths */}
+      <Route path="/admin/negotiations">
+        <Redirect to="/admin/chats" />
+      </Route>
+      <Route path="/admin/notifications">
+        <Redirect to="/admin/notification-types" />
+      </Route>
+      <Route path="/admin/audit-log">
+        <Redirect to="/admin/audit" />
+      </Route>
+
       <Route path="/admin/chats">
         <AdminLayout><AdminChats /></AdminLayout>
       </Route>
@@ -516,6 +584,12 @@ function Router() {
       </Route>
       <Route path="/admin/audit">
         <AdminLayout><AdminAuditLog /></AdminLayout>
+      </Route>
+      <Route path="/admin/notification-types">
+        <AdminLayout><AdminNotificationTypes /></AdminLayout>
+      </Route>
+      <Route path="/admin/notification-channels">
+        <AdminLayout><AdminNotificationChannels /></AdminLayout>
       </Route>
 
       <Route component={NotFound} />

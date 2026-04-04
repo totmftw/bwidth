@@ -14,6 +14,7 @@ import {
   Activity,
   ShieldCheck,
   TrendingUp,
+  Clock,
 } from "lucide-react";
 import {
   Card,
@@ -26,6 +27,32 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+interface AuditLog {
+  id: number;
+  who: number;
+  action: string;
+  entityType: string;
+  entityId: number;
+  createdAt: string;
+}
+
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function actionColor(action: string) {
+  if (action.includes("creat") || action.includes("add")) return "text-emerald-400";
+  if (action.includes("delet") || action.includes("remov") || action.includes("cancel")) return "text-red-400";
+  if (action.includes("login") || action.includes("logout")) return "text-purple-400";
+  return "text-blue-400";
+}
 
 interface PlatformStats {
   totalUsers: number;
@@ -134,6 +161,15 @@ export default function AdminDashboard() {
     queryFn: async () => {
       const res = await fetch("/api/admin/stats", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch platform stats");
+      return res.json();
+    },
+  });
+
+  const { data: recentLogs, isLoading: logsLoading } = useQuery<AuditLog[]>({
+    queryKey: ["/api/admin/audit", "recent"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/audit?limit=6&offset=0", { credentials: "include" });
+      if (!res.ok) return [];
       return res.json();
     },
   });
@@ -322,41 +358,60 @@ export default function AdminDashboard() {
             </Card>
           </motion.div>
 
-          {/* Recent Activity placeholder */}
+          {/* Recent Activity */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.5 }}
           >
             <Card className="glass-card border-white/5">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Activity className="w-5 h-5 text-muted-foreground" />
-                  Recent Activity
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-8">
-                  <div className="w-12 h-12 rounded-full bg-muted/30 flex items-center justify-center mx-auto mb-3">
-                    <Activity className="w-6 h-6 text-muted-foreground/50" />
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Audit log coming soon
-                  </p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">
-                    Full audit trail is tracked server-side
-                  </p>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center justify-between text-base">
+                  <span className="flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-primary" />
+                    Recent Activity
+                  </span>
                   <Link href="/admin/audit">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="mt-3 text-primary hover:text-primary"
-                    >
-                      View Audit Log
-                      <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                    <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:text-primary -mr-1">
+                      View all <ChevronRight className="w-3 h-3 ml-0.5" />
                     </Button>
                   </Link>
-                </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {logsLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3, 4].map((i) => (
+                      <Skeleton key={i} className="h-10 w-full rounded-lg" />
+                    ))}
+                  </div>
+                ) : !recentLogs?.length ? (
+                  <div className="text-center py-6">
+                    <p className="text-sm text-muted-foreground">No activity recorded yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {recentLogs.map((log) => (
+                      <div
+                        key={log.id}
+                        className="flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-white/[0.03] transition-colors"
+                      >
+                        <Clock className="w-3.5 h-3.5 text-muted-foreground/50 mt-0.5 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-xs font-mono truncate ${actionColor(log.action)}`}>
+                            {log.action}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground/60">
+                            {log.entityType} #{log.entityId} · User #{log.who}
+                          </p>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground/50 shrink-0 tabular-nums">
+                          {timeAgo(log.createdAt)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>

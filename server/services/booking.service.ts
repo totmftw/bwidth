@@ -3,6 +3,7 @@ import { bookings, contracts, artists, promoters, auditLogs } from "../../shared
 import { eq } from "drizzle-orm";
 import { commissionPolicyService } from "./commissionPolicy.service";
 import { generateContractText, buildTermsFromBooking } from "../contract-utils";
+import { emitDomainEvent } from "./event-bus";
 
 export class BookingService {
   async expireBookingFlow(bookingId: number, reason: string, userId?: number): Promise<boolean> {
@@ -32,6 +33,17 @@ export class BookingService {
           });
         }
       });
+
+      // Notify both parties about cancellation
+      emitDomainEvent("booking.cancelled", {
+        bookingId,
+        entityType: "booking",
+        entityId: bookingId,
+        eventTitle: "Event",
+        reason,
+        actionUrl: `/bookings?bookingId=${bookingId}`,
+      }, userId || null);
+
       return true;
     } catch (error) {
       console.error("Failed to expire booking flow:", error);

@@ -16,6 +16,8 @@ import {
   LogOut,
   Menu,
   ChevronRight,
+  Bell,
+  Lock,
 } from "lucide-react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -54,6 +56,7 @@ const NAV_SECTIONS: NavSection[] = [
     heading: "PLATFORM DATA",
     items: [
       { label: "Users", path: "/admin/users", icon: Users },
+      { label: "Roles", path: "/admin/roles", icon: Shield },
       { label: "Artists", path: "/admin/artists", icon: Music2 },
       { label: "Organizers", path: "/admin/organizers", icon: Building2 },
       { label: "Venues", path: "/admin/venues", icon: MapPin },
@@ -71,8 +74,9 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: "SYSTEM",
     items: [
+      { label: "Notifications", path: "/admin/notification-types", icon: Bell },
       { label: "Settings", path: "/admin/settings", icon: Settings },
-      { label: "Audit Log", path: "/admin/audit", icon: Shield },
+      { label: "Audit Log", path: "/admin/audit", icon: Lock },
     ],
   },
 ];

@@ -198,10 +198,19 @@ export default function VenueProfile() {
 
     const onSubmit = (data: VenueProfileForm) => {
         updateMutation.mutate({
-            ...data,
+            name: data.name,
+            description: data.description,
+            address: data.address,
+            capacity: data.capacity,
+            capacitySeated: data.capacitySeated,
+            capacityStanding: data.capacityStanding,
             amenities,
             metadata: {
                 ...metadata,
+                website: data.website,
+                instagramHandle: data.instagramHandle,
+                bookingEmail: data.bookingEmail,
+                bookingPhone: data.bookingPhone,
                 equipment,
                 musicPolicy: {
                     ...metadata?.musicPolicy,

@@ -6,6 +6,8 @@ import { insertBookingSchema } from "@shared/schema";
 import { useCreateBooking } from "@/hooks/use-bookings";
 import { useOrganizerEvents } from "@/hooks/use-organizer-events";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -74,9 +76,34 @@ export function BookingModal({
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const { mutate, isPending } = useCreateBooking();
   const isMobile = useIsMobile();
+  const { user } = useAuth();
+  const isPendingVerification = (user as any)?.status === 'pending_verification';
 
-  // Fetch organizer events if logged in as organizer
-  const { data: events, isLoading: isLoadingEvents } = useOrganizerEvents();
+  const isVenueManager = (user as any)?.metadata?.role === 'venue_manager' || (user as any)?.metadata?.role === 'venue';
+
+  // Organizer events
+  const { data: orgEvents, isLoading: isLoadingOrgEvents } = useOrganizerEvents();
+
+  // Venue events (for venue managers)
+  const { data: venueEventsRaw, isLoading: isLoadingVenueEvents } = useQuery({
+    queryKey: ["/api/venues/events/upcoming"],
+    queryFn: async () => {
+      const res = await fetch("/api/venues/events/upcoming", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: isVenueManager,
+  });
+
+  // Normalize venue events to same shape as organizer events
+  const venueEvents = (venueEventsRaw || []).map((e: any) => ({
+    id: e.id,
+    title: e.title,
+    startTime: e.date,
+  }));
+
+  const events = isVenueManager ? venueEvents : (orgEvents || []);
+  const isLoadingEvents = isVenueManager ? isLoadingVenueEvents : isLoadingOrgEvents;
 
   // Support both controlled (via open/onOpenChange) and uncontrolled modes
   const isOpen = controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
@@ -95,6 +122,7 @@ export function BookingModal({
       offerAmount: 0,
       notes: "",
       eventId: undefined,
+      slotTime: "",
     },
   });
 
@@ -203,7 +231,12 @@ export function BookingModal({
       </div>
 
       <div className="flex justify-end pt-4 pb-6 sm:pb-0">
-        <Button type="submit" disabled={isPending} className="w-full bg-primary hover:bg-primary/90 text-white">
+        {isPendingVerification && (
+          <p className="text-xs text-yellow-500 text-center">
+            Your account is pending verification. Offers cannot be sent until approved.
+          </p>
+        )}
+        <Button type="submit" disabled={isPending || isPendingVerification} className="w-full bg-primary hover:bg-primary/90 text-white">
           {isPending ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

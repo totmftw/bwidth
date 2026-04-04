@@ -12,12 +12,14 @@ import conversationsRouter from "./routes/conversations";
 import organizerRouter from "./routes/organizer";
 import venueRouter from "./routes/venue";
 import mediaRouter from "./routes/media";
+import notificationsRouter from "./routes/notifications";
 import { isSameDay } from "date-fns";
 import { artistProfileCompleteSchema, buildArtistMetadata, buildArtistRecord } from "./artist-profile-utils";
 import { venueProfileCompleteSchema, buildVenueMetadata, buildVenueRecord } from "./venue-profile-utils";
 import { db } from "./db";
 import { normalizeApplicationProposalSnapshot } from "@shared/negotiation-application";
 import { negotiationService } from "./services/negotiation.service";
+import { emitDomainEvent } from "./services/event-bus";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -25,6 +27,10 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Setup Auth
   setupAuth(app);
+
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
 
   // Update User Profile (Legal & Financial details)
   app.patch("/api/users/me", async (req, res) => {
@@ -67,13 +73,17 @@ export async function registerRoutes(
   app.use("/api", organizerRouter);
   app.use("/api", venueRouter);
   app.use("/api", mediaRouter);
+  app.use(notificationsRouter);
   app.use("/api/admin", adminRouter); // Admin routes mounted under /api/admin
 
 
   // Artists
   app.get(api.artists.list.path, async (req, res) => {
     try {
-      const artists = await storage.getArtists();
+      const genre = req.query.genre as string;
+      const minFee = req.query.minFee ? Number(req.query.minFee) : undefined;
+      const maxFee = req.query.maxFee ? Number(req.query.maxFee) : undefined;
+      const artists = await storage.getArtists(genre, minFee, maxFee);
       res.json(artists);
     } catch (error) {
       console.error("Error fetching artists:", error);
@@ -292,24 +302,10 @@ export async function registerRoutes(
 
       const profileData = venueProfileCompleteSchema.parse(req.body);
 
-      // Base metadata
-      const baseMetadata = {
-        profileComplete: true,
-        website: profileData.website,
-        instagram: profileData.instagramHandle,
-        bookingEmail: profileData.bookingEmail,
-        bookingPhone: profileData.bookingPhone,
-        updatedAt: new Date().toISOString(),
-      };
-
-      // Merge with extended metadata from 7-step onboarding
-      const extendedMetadata = profileData.metadata || {};
-      const metadata = {
-        ...baseMetadata,
-        ...extendedMetadata,
-      };
-
       let venue = await storage.getVenueByUserId(user.id);
+
+      // Build metadata using utility function
+      const metadata = buildVenueMetadata(profileData, venue?.metadata as any || {});
 
       const venueData = {
         name: profileData.name,
@@ -319,7 +315,7 @@ export async function registerRoutes(
         capacitySeated: profileData.capacitySeated,
         capacityStanding: profileData.capacityStanding,
         amenities: profileData.amenities,
-        metadata: { ...(venue?.metadata as any || {}), ...metadata },
+        metadata,
       };
 
       if (venue) {
@@ -418,7 +414,7 @@ export async function registerRoutes(
         }
       }
 
-      // Always include updated metadata
+      // Always include updated metadata with timestamp
       updateData.metadata = {
         ...updatedMetadata,
         updatedAt: new Date().toISOString(),
@@ -654,6 +650,16 @@ export async function registerRoutes(
         entityId: booking.id,
         context: { artistId, eventId }
       });
+
+      // Notify artist about new offer
+      const evt = eventId ? await storage.getEvent(eventId) : undefined;
+      emitDomainEvent("booking.offer_sent", {
+        bookingId: booking.id,
+        entityType: "booking",
+        entityId: booking.id,
+        eventTitle: evt?.title || "Event",
+        actionUrl: `/bookings?bookingId=${booking.id}`,
+      }, user.id);
 
       res.status(201).json(booking);
     } catch (error) {
@@ -912,6 +918,17 @@ export async function registerRoutes(
 
         return [createdBooking, createdProposal] as const;
       });
+
+      // Notify organizer about new application
+      const appliedEvent = await storage.getEvent(eventId);
+      emitDomainEvent("booking.application_received", {
+        bookingId: booking.id,
+        entityType: "booking",
+        entityId: booking.id,
+        eventTitle: appliedEvent?.title || "Event",
+        artistName: artist?.name || user.displayName || "Artist",
+        actionUrl: `/bookings?bookingId=${booking.id}`,
+      }, user.id);
 
       const proposalResponse = {
         id: proposal.id,

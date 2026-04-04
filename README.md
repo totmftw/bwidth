@@ -147,7 +147,7 @@ Roles: `artist`, `band_manager`, `promoter`, `organizer`, `venue_manager`, `admi
 
 ## 🛣️ API Routes
 
-All API endpoints are prefixed with `/api/v1`:
+All API endpoints are prefixed with `/api` (no version prefix):
 
 ### Authentication
 - `POST /api/auth/register` - Register new user
@@ -168,6 +168,13 @@ All API endpoints are prefixed with `/api/v1`:
 - `GET /api/bookings/:id` - Get booking details
 - `POST /api/negotiations` - Start negotiation
 - `POST /api/contracts/:id/sign` - Sign contract
+
+### Admin
+- `GET /api/admin/dashboard` - Admin overview
+- `GET /api/admin/users` - Manage users and roles
+- `GET /api/admin/roles` - View users by role
+- `GET /api/admin/artists` - Manage artist profiles
+- `GET /api/admin/settings` - Configure platform behavior
 
 See `docs/API_DOCUMENTATION.md` for complete API reference.
 
@@ -296,4 +303,4 @@ MIT License - See LICENSE file for details
 **Built with**: React, Express, PostgreSQL, Drizzle ORM, TypeScript, Tailwind CSS
 
 **Version**: 1.0.0  
-**Last Updated**: February 3, 2026
+**Last Updated**: April 4, 2026

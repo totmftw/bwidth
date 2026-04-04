@@ -1060,6 +1060,44 @@ export const api = {
       },
     },
   },
+  notifications: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/notifications',
+      responses: {
+        200: z.object({
+          notifications: z.array(z.any()),
+          unreadCount: z.number(),
+          total: z.number(),
+        }),
+        401: errorSchemas.unauthorized,
+      },
+    },
+    unreadCount: {
+      method: 'GET' as const,
+      path: '/api/notifications/unread-count',
+      responses: {
+        200: z.object({ count: z.number() }),
+        401: errorSchemas.unauthorized,
+      },
+    },
+    markRead: {
+      method: 'POST' as const,
+      path: '/api/notifications/:id/read',
+      responses: {
+        200: z.object({ success: z.boolean() }),
+        401: errorSchemas.unauthorized,
+      },
+    },
+    markAllRead: {
+      method: 'POST' as const,
+      path: '/api/notifications/read-all',
+      responses: {
+        200: z.object({ success: z.boolean(), count: z.number() }),
+        401: errorSchemas.unauthorized,
+      },
+    },
+  },
 };
 
 export function buildUrl(path: string, params?: Record<string, string | number>): string {

@@ -395,8 +395,13 @@ A **curator-led booking system** that manages who plays where, when, under what 
 ### Active Work / Needs Attention
 - Contract page and routes need redesign to fully match sequential edit workflow
 - Contract status transitions need server-side enforcement
-- Admin review step in contract flow needs completion
 - Payment gateway integration (Razorpay)
+
+### Recently Completed (April 2026)
+- Admin panel now fully functional with role management, trust score overrides, and commission policy controls
+- Admin Roles page allows viewing all users by role and reassigning roles in bulk
+- Trust score and commission policy controls added to admin artist/organizer edit pages
+- Admin Settings now includes commission policy configuration
 
 ---
 

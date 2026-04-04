@@ -88,9 +88,9 @@ export default function AdminVenues() {
     const q = search.toLowerCase();
     return (
       !q ||
-      v.name.toLowerCase().includes(q) ||
-      (v.address.city ?? "").toLowerCase().includes(q) ||
-      (v.address.state ?? "").toLowerCase().includes(q)
+      (v.name ?? "").toLowerCase().includes(q) ||
+      (v.address?.city ?? "").toLowerCase().includes(q) ||
+      (v.address?.state ?? "").toLowerCase().includes(q)
     );
   });
 
@@ -198,14 +198,14 @@ export default function AdminVenues() {
                     >
                       <td className="px-4 py-3.5">
                         <p className="font-medium text-foreground">{venue.name}</p>
-                        {venue.address.street && (
+                        {venue.address?.street && (
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {venue.address.street}
                           </p>
                         )}
                       </td>
                       <td className="px-4 py-3.5 text-muted-foreground">
-                        {[venue.address.city, venue.address.state]
+                        {[venue.address?.city, venue.address?.state]
                           .filter(Boolean)
                           .join(", ") || "—"}
                       </td>

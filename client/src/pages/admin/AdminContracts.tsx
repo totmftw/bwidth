@@ -188,7 +188,7 @@ type TabKey = "pending" | "all";
 
 export default function AdminContracts() {
   const [activeTab, setActiveTab] = useState<TabKey>("pending");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const pendingQuery = useQuery<AdminContract[]>({
     queryKey: ["/api/admin/contracts/pending"],
@@ -203,7 +203,7 @@ export default function AdminContracts() {
   const allQuery = useQuery<AdminContract[]>({
     queryKey: ["/api/admin/contracts", statusFilter],
     queryFn: async () => {
-      const url = statusFilter
+      const url = statusFilter && statusFilter !== "all"
         ? `/api/admin/contracts?status=${statusFilter}`
         : "/api/admin/contracts";
       const res = await fetch(url, { credentials: "include" });
@@ -277,7 +277,7 @@ export default function AdminContracts() {
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent className="bg-card border-white/10">
-                <SelectItem value="">All statuses</SelectItem>
+                <SelectItem value="all">All statuses</SelectItem>
                 {CONTRACT_STATUSES.map((s) => (
                   <SelectItem key={s} value={s} className="capitalize">
                     {s.replace(/_/g, " ")}

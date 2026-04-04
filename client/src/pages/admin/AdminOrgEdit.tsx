@@ -12,6 +12,7 @@ import {
   Phone,
   Mail,
   Globe,
+  Star,
 } from "lucide-react";
 import {
   Card,
@@ -61,6 +62,7 @@ interface FormState {
   contactName: string;
   contactEmail: string;
   contactPhone: string;
+  trustScore: number | "";
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -88,6 +90,22 @@ function StatusBadge({ status }: { status: string }) {
     default:
       return <Badge variant="outline">{status}</Badge>;
   }
+}
+
+function TrustScoreBadge({ score }: { score?: number }) {
+  if (score == null) return <span className="text-muted-foreground text-sm">Not set</span>;
+  const color =
+    score >= 80
+      ? "text-emerald-400"
+      : score >= 60
+      ? "text-yellow-400"
+      : "text-red-400";
+  return (
+    <span className={`font-bold text-lg ${color}`}>
+      {score}
+      <span className="text-muted-foreground text-sm font-normal"> / 100</span>
+    </span>
+  );
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -119,6 +137,7 @@ export default function AdminOrgEdit() {
     contactName: "",
     contactEmail: "",
     contactPhone: "",
+    trustScore: "",
   });
 
   useEffect(() => {
@@ -130,23 +149,26 @@ export default function AdminOrgEdit() {
         contactName: organizer.contactPerson.name ?? "",
         contactEmail: organizer.contactPerson.email ?? "",
         contactPhone: organizer.contactPerson.phone ?? "",
+        trustScore: organizer.metadata.trustScore ?? "",
       });
     }
   }, [organizer]);
 
   const saveMutation = useMutation({
     mutationFn: async (data: FormState) => {
+      const { trustScore, ...rest } = data;
       const payload = {
-        name: data.name,
-        description: data.description,
+        name: rest.name,
+        description: rest.description,
         contactPerson: {
-          name: data.contactName,
-          email: data.contactEmail,
-          phone: data.contactPhone,
+          name: rest.contactName,
+          email: rest.contactEmail,
+          phone: rest.contactPhone,
         },
         metadata: {
           ...(organizer?.metadata ?? {}),
-          website: data.website,
+          website: rest.website,
+          trustScore: trustScore !== "" ? Number(trustScore) : undefined,
         },
       };
       const res = await fetch(`/api/admin/organizers/${orgId}`, {
@@ -326,6 +348,42 @@ export default function AdminOrgEdit() {
                   />
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Trust Score */}
+          <Card className="border-white/5 bg-white/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Star className="w-4 h-4" />
+                Trust Score
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Platform score (0-100): organizer reliability & compliance
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="trustScore">Score (0-100)</Label>
+                <Input
+                  id="trustScore"
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={form.trustScore}
+                  onChange={(e) =>
+                    setField("trustScore", e.target.value ? Number(e.target.value) : "")
+                  }
+                  placeholder="e.g. 75"
+                  className="bg-card/40 border-white/10 focus:border-primary/40"
+                />
+              </div>
+              {form.trustScore !== "" && (
+                <div className="text-sm p-2 bg-white/5 rounded border border-white/5 flex items-center gap-2">
+                  <span className="text-muted-foreground">Current:</span>
+                  <TrustScoreBadge score={Number(form.trustScore)} />
+                </div>
+              )}
             </CardContent>
           </Card>
 

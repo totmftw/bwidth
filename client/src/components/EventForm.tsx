@@ -147,7 +147,7 @@ const formSchema = z.object({
   }).optional().nullable(),
   capacityTotal: z.number().optional().nullable(),
   currency: z.string(),
-  visibility: z.enum(["public", "private"]),
+  visibility: z.enum(["public", "private"]).default("public"),
   stages: z.array(z.any()).optional()
 }).refine(data => {
   if (data.isCustomVenue) {
@@ -197,7 +197,7 @@ export function EventForm({
         temporaryVenue: undefined,
         capacityTotal: undefined,
         currency: "INR",
-        visibility: "private",
+        visibility: "public",
         stages: [],
     };
 
@@ -223,7 +223,7 @@ export function EventForm({
             temporaryVenue: initialData.temporaryVenue || undefined,
             capacityTotal: initialData.capacityTotal || undefined,
             currency: initialData.currency || "INR",
-            visibility: initialData.visibility || "private",
+            visibility: initialData.visibility || "public",
             stages: (initialData.stages || []).map((s: any) => {
                 const sStart = s.startTime ? new Date(s.startTime) : undefined;
                 const sEnd = s.endTime ? new Date(s.endTime) : undefined;
@@ -276,8 +276,38 @@ export function EventForm({
             </CardHeader>
             <CardContent className="p-6">
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-                    {/* Basic Info */}
-                    <div className="space-y-4">
+                    {/* Step 1: Visibility Selection */}
+                    <div className="p-5 rounded-xl border border-primary/20 bg-primary/20 space-y-4 mb-6 shadow-[0_0_20px_rgba(var(--primary),0.1)]">
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-primary/80">Step 1: Visibility</h3>
+                        </div>
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div className="space-y-1">
+                                <Label htmlFor="visibility" className="text-base font-bold text-primary">Target Audience</Label>
+                                <p className="text-sm text-muted-foreground">Who should be able to see and apply for this event?</p>
+                            </div>
+                            <Select
+                                value={form.watch("visibility")}
+                                onValueChange={(value: "public" | "private") => form.setValue("visibility", value)}
+                            >
+                                <SelectTrigger className="bg-background/80 h-12 w-full md:w-[280px] border-primary/20">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="public">Public (Visible in Find Gigs feed)</SelectItem>
+                                    <SelectItem value="private">Private (Invite only / Unpublished)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+
+                    {/* Step 2: Basic Info */}
+                    <div className="space-y-4 pt-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/10 text-white text-xs font-bold border border-white/10">2</span>
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Step 2: Basic Info</h3>
+                        </div>
                         <div className="space-y-2">
                             <Label htmlFor="title" className="text-sm font-semibold">Event Title <span className="text-destructive">*</span></Label>
                             <Input
@@ -356,9 +386,13 @@ export function EventForm({
                         </div>
                     </div>
 
-                    {/* Venue Selection */}
-                    <div className="space-y-4 pt-2 border-t border-white/5">
-                        <Label className="text-base">Location</Label>
+                    {/* Step 3: Venue Selection */}
+                    <div className="space-y-4 pt-4 border-t border-white/10">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/10 text-white text-xs font-bold border border-white/10">3</span>
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Step 3: Location</h3>
+                        </div>
+                        <Label className="text-base font-semibold">Where is the event? <span className="text-destructive">*</span></Label>
                         {!form.watch("isCustomVenue") && (
                             <div className="space-y-2">
                                 {venuesLoading ? (
@@ -469,6 +503,65 @@ export function EventForm({
                         )}
                     </div>
 
+                    {/* Step 4: Stages */}
+                    <div className="space-y-6 pt-4 border-t border-white/10">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+                            <div className="flex items-center gap-2">
+                                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/10 text-white text-xs font-bold border border-white/10">4</span>
+                                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Step 4: Performance Stages</h3>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={addStage}
+                                className="bg-primary/10 border-primary/20 text-primary hover:bg-primary/20"
+                            >
+                                <Plus className="w-4 h-4 mr-2" />
+                                Add Another Stage
+                            </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground -mt-4">Define different performance areas or timeslots for your event.</p>
+
+                        {fields.map((field, index) => (
+                            <div key={field.id} className="flex gap-2 items-end border border-white/10 p-3 rounded-lg bg-black/20">
+                                <div className="flex-1 space-y-1">
+                                    <Label className="text-xs">Stage Name</Label>
+                                    <Input
+                                        {...form.register(`stages.${index}.name`)}
+                                        placeholder="e.g. Main Stage"
+                                        className="bg-background/80"
+                                    />
+                                </div>
+                                <div className="w-32 space-y-1">
+                                    <Label className="text-xs">Start Time</Label>
+                                    <ScrollableTimePicker
+                                        value={form.watch(`stages.${index}.startTimeStr`) || ""}
+                                        onChange={(val) => form.setValue(`stages.${index}.startTimeStr`, val)}
+                                        className="h-10 bg-background/80"
+                                    />
+                                </div>
+                                <div className="w-32 space-y-1">
+                                    <Label className="text-xs">End Time</Label>
+                                    <ScrollableTimePicker
+                                        value={form.watch(`stages.${index}.endTimeStr`) || ""}
+                                        onChange={(val) => form.setValue(`stages.${index}.endTimeStr`, val)}
+                                        className="h-10 bg-background/80"
+                                    />
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-destructive hover:text-destructive shrink-0"
+                                    onClick={() => remove(index)}
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        ))}
+                    </div>
+
                     {/* Capacity and Settings */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-white/5">
                         <div className="space-y-2">
@@ -496,22 +589,6 @@ export function EventForm({
                                     <SelectItem value="USD">USD ($)</SelectItem>
                                     <SelectItem value="EUR">EUR (€)</SelectItem>
                                     <SelectItem value="GBP">GBP (£)</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label htmlFor="visibility">Event Visibility</Label>
-                            <Select
-                                value={form.watch("visibility")}
-                                onValueChange={(value: "public" | "private") => form.setValue("visibility", value)}
-                            >
-                                <SelectTrigger className="bg-background/50 h-11">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="public">Public (Find Gigs feed)</SelectItem>
-                                    <SelectItem value="private">Private (Invite only)</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>

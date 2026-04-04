@@ -322,12 +322,14 @@ export default function AdminEvents() {
                     >
                       <td className="px-4 py-3.5">
                         <p className="font-medium text-foreground">{event.title}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                          {event.slug}
-                        </p>
+                        {event.description && (
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[220px]">
+                            {event.description}
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3.5 text-muted-foreground">
-                        {event.organizer?.name ?? "—"}
+                        {event.organizer?.name ?? (event.organizerId ? <span className="text-xs text-yellow-500/70">ID #{event.organizerId}</span> : "—")}
                       </td>
                       <td className="px-4 py-3.5 text-muted-foreground">
                         {event.venue?.name ?? "—"}

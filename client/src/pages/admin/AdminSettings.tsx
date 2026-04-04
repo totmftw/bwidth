@@ -75,14 +75,19 @@ const NUMERIC_SETTINGS: {
   subKeys?: string[];
   subLabels?: string[];
   isNested?: boolean;
+  description?: string;
 }[] = [
   {
     key: "platform.commission_rate",
     label: "Platform Commission Rate",
     isNested: true,
     subKeys: ["default", "min", "max"],
-    subLabels: ["Default %", "Min %", "Max %"],
+    subLabels: ["Default (decimal)", "Min (decimal)", "Max (decimal)"],
+    description: "Enter as decimal ratio — e.g. 0.05 means 5%. Typical range: 0.02–0.05",
   },
+  { key: "default_commission_pct", label: "Default Commission (decimal)", description: "Enter as decimal, e.g. 0.03 = 3%. Applies to all bookings unless overridden." },
+  { key: "artist_commission_pct", label: "Artist Commission Override (decimal)", description: "Enter as decimal, e.g. 0.03 = 3%. Overrides platform default for artist side." },
+  { key: "organizer_commission_pct", label: "Organizer Commission Override (decimal)", description: "Enter as decimal, e.g. 0.02 = 2%. Overrides platform default for organizer side." },
   { key: "booking.max_negotiation_rounds", label: "Max Negotiation Rounds" },
   { key: "booking.negotiation_response_hours", label: "Negotiation Response Hours" },
   { key: "contract.signing_deadline_hours", label: "Contract Signing Deadline Hours" },
@@ -153,62 +158,27 @@ function ToggleCard({
   );
 }
 
-// ─── Numeric Setting Row ──────────────────────────────────────────────────────
+// ─── Numeric Setting Row (controlled — no own Save button) ───────────────────
 
 function NumericSettingRow({
   config,
-  systemSettings,
-  onSave,
+  scalarVal,
+  nestedVals,
+  onScalarChange,
+  onNestedChange,
 }: {
   config: (typeof NUMERIC_SETTINGS)[0];
-  systemSettings: SystemSetting[];
-  onSave: (key: string, value: any) => Promise<void>;
+  scalarVal: string;
+  nestedVals: Record<string, string>;
+  onScalarChange: (val: string) => void;
+  onNestedChange: (subKey: string, val: string) => void;
 }) {
-  const record = systemSettings.find((s) => s.key === config.key);
-  const [saving, setSaving] = useState(false);
-
-  // For nested (object) values
-  const [nestedVals, setNestedVals] = useState<Record<string, string>>({});
-  // For scalar values
-  const [scalarVal, setScalarVal] = useState("");
-
-  useEffect(() => {
-    if (!record) return;
-    if (config.isNested && typeof record.value === "object" && record.value !== null) {
-      const obj: Record<string, string> = {};
-      (config.subKeys ?? []).forEach((k) => {
-        obj[k] = String(record.value[k] ?? "");
-      });
-      setNestedVals(obj);
-    } else {
-      setScalarVal(String(record.value ?? ""));
-    }
-  }, [record]);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      let val: any;
-      if (config.isNested) {
-        val = {};
-        (config.subKeys ?? []).forEach((k) => {
-          val[k] = Number(nestedVals[k] ?? 0);
-        });
-      } else {
-        val = Number(scalarVal);
-      }
-      await onSave(config.key, val);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <div className="py-4 space-y-3">
       <div>
         <p className="text-sm font-medium">{config.label}</p>
-        {record?.description && (
-          <p className="text-xs text-muted-foreground mt-0.5">{record.description}</p>
+        {config.description && (
+          <p className="text-xs text-muted-foreground mt-0.5">{config.description}</p>
         )}
       </div>
 
@@ -220,9 +190,7 @@ function NumericSettingRow({
               <Input
                 type="number"
                 value={nestedVals[subKey] ?? ""}
-                onChange={(e) =>
-                  setNestedVals((prev) => ({ ...prev, [subKey]: e.target.value }))
-                }
+                onChange={(e) => onNestedChange(subKey, e.target.value)}
                 className="bg-card/40 border-white/10 focus:border-primary/40 h-8 text-sm"
               />
             </div>
@@ -232,21 +200,10 @@ function NumericSettingRow({
         <Input
           type="number"
           value={scalarVal}
-          onChange={(e) => setScalarVal(e.target.value)}
+          onChange={(e) => onScalarChange(e.target.value)}
           className="bg-card/40 border-white/10 focus:border-primary/40 h-8 text-sm max-w-[160px]"
         />
       )}
-
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={handleSave}
-        disabled={saving}
-        className="gap-1.5 border-white/10 hover:border-primary/30 hover:bg-primary/5"
-      >
-        {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-        Save
-      </Button>
     </div>
   );
 }
@@ -256,6 +213,10 @@ function NumericSettingRow({
 export default function AdminSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Local state for all numeric settings (controlled)
+  const [localScalars, setLocalScalars] = useState<Record<string, string>>({});
+  const [localNested, setLocalNested] = useState<Record<string, Record<string, string>>>({});
 
   const appQuery = useQuery<AppSetting[]>({
     queryKey: ["/api/admin/settings"],
@@ -313,13 +274,53 @@ export default function AdminSettings() {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "System setting saved" });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/settings/system"] });
     },
     onError: (err: any) => {
       toast({ variant: "destructive", title: err.message ?? "Failed" });
     },
   });
+
+  // Initialize local values when system settings load
+  useEffect(() => {
+    if (!sysQuery.data) return;
+    const scalars: Record<string, string> = {};
+    const nested: Record<string, Record<string, string>> = {};
+    for (const config of NUMERIC_SETTINGS) {
+      const record = sysQuery.data.find((s) => s.key === config.key);
+      if (!record) continue;
+      if (config.isNested && typeof record.value === "object" && record.value !== null) {
+        nested[config.key] = Object.fromEntries(
+          Object.entries(record.value).map(([k, v]) => [k, String(v)])
+        );
+      } else {
+        scalars[config.key] = String(record.value ?? "");
+      }
+    }
+    setLocalScalars(scalars);
+    setLocalNested(nested);
+  }, [sysQuery.data]);
+
+  const handleSaveAll = async () => {
+    try {
+      for (const config of NUMERIC_SETTINGS) {
+        if (config.isNested) {
+          const val = localNested[config.key];
+          if (val && Object.keys(val).length > 0) {
+            await saveSysMutation.mutateAsync({ key: config.key, value: val });
+          }
+        } else {
+          const val = localScalars[config.key];
+          if (val !== undefined && val !== "") {
+            await saveSysMutation.mutateAsync({ key: config.key, value: Number(val) });
+          }
+        }
+      }
+      toast({ title: "All configuration saved" });
+    } catch {
+      // individual mutation already shows error toast
+    }
+  };
 
   const isLoading = appQuery.isLoading || sysQuery.isLoading;
 
@@ -414,18 +415,42 @@ export default function AdminSettings() {
                     <span className="text-sm">Failed to load system settings.</span>
                   </div>
                 ) : (
-                  <div className="divide-y divide-white/5">
-                    {NUMERIC_SETTINGS.map((config) => (
-                      <NumericSettingRow
-                        key={config.key}
-                        config={config}
-                        systemSettings={sysQuery.data ?? []}
-                        onSave={async (key, value) => {
-                          await saveSysMutation.mutateAsync({ key, value });
-                        }}
-                      />
-                    ))}
-                  </div>
+                  <>
+                    <div className="divide-y divide-white/5">
+                      {NUMERIC_SETTINGS.map((config) => (
+                        <NumericSettingRow
+                          key={config.key}
+                          config={config}
+                          scalarVal={localScalars[config.key] ?? ""}
+                          nestedVals={localNested[config.key] ?? {}}
+                          onScalarChange={(val) =>
+                            setLocalScalars((prev) => ({ ...prev, [config.key]: val }))
+                          }
+                          onNestedChange={(subKey, val) =>
+                            setLocalNested((prev) => ({
+                              ...prev,
+                              [config.key]: { ...(prev[config.key] ?? {}), [subKey]: val },
+                            }))
+                          }
+                        />
+                      ))}
+                    </div>
+                    <div className="pt-4 flex justify-end">
+                      <Button
+                        onClick={handleSaveAll}
+                        disabled={saveSysMutation.isPending}
+                        size="sm"
+                        className="gap-2"
+                      >
+                        {saveSysMutation.isPending ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Save className="w-4 h-4" />
+                        )}
+                        Save Configuration
+                      </Button>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>

@@ -5,9 +5,19 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
     Loader2, FileText, CheckCircle, PenTool, Clock, AlertTriangle,
-    Shield, Edit3, X, ChevronRight, Check, Download,
+    Shield, Edit3, X, ChevronRight, Check, Download, LogOut,
     Calendar as CalendarIcon
 } from "lucide-react";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
@@ -52,6 +62,8 @@ export default function ContractPage() {
     const [editChanges, setEditChanges] = useState<Record<string, any>>({});
     const [signatureText, setSignatureText] = useState(() => user?.name || (user as any)?.displayName || user?.username || "");
     const [hasReadContract, setHasReadContract] = useState(false);
+    const [showWalkAwayDialog, setShowWalkAwayDialog] = useState(false);
+    const [walkAwayReason, setWalkAwayReason] = useState("");
     const contractRef = useRef<HTMLDivElement>(null);
 
     const handleContractScroll = () => {
@@ -108,7 +120,7 @@ export default function ContractPage() {
 
     // ─── 3. Review (accept-as-is / propose edits) ──────────────────────
     const { mutate: reviewAction, isPending: isReviewing } = useMutation({
-        mutationFn: async (data: { action: string; changes?: any; note?: string }) => {
+        mutationFn: async (data: { action: string; changes?: any; note?: string; reason?: string }) => {
             const res = await fetch(`/api/contracts/${contract.id}/review`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -121,12 +133,22 @@ export default function ContractPage() {
             }
             return await res.json();
         },
-        onSuccess: () => {
+        onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: [`contract-${bookingId}`] });
+            queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
             setShowEditForm(false);
             setEditNote("");
             setEditChanges({});
-            toast({ title: "Review submitted" });
+            if (variables.action === "WALKAWAY") {
+                toast({
+                    title: "You have walked away",
+                    description: "The contract has been voided and the booking cancelled.",
+                    variant: "destructive",
+                });
+                setLocation("/dashboard");
+            } else {
+                toast({ title: "Review submitted" });
+            }
         },
         onError: (error: any) => {
             toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -1008,10 +1030,64 @@ export default function ContractPage() {
                                             Propose Edits
                                         </Button>
                                     )}
+                                    <Button
+                                        variant="destructive"
+                                        className="h-12 px-4 shrink-0"
+                                        onClick={() => setShowWalkAwayDialog(true)}
+                                        disabled={isReviewing}
+                                        title="Walk away and void this contract"
+                                    >
+                                        <LogOut className="w-4 h-4 mr-2" />
+                                        Walk Away
+                                    </Button>
                                 </div>
                                 <Button variant="ghost" className="h-12 w-full" onClick={() => setLocation("/dashboard")}>Close</Button>
                             </div>
                         )}
+
+                        {/* Walk Away Confirmation Dialog */}
+                        <AlertDialog open={showWalkAwayDialog} onOpenChange={setShowWalkAwayDialog}>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle className="flex items-center gap-2">
+                                        <LogOut className="w-5 h-5 text-destructive" />
+                                        Walk Away from Contract?
+                                    </AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        Are you sure you want to walk away? This will void the contract and cancel the booking.
+                                        This action cannot be undone.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <div className="px-1 py-2">
+                                    <Label className="text-sm text-muted-foreground mb-2 block">
+                                        Reason (optional)
+                                    </Label>
+                                    <Textarea
+                                        placeholder="Briefly explain why you are walking away..."
+                                        value={walkAwayReason}
+                                        onChange={(e) => setWalkAwayReason(e.target.value)}
+                                        className="min-h-[80px] resize-none"
+                                    />
+                                </div>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel onClick={() => setWalkAwayReason("")}>
+                                        Cancel
+                                    </AlertDialogCancel>
+                                    <AlertDialogAction
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                        onClick={() => {
+                                            reviewAction({ action: "WALKAWAY", reason: walkAwayReason || undefined });
+                                            setShowWalkAwayDialog(false);
+                                            setWalkAwayReason("");
+                                        }}
+                                        disabled={isReviewing}
+                                    >
+                                        {isReviewing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                                        Confirm Walk Away
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
 
                         {/* STEP: ACCEPT (EULA) */}
                         {activeStep === "accept" && (

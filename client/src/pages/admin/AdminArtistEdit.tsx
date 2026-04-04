@@ -50,10 +50,10 @@ interface AdminArtist {
   ratingCount: number;
   artistCategory: string;
   artistCategoryLocked: boolean;
-  categoryNotes: string;
+  artistCategoryNotes: string;
   baseLocation: string;
-  artistCommissionPct: string;
-  organizerCommissionPct: string;
+  commissionOverrideArtistPct: string;
+  commissionOverrideOrganizerPct: string;
   metadata: {
     primaryGenre?: string;
     trustScore?: number;
@@ -79,8 +79,9 @@ interface FormState {
   artistCategory: string;
   artistCategoryLocked: boolean;
   categoryNotes: string;
-  artistCommissionPct: string;
-  organizerCommissionPct: string;
+  commissionOverrideArtistPct: string;
+  commissionOverrideOrganizerPct: string;
+  trustScore: number | "";
 }
 
 // ─── Helper ────────────────────────────────────────────────────────────────────
@@ -153,8 +154,9 @@ export default function AdminArtistEdit() {
     artistCategory: "budding",
     artistCategoryLocked: false,
     categoryNotes: "",
-    artistCommissionPct: "",
-    organizerCommissionPct: "",
+    commissionOverrideArtistPct: "",
+    commissionOverrideOrganizerPct: "",
+    trustScore: "",
   });
 
   useEffect(() => {
@@ -169,20 +171,27 @@ export default function AdminArtistEdit() {
         currency: artist.currency ?? "INR",
         artistCategory: artist.artistCategory ?? "budding",
         artistCategoryLocked: artist.artistCategoryLocked ?? false,
-        categoryNotes: artist.categoryNotes ?? "",
-        artistCommissionPct: artist.artistCommissionPct ?? "",
-        organizerCommissionPct: artist.organizerCommissionPct ?? "",
+        categoryNotes: artist.artistCategoryNotes ?? "",
+        commissionOverrideArtistPct: artist.commissionOverrideArtistPct ?? "",
+        commissionOverrideOrganizerPct: artist.commissionOverrideOrganizerPct ?? "",
+        trustScore: artist.metadata.trustScore ?? "",
       });
     }
   }, [artist]);
 
   const saveMutation = useMutation({
     mutationFn: async (data: Partial<FormState>) => {
+      const { trustScore, categoryNotes, commissionOverrideArtistPct, commissionOverrideOrganizerPct, primaryGenre, ...rest } = data as any;
       const payload = {
-        ...data,
+        ...rest,
+        primaryGenre,
+        artistCategoryNotes: categoryNotes,
+        commissionOverrideArtistPct: commissionOverrideArtistPct !== "" ? commissionOverrideArtistPct : null,
+        commissionOverrideOrganizerPct: commissionOverrideOrganizerPct !== "" ? commissionOverrideOrganizerPct : null,
         metadata: {
           ...(artist?.metadata ?? {}),
-          primaryGenre: data.primaryGenre,
+          primaryGenre,
+          trustScore: trustScore !== "" ? Number(trustScore) : undefined,
         },
       };
       const res = await fetch(`/api/admin/artists/${artistId}`, {
@@ -444,8 +453,8 @@ export default function AdminArtistEdit() {
                     min={0}
                     max={100}
                     step={0.5}
-                    value={form.artistCommissionPct}
-                    onChange={(e) => setField("artistCommissionPct", e.target.value)}
+                    value={form.commissionOverrideArtistPct}
+                    onChange={(e) => setField("commissionOverrideArtistPct", e.target.value)}
                     placeholder="e.g. 3"
                     className="bg-card/40 border-white/10 focus:border-primary/40"
                   />
@@ -458,13 +467,49 @@ export default function AdminArtistEdit() {
                     min={0}
                     max={100}
                     step={0.5}
-                    value={form.organizerCommissionPct}
-                    onChange={(e) => setField("organizerCommissionPct", e.target.value)}
+                    value={form.commissionOverrideOrganizerPct}
+                    onChange={(e) => setField("commissionOverrideOrganizerPct", e.target.value)}
                     placeholder="e.g. 2"
                     className="bg-card/40 border-white/10 focus:border-primary/40"
                   />
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Trust Score */}
+          <Card className="border-white/5 bg-white/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Star className="w-4 h-4" />
+                Trust Score
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Platform score (0-100): artist reliability & compliance
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="trustScore">Score (0-100)</Label>
+                <Input
+                  id="trustScore"
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={form.trustScore}
+                  onChange={(e) =>
+                    setField("trustScore", e.target.value ? Number(e.target.value) : "")
+                  }
+                  placeholder="e.g. 75"
+                  className="bg-card/40 border-white/10 focus:border-primary/40"
+                />
+              </div>
+              {form.trustScore !== "" && (
+                <div className="text-sm p-2 bg-white/5 rounded border border-white/5 flex items-center gap-2">
+                  <span className="text-muted-foreground">Current:</span>
+                  <TrustScoreBadge score={Number(form.trustScore)} />
+                </div>
+              )}
             </CardContent>
           </Card>
 

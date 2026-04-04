@@ -4,7 +4,7 @@ import * as z from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, Loader2, ArrowLeft, X, ImageIcon } from "lucide-react";
+import { Calendar as CalendarIcon, Loader2, ArrowLeft, X, ImageIcon, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     Form,
@@ -40,7 +40,7 @@ const formSchema = z.object({
     startTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Must be a valid time (HH:MM)"),
     endTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Must be a valid time (HH:MM)").optional().or(z.literal("")),
     capacity: z.coerce.number().min(1, "Capacity must be at least 1").optional(),
-    visibility: z.enum(['public', 'private']).default('private'),
+    visibility: z.enum(['public', 'private']).default('public'),
     stages: z.array(z.object({
         name: z.string().min(1, "Name is required"),
         startTime: z.string().optional(),
@@ -60,7 +60,7 @@ export default function CreateEvent() {
             description: "",
             startTime: "20:00",
             capacity: 100,
-            visibility: 'private',
+            visibility: 'public',
             stages: [],
         },
     });
@@ -141,6 +141,7 @@ export default function CreateEvent() {
                 description: "Your event has been successfully created and published.",
             });
             queryClient.invalidateQueries({ queryKey: ["/api/venues/events/upcoming"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/venues/dashboard"] });
             setLocation("/venue/dashboard");
         },
         onError: (error) => {
@@ -180,6 +181,35 @@ export default function CreateEvent() {
                         <CardContent>
                             <Form {...form}>
                                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                                     <div className="flex items-center gap-2 mb-2">
+                                         <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
+                                         <h3 className="text-sm font-bold uppercase tracking-wider text-primary/80">Step 1: Visibility</h3>
+                                     </div>
+                                     <FormField
+                                         control={form.control}
+                                         name="visibility"
+                                         render={({ field }) => (
+                                             <FormItem className="flex flex-row items-center justify-between rounded-lg border border-primary/20 bg-primary/5 p-4 mb-4">
+                                                 <div className="space-y-0.5">
+                                                     <FormLabel className="text-base font-bold text-primary">Public Event</FormLabel>
+                                                     <FormDescription>
+                                                         Make this event visible to all artists on the platform.
+                                                     </FormDescription>
+                                                 </div>
+                                                 <FormControl>
+                                                     <Switch
+                                                         checked={field.value === 'public'}
+                                                         onCheckedChange={(checked) => field.onChange(checked ? 'public' : 'private')}
+                                                     />
+                                                 </FormControl>
+                                             </FormItem>
+                                         )}
+                                     />
+
+                                     <div className="flex items-center gap-2 mt-8 mb-2">
+                                         <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/10 text-white text-xs font-bold border border-white/10">2</span>
+                                         <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Step 2: Basic Info</h3>
+                                     </div>
                                     <FormField
                                         control={form.control}
                                         name="title"
@@ -215,6 +245,10 @@ export default function CreateEvent() {
                                         )}
                                     />
 
+                                    <div className="flex items-center gap-2 mt-8 mb-2">
+                                        <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/10 text-white text-xs font-bold border border-white/10">3</span>
+                                        <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Step 3: Schedule</h3>
+                                    </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <FormField
                                             control={form.control}
@@ -296,7 +330,11 @@ export default function CreateEvent() {
                                             <FormItem>
                                                 <FormLabel>Capacity</FormLabel>
                                                 <FormControl>
-                                                    <Input type="number" {...field} />
+                                                    <Input
+                                                        type="number"
+                                                        {...field}
+                                                        onFocus={(e) => e.target.select()}
+                                                    />
                                                 </FormControl>
                                                 <FormDescription>
                                                     Maximum attendees for this event.
@@ -306,34 +344,19 @@ export default function CreateEvent() {
                                         )}
                                     />
 
-                                    <FormField
-                                        control={form.control}
-                                        name="visibility"
-                                        render={({ field }) => (
-                                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                                                <div className="space-y-0.5">
-                                                    <FormLabel className="text-base">Public Event</FormLabel>
-                                                    <FormDescription>
-                                                        Make this event visible to all artists on the platform.
-                                                    </FormDescription>
-                                                </div>
-                                                <FormControl>
-                                                    <Switch
-                                                        checked={field.value === 'public'}
-                                                        onCheckedChange={(checked) => field.onChange(checked ? 'public' : 'private')}
-                                                    />
-                                                </FormControl>
-                                            </FormItem>
-                                        )}
-                                    />
 
-                                    <div className="space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <FormLabel className="text-base">Timeslots / Stages</FormLabel>
+
+                                    <div className="space-y-4 pt-4 border-t border-white/10">
+                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/10 text-white text-xs font-bold border border-white/10">4</span>
+                                                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Step 4: Performance Stages</h3>
+                                            </div>
                                             <Button
                                                 type="button"
                                                 variant="outline"
                                                 size="sm"
+                                                className="bg-primary/10 border-primary/20 text-primary hover:bg-primary/20"
                                                 onClick={() => {
                                                     const currentStages = form.getValues("stages") || [];
                                                     form.setValue("stages", [
@@ -342,9 +365,11 @@ export default function CreateEvent() {
                                                     ]);
                                                 }}
                                             >
-                                                Add Slot
+                                                <Plus className="w-4 h-4 mr-2" />
+                                                Add Another Stage
                                             </Button>
                                         </div>
+                                        <p className="text-xs text-muted-foreground -mt-4">Define different performance areas or timeslots for your event.</p>
 
                                         {form.watch("stages")?.map((_, index) => (
                                             <div key={index} className="flex gap-2 items-end border p-3 rounded-md">

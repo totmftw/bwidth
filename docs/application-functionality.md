@@ -37,10 +37,96 @@ Once the contract text is finalized and accepted by both parties, the signing ph
 5. **PDF Generation**: Upon Admin approval, a PDF is generated featuring a distinct "Digitally Signed" watermark beneath the Artist and Organizer information, cementing its legal status.
 
 ## 6. App Admin Control Panel
-The SuperUser (`musicapp`) operates from a dedicated dashboard (`/admin`):
-- **Global Transparency**: The Admin can view the status of all events, negotiations, user profiles, and active contracts.
-- **Intervention**: The Admin has the authority to manually approve, reject, or modify ongoing workflows.
-- **Approval Toggles**: A dedicated control panel allows the Admin to turn mandatory approval steps on or off (e.g., bypassing the Admin Review step for contract signing if desired).
+
+The SuperUser (`musicapp`) operates from a comprehensive admin dashboard (`/admin`) with full platform visibility and control. The panel is organized into four main sections:
+
+### 6.1 Overview
+- **Dashboard**: Platform-wide statistics including total users, active users, pending verifications, entity counts (artists, organizers, venues), event/booking counts, and pending contracts awaiting admin review.
+
+### 6.2 Platform Data Management
+Complete CRUD capabilities for all core entities:
+
+**Users**
+- List all users with search, filtering by status (active, pending verification, suspended, deleted)
+- Create new users with role assignment (artist, band_manager, promoter, organizer, venue_manager, admin, platform_admin, staff)
+- View and edit individual user details
+- Change user roles and status
+- Soft-delete users
+
+**Roles** (NEW)
+- View all 8 platform roles with user count per role
+- Drill down to see all users assigned to a specific role
+- Reassign users to different roles from the roles overview page
+- Real-time updates on role changes across the platform
+
+**Artists**
+- List all artist profiles with performance metrics
+- Edit artist details: name, bio, price range, genre, category, commission rates
+- Override trust score (0-100): affects contract terms and feature access
+
+**Organizers**
+- List all organizer/promoter profiles
+- Edit organization details: name, description, website, contact information
+- Override trust score to reflect organizational reliability
+
+**Venues**
+- List all venue profiles with capacity and location info
+- Edit venue details and specifications
+
+### 6.3 Workflow Management
+Real-time oversight and intervention in booking workflows:
+
+**Events**
+- List all events with status filtering (draft, published, cancelled, completed)
+- Edit event details
+- Delete events (protected if active bookings exist)
+
+**Bookings**
+- List all bookings with status filtering (inquiry, offered, negotiating, contracting, confirmed, paid_deposit, scheduled, completed, cancelled, disputed, refunded)
+- Force-override booking status with mandatory reason tracking (for audit trail)
+- View full booking details and financial breakdown
+
+**Contracts**
+- List all contracts with status filtering (draft, sent, signed_by_promoter, signed_by_artist, admin_review, signed, completed, voided)
+- View contract details and signing history
+- Approve or reject contracts pending admin review
+- Edit contract fields (terms, dates, accommodations)
+
+**Negotiations** (Conversations)
+- View all active negotiations and chat threads
+- Read-only audit access to all messages and proposal history
+- Monitor negotiation progress and deadlines
+
+### 6.4 System Configuration
+
+**Notifications**
+- Create and manage notification type definitions (keys, templates, channels, target roles, priority)
+- Configure notification delivery channels (in_app, email, SMS, push, etc.)
+- Test notifications to specific users
+
+**Settings**
+- **Workflow Toggles**: Enable/disable core features
+  - Require admin contract approval (route contracts through admin review)
+  - Require event approval (new events need admin sign-off)
+  - Enable trust score system (show/hide trust scores across platform)
+  - Maintenance mode (disable platform for non-admin users)
+
+- **Commission Policy** (NEW)
+  - Default commission % (applied to all bookings)
+  - Artist commission override % (role-specific rate)
+  - Organizer commission override % (role-specific rate)
+
+- **Platform Configuration**
+  - Platform commission rate (default, min, max)
+  - Max negotiation rounds
+  - Negotiation response hours
+  - Contract signing deadline hours
+  - Default deposit percentage
+
+**Audit Log**
+- Paginated audit trail of all admin actions and system events
+- Filter by user, date range
+- Full context for every admin action (who, what, when, why)
 
 ## 7. Venue Workflow
 

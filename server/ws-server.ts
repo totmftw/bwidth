@@ -26,7 +26,19 @@ const rooms = new Map<number, Set<WebSocket>>();
 const userConnections = new Map<number, Set<WebSocket>>();
 
 export function initWebSocketServer(httpServer: Server): WebSocketServer {
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  const wss = new WebSocketServer({ noServer: true });
+
+  // Only handle upgrade requests for our /ws path.
+  // Everything else (e.g. Vite HMR at /?token=...) must pass through
+  // untouched so Vite's own upgrade listener can handle it.
+  httpServer.on('upgrade', (req, socket, head) => {
+    const pathname = req.url ? new URL(req.url, 'http://localhost').pathname : '/';
+    if (pathname === '/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    }
+  });
 
   wss.on('connection', (ws) => {
     let subscribedRoomId: number | null = null;

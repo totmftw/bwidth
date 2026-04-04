@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
     Calendar, DollarSign, Users, TrendingUp, Music2,
     CalendarDays, Clock, MapPin, Star, ArrowUpRight,
-    Sparkles, Target, ChevronRight, Bell, CheckCircle2
+    Sparkles, Target, ChevronRight, Bell, CheckCircle2, AlertCircle
 } from "lucide-react";
 import { Link } from "wouter";
 import { format, addDays, isAfter, isBefore } from "date-fns";
@@ -73,7 +73,17 @@ export default function VenueDashboard() {
         enabled: !!user,
     });
 
-    const isLoading = venueLoading || statsLoading || eventsLoading;
+    // Fetch pending applications for preview
+    const { data: allApplications = [], isLoading: applicationsLoading } = useQuery<any[]>({
+        queryKey: ["/api/venue/applications"],
+        enabled: !!user,
+    });
+
+    const pendingApplications = (allApplications || [])
+        .filter(app => ["inquiry", "offered", "negotiating"].includes(app.status || ""))
+        .slice(0, 3);
+
+    const isLoading = venueLoading || statsLoading || eventsLoading || applicationsLoading;
 
     return (
         <div className="space-y-8">
@@ -98,6 +108,20 @@ export default function VenueDashboard() {
                     </Link>
                 </div>
             </div>
+
+            {/* Verification Status Banner */}
+            {(user as any).status === 'pending_verification' && (
+                <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+                    <div>
+                        <p className="font-semibold text-yellow-400">Account Pending Verification</p>
+                        <p className="text-sm text-yellow-300/80 mt-0.5">
+                            Your account is awaiting admin approval. You cannot send booking offers until verified.{" "}
+                            <a href="mailto:support@bandwidth.in" className="underline hover:text-yellow-200">Contact Support</a>
+                        </p>
+                    </div>
+                </div>
+            )}
 
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -245,11 +269,55 @@ export default function VenueDashboard() {
                         </CardContent>
                     </Card>
 
+                    {/* Pending Applications Preview */}
+                    {pendingApplications.length > 0 && (
+                        <Card className="glass-card border-white/5">
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Clock className="w-4 h-4" /> Pending Applications
+                                </CardTitle>
+                                <CardDescription>Quick overview of top {pendingApplications.length} pending</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="space-y-2">
+                                    {pendingApplications.map((app, idx) => (
+                                        <motion.div
+                                            key={app.id}
+                                            initial={{ opacity: 0, x: -10 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            transition={{ delay: idx * 0.05 }}
+                                            className="p-3 rounded-lg bg-background/40 border border-white/5 hover:border-primary/20 transition-colors"
+                                        >
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-medium truncate">
+                                                        {app.artistName || "Unknown Artist"}
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground truncate">
+                                                        {app.eventTitle || "Unknown Event"}
+                                                    </p>
+                                                </div>
+                                                <Badge className="text-xs" variant="secondary">
+                                                    {app.status}
+                                                </Badge>
+                                            </div>
+                                        </motion.div>
+                                    ))}
+                                </div>
+                                <Link href="/venue/applications">
+                                    <Button className="w-full mt-4" size="sm" variant="outline">
+                                        View All <ChevronRight className="ml-1 w-3 h-3" />
+                                    </Button>
+                                </Link>
+                            </CardContent>
+                        </Card>
+                    )}
+
                     {/* Pending Requests */}
                     <Card className="glass-card border-white/5">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
-                                <Bell className="w-4 h-4" /> Pending Requests
+                                <Bell className="w-4 h-4" /> Pending Requests Summary
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
@@ -265,7 +333,7 @@ export default function VenueDashboard() {
                                     </div>
                                     <Link href="/venue/applications">
                                         <Button className="w-full" size="sm">
-                                            Review Requests
+                                            Review All Requests
                                         </Button>
                                     </Link>
                                 </div>
@@ -295,7 +363,7 @@ export default function VenueDashboard() {
                                     Update Availability
                                 </Button>
                             </Link>
-                            <Link href="/venue/applications">
+                            <Link href="/venue/applications?tab=completed">
                                 <Button variant="ghost" className="w-full justify-start">
                                     View Past Performances
                                 </Button>

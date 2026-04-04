@@ -95,7 +95,7 @@ export function buildVenueMetadata(profileData: VenueProfileInput, existingMetad
   const baseMetadata = {
     profileComplete: true,
     website: profileData.website,
-    instagram: profileData.instagramHandle,
+    instagramHandle: profileData.instagramHandle,
     bookingEmail: profileData.bookingEmail,
     bookingPhone: profileData.bookingPhone,
     updatedAt: new Date().toISOString(),

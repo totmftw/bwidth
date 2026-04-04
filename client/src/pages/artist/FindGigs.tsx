@@ -38,9 +38,9 @@ export default function FindGigs() {
     const { data: opportunities, isLoading } = useQuery({
         queryKey: ["/api/opportunities", search],
         queryFn: async () => {
-            // In a real app, we'd pass search params to the API
-            // const params = new URLSearchParams({ genre: search });
-            const res = await fetch("/api/opportunities", { credentials: "include" });
+            const params = new URLSearchParams();
+            if (search) params.append("genre", search);
+            const res = await fetch(`/api/opportunities?${params.toString()}`, { credentials: "include" });
             if (!res.ok) throw new Error("Failed to fetch opportunities");
             return await res.json();
         }
@@ -213,7 +213,7 @@ export default function FindGigs() {
                                     </div>
                                     <div className="flex items-center gap-1.5 text-muted-foreground">
                                         <Music className="w-4 h-4 text-primary/70" />
-                                        <span>By {organizer?.name || "Organizer"}</span>
+                                        <span>By {organizer?.organizationName || organizer?.name || (venue?.name ? venue.name : null) || "Organizer"}</span>
                                     </div>
                                     {(venue?.capacityTotal || venue?.capacity) && (
                                         <div className="flex items-center gap-1.5 text-muted-foreground">

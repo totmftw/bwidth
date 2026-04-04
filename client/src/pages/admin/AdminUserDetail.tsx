@@ -11,6 +11,7 @@ import {
   Save,
   Eye,
   EyeOff,
+  AlertCircle,
 } from "lucide-react";
 import {
   Card,
@@ -362,9 +363,34 @@ function ProfileTab({ user, userId }: { user: UserProfile; userId: number }) {
     );
   }
 
+  const setupPath =
+    role === "artist" ? "/profile/setup" :
+    role === "organizer" || role === "promoter" ? "/organizer/setup" :
+    role === "venue" || role === "venue_manager" ? "/venue/setup" : null;
+
   return (
-    <div className="text-center py-12">
-      <p className="text-muted-foreground text-sm">No profile data found for this user.</p>
+    <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-6 space-y-3">
+      <div className="flex items-start gap-3">
+        <div className="p-2 rounded-lg bg-yellow-500/10 shrink-0">
+          <AlertCircle className="w-4 h-4 text-yellow-400" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-foreground">No profile record found</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            This <span className="font-medium capitalize">{role || "user"}</span> account was created but the role-specific profile record
+            was never initialised. This can happen when a user registers but doesn't complete onboarding.
+          </p>
+        </div>
+      </div>
+      {setupPath && (
+        <div className="pl-11">
+          <p className="text-xs text-muted-foreground">
+            Ask the user to log in and visit{" "}
+            <code className="font-mono text-primary bg-primary/10 px-1 rounded">{setupPath}</code>{" "}
+            to complete their profile, which will create the missing record.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

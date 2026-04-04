@@ -123,10 +123,10 @@ export default function AdminVenueEdit() {
         name: venue.name ?? "",
         description: venue.description ?? "",
         capacity: String(venue.capacity ?? ""),
-        street: venue.address.street ?? "",
-        city: venue.address.city ?? "",
-        state: venue.address.state ?? "",
-        status: venue.user.status ?? "active",
+        street: (venue.address as any)?.street ?? "",
+        city: (venue.address as any)?.city ?? "",
+        state: (venue.address as any)?.state ?? "",
+        status: venue.user?.status ?? "active",
       });
     }
   }, [venue]);
@@ -376,7 +376,7 @@ export default function AdminVenueEdit() {
             <CardContent className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Status</span>
-                <StatusBadge status={venue.user.status} />
+                <StatusBadge status={venue.user?.status ?? "active"} />
               </div>
               <Separator className="bg-white/5" />
               <div className="flex items-center justify-between">

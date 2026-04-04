@@ -159,6 +159,7 @@ export interface IStorage {
   getAdminArtistList(): Promise<any[]>;
   getAdminOrganizerList(): Promise<any[]>;
   getAdminVenueList(): Promise<any[]>;
+  getAdminVenueDetail(id: number): Promise<any | undefined>;
   getAllEvents(filters?: { status?: string }): Promise<any[]>;
   adminUpdateEvent(id: number, data: any): Promise<any>;
   adminDeleteEvent(id: number): Promise<void>;
@@ -196,6 +197,8 @@ export interface IStorage {
 
   // Admin helpers
   getAdminUserIds(): Promise<number[]>;
+  getRoleSummary(): Promise<{ role: string; count: number }[]>;
+  getUsersByRole(role: string): Promise<User[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -242,13 +245,15 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getArtists(): Promise<(Artist & { user: User, [key: string]: any })[]> {
-    const result = await db.select({
+  async getArtists(genre?: string, minFee?: number, maxFee?: number): Promise<(Artist & { user: User, [key: string]: any })[]> {
+    let query = db.select({
       artist: artists,
       user: users
     }).from(artists).innerJoin(users, eq(artists.userId, users.id));
 
-    return result.map(({ artist, user }) => {
+    const result = await query;
+
+    let filtered = result.map(({ artist, user }) => {
       const metadata = artist.metadata as any || {};
       return {
         ...artist,
@@ -265,6 +270,24 @@ export class DatabaseStorage implements IStorage {
         profileComplete: metadata.profileComplete || false,
       };
     });
+
+    if (genre) {
+      const g = genre.toLowerCase();
+      filtered = filtered.filter(a => 
+        a.genre.toLowerCase().includes(g) || 
+        a.secondaryGenres.some((sg: string) => sg.toLowerCase().includes(g))
+      );
+    }
+
+    if (minFee !== undefined) {
+      filtered = filtered.filter(a => a.feeMin >= minFee || a.feeMax >= minFee);
+    }
+
+    if (maxFee !== undefined) {
+      filtered = filtered.filter(a => a.feeMin <= maxFee);
+    }
+
+    return filtered;
   }
 
   async getArtist(id: number): Promise<(Artist & { user: User, [key: string]: any }) | undefined> {
@@ -403,11 +426,13 @@ export class DatabaseStorage implements IStorage {
         slotTime: event?.startTime ? new Date(event.startTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : null,
         notes: event?.description || null,
         artist: artist || null,
-        organizer: organizer || {
-          name: 'Organizer',
+        organizer: organizer || (venue ? {
+          organizationName: venue.name,
+          user: { name: venue.name, displayName: venue.name }
+        } : {
           organizationName: 'Unknown',
-          user: { name: 'Organizer' }
-        },
+          user: { name: 'Unknown', displayName: 'Unknown' }
+        }),
         venue: venue || { name: 'TBD', address: 'Location to be confirmed' },
         event,
       };
@@ -552,7 +577,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getOpportunities(filters?: { genre?: string; minBudget?: number; maxBudget?: number; location?: string }): Promise<any[]> {
-    // Start with base query for published events
+    const now = new Date();
+    // Use a slightly earlier time to capture events that just started
+    const recentPast = new Date(now.getTime() - 12 * 60 * 60 * 1000); 
+
     const results = await db
       .select({
         event: events,
@@ -564,17 +592,17 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(promoters, eq(events.organizerId, promoters.id))
       .where(
         and(
-          or(
+          and(
             eq(events.visibility, 'public'),
             eq(events.status, 'published')
           ),
           or(
             // Event has not yet ended
-            gt(events.endTime, new Date()),
-            // Or if no end time is specified, the event has not yet started
+            gt(events.endTime, now),
+            // Or if no end time is specified, the event started recently or is in the future
             and(
               isNull(events.endTime),
-              gt(events.startTime, new Date())
+              gt(events.startTime, recentPast)
             )
           )
         )
@@ -582,29 +610,17 @@ export class DatabaseStorage implements IStorage {
 
     // Fetch stages, venue photos, and temporaryVenue for all events
     const resultsWithStages = await Promise.all(results.map(async (r) => {
+      // ... same logic
       const stages = await db.select().from(eventStages).where(eq(eventStages.eventId, r.event.id));
       
-      // Fetch venue photos from media table if a venue is linked
       let venuePhotos: any[] = [];
       if (r.venue?.id) {
-        venuePhotos = await db
-          .select()
-          .from(media)
-          .where(
-            and(
-              eq(media.entityType, 'venue'),
-              eq(media.entityId, r.venue.id)
-            )
-          );
+        venuePhotos = await db.select().from(media).where(and(eq(media.entityType, 'venue'), eq(media.entityId, r.venue.id)));
       }
 
-      // Fetch temporaryVenue record if no registered venue
       let tempVenue = null;
       if (!r.event.venueId) {
-        const [tv] = await db
-          .select()
-          .from(temporaryVenues)
-          .where(eq(temporaryVenues.eventId, r.event.id));
+        const [tv] = await db.select().from(temporaryVenues).where(eq(temporaryVenues.eventId, r.event.id));
         tempVenue = tv || null;
       }
 
@@ -614,10 +630,30 @@ export class DatabaseStorage implements IStorage {
         temporaryVenue: tempVenue,
         organizer: r.organizer,
         stages: stages || [],
+        event: { ...r.event, stages: stages || [] }, // Nested format for frontend
       };
     }));
 
-    return resultsWithStages;
+    let filtered = resultsWithStages;
+    if (filters?.genre) {
+      const g = filters.genre.toLowerCase();
+      filtered = filtered.filter(f => 
+        f.title.toLowerCase().includes(g) || 
+        (f.description || "").toLowerCase().includes(g) ||
+        JSON.stringify(f.metadata || {}).toLowerCase().includes(g)
+      );
+    }
+
+    if (filters?.location) {
+      const l = filters.location.toLowerCase();
+      filtered = filtered.filter(f => 
+        (f.venue?.name || "").toLowerCase().includes(l) ||
+        (f.temporaryVenue?.name || "").toLowerCase().includes(l) ||
+        (f.temporaryVenue?.location || "").toLowerCase().includes(l)
+      );
+    }
+
+    return filtered;
   }
 
   async getEvent(id: number): Promise<any | undefined> {
@@ -803,7 +839,7 @@ export class DatabaseStorage implements IStorage {
       title: r.event.title,
       artist: r.artist?.name || "TBA",
       date: r.event.startTime,
-      slot: (r.booking?.meta as any)?.slot || "TBA",
+      slot: (r.booking?.meta as any)?.slotTime || (r.booking?.meta as any)?.slot || "TBA",
       status: r.booking?.status === 'confirmed' ? 'confirmed' : 'pending',
     }));
   }
@@ -1324,10 +1360,12 @@ export class DatabaseStorage implements IStorage {
         id: artist.id,
         userId: artist.userId,
         name: artist.name,
-        category: artist.artistCategory,
+        artistCategory: artist.artistCategory,
         priceFrom: artist.priceFrom,
         priceTo: artist.priceTo,
+        currency: artist.currency,
         ratingAvg: artist.ratingAvg,
+        ratingCount: artist.ratingCount,
         createdAt: artist.createdAt,
         metadata: meta,
         user: {
@@ -1380,8 +1418,11 @@ export class DatabaseStorage implements IStorage {
       id: venue.id,
       userId: venue.userId,
       name: venue.name,
+      description: venue.description,
+      address: venue.address,
       capacity: venue.capacity,
       cityId: venue.cityId,
+      ratingAvg: venue.ratingAvg,
       createdAt: venue.createdAt,
       metadata: venue.metadata,
       user: user
@@ -1394,6 +1435,31 @@ export class DatabaseStorage implements IStorage {
           }
         : null,
     }));
+  }
+
+  async getAdminVenueDetail(id: number): Promise<any | undefined> {
+    const [result] = await db.select({
+      venue: venues,
+      user: users,
+    })
+      .from(venues)
+      .leftJoin(users, eq(venues.userId, users.id))
+      .where(eq(venues.id, id));
+
+    if (!result) return undefined;
+
+    const { venue, user } = result;
+    return {
+      ...venue,
+      user: user
+        ? {
+            id: user.id,
+            username: user.username,
+            displayName: user.displayName,
+            status: user.status,
+          }
+        : null,
+    };
   }
 
   async getAllEvents(filters?: { status?: string }): Promise<any[]> {
@@ -1707,6 +1773,26 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(roles, eq(roles.id, userRoles.roleId))
       .where(or(eq(roles.name, "admin"), eq(roles.name, "platform_admin")));
     return adminRoles.map((r) => r.userId);
+  }
+
+  async getRoleSummary(): Promise<{ role: string; count: number }[]> {
+    const result = await db
+      .select({
+        role: sql<string>`coalesce(${users.metadata}->>'role', 'unknown')`,
+        count: sql<number>`cast(count(*) as integer)`,
+      })
+      .from(users)
+      .groupBy(sql`${users.metadata}->>'role'`)
+      .orderBy(sql`${users.metadata}->>'role'`);
+    return result.filter((r) => r.role && r.role !== 'unknown');
+  }
+
+  async getUsersByRole(role: string): Promise<User[]> {
+    return db
+      .select()
+      .from(users)
+      .where(sql`${users.metadata}->>'role' = ${role}`)
+      .orderBy(desc(users.createdAt));
   }
 }
 
