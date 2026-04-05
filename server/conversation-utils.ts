@@ -29,6 +29,10 @@ export interface ParticipantResolutionResult {
   error?: string;
 }
 
+/**
+ * @deprecated — The new NegotiationService stores state in bookings.meta.negotiation,
+ * not in conversation_workflow_instances. Kept for test compatibility only.
+ */
 export interface WorkflowInitState {
   workflowKey: string;
   currentNodeKey: string;

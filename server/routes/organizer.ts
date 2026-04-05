@@ -198,7 +198,7 @@ router.post("/organizer/events", async (req: Request, res: Response) => {
       startTime: new Date(eventData.startTime),
       endTime: eventData.endTime ? new Date(eventData.endTime) : undefined,
       organizerId: organizer.id,
-      status: "draft",
+      status: eventData.visibility === "public" ? "published" : "draft",
       stages: stages?.map((s) => ({
         ...s,
         startTime: s.startTime ? new Date(s.startTime) : undefined,

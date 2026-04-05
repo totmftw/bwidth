@@ -1,8 +1,11 @@
 /**
+ * @deprecated — These utilities served the old WorkflowEngine (server/services/workflow.ts)
+ * which has been replaced by NegotiationService. Kept for test backward compatibility only.
+ *
  * Pure utility functions extracted from the workflow engine
  * for testability. These functions contain no DB or I/O dependencies.
  *
- * Used by: server/services/workflow.ts
+ * Used by: server/services/workflow.ts (DEPRECATED)
  * Tested by: tests/properties/workflow.prop.ts
  */
 

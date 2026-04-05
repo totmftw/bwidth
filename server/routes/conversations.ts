@@ -2,16 +2,17 @@
  * Conversation Routes — server/routes/conversations.ts
  *
  * Manages the lifecycle of entity-bound conversations on the platform.
- * Conversations are always tied to a domain entity (e.g. a booking) and
- * optionally carry a workflow state machine (e.g. negotiation flowchart).
+ * Conversations are always tied to a domain entity (e.g. a booking).
  *
  * Key design decisions:
  *   - Conversations are **idempotent**: opening the same entity+type combo
  *     returns the existing conversation rather than creating a duplicate.
  *   - Participant resolution uses `storage.getBookingWithDetails()` to walk
  *     the full booking → event → organizer/venue chain, avoiding N+1 queries.
- *   - Negotiation conversations are **action-only** — free-text messages are
- *     rejected with 400. All state transitions go through the workflow service.
+ *   - Negotiation state is managed by NegotiationService (bookings.meta.negotiation)
+ *     and the agentic NegotiationAgent — NOT by the old workflow state machine.
+ *   - The /actions endpoint is DEPRECATED and translates old action keys to the
+ *     new NegotiationService. New clients should use POST /api/bookings/:id/negotiation/action.
  *   - Messages are stored newest-first in the DB for efficient cursor-based
  *     pagination, then reversed before returning to give chronological order.
  *
@@ -20,7 +21,7 @@
  *   GET  /api/conversations/:id
  *   GET  /api/conversations/:id/messages
  *   POST /api/entities/:entityType/:entityId/conversation/:conversationType/open
- *   POST /api/conversations/:id/actions
+ *   POST /api/conversations/:id/actions  (DEPRECATED — use booking negotiation action)
  *   POST /api/conversations/:id/messages
  */
 
@@ -32,9 +33,7 @@ import {
     conversations,
     conversationParticipants,
     messages,
-    conversationWorkflowInstances,
 } from "@shared/schema";
-import { workflow } from "../services/workflow";
 import { negotiationService } from "../services/negotiation.service";
 import { broadcastToRoom } from "../ws-server";
 import { NegotiationAgent } from "../services/agents/negotiation.agent";
@@ -87,13 +86,14 @@ router.get("/conversations", async (req, res) => {
 /**
  * GET /conversations/:id
  *
- * Returns a single conversation with its workflow instance and
- * participant list (each participant includes the related user record).
+ * Returns a single conversation with its participant list
+ * (each participant includes the related user record).
+ * Also includes workflowInstance for backward compatibility (may be null).
  *
  * Access control: only participants may view the conversation (403).
  *
  * @param id - Conversation ID (integer path param).
- * @returns {Conversation & { workflowInstance, participants[] }}
+ * @returns {Conversation & { workflowInstance?, participants[] }}
  */
 router.get("/conversations/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
@@ -219,14 +219,11 @@ router.get("/conversations/:id/messages", async (req, res) => {
  * Participant IDs are deduplicated with `new Set()` to prevent constraint
  * violations if the same user appears in multiple roles.
  *
- * ## Workflow Initialization
+ * ## Negotiation State
  *
- * Negotiation conversations get a workflow instance with:
- *   - `currentNodeKey`: "WAITING_FIRST_MOVE" (initial state)
- *   - `round`: 0 (no rounds completed yet)
- *   - `maxRounds`: 3 (platform limit for negotiation rounds)
- *   - `locked`: false
- *   - `awaitingUserId`: the artist's userId (artist acts first)
+ * Negotiation state is managed by NegotiationService in bookings.meta.negotiation.
+ * The old workflow instance (conversation_workflow_instances) is no longer created.
+ * State tracking uses step-based fields: currentStep, stepState, stepHistory.
  *
  * @param entityType       - Domain entity type (e.g. "booking").
  * @param entityId         - ID of the domain entity (integer).
@@ -300,37 +297,73 @@ router.post("/entities/:entityType/:entityId/conversation/:conversationType/open
 /**
  * POST /conversations/:id/actions
  *
- * Workflow action gate — dispatches a named action (e.g. ACCEPT, DECLINE,
- * PROPOSE_CHANGE) to the workflow service for the given conversation.
+ * DEPRECATED — This endpoint used the old conversation-workflow state machine.
+ * The new agentic negotiation system operates via:
+ *   POST /api/bookings/:id/negotiation/action
  *
- * The workflow service (`server/services/workflow.ts`) handles:
- *   - Turn-taking enforcement (is it this user's turn?)
- *   - Round counting and max-round limits
- *   - State transitions and booking status updates
- *   - Persisting an action message in the conversation
+ * For backward compatibility, this route translates old action keys
+ * (PROPOSE_COST, ACCEPT, WALK_AWAY) into the new negotiation service
+ * calls. New clients should use the booking-based endpoint directly.
  *
- * @param id - Conversation ID (integer path param).
- * @body  { clientMsgId?: string, actionKey: string, inputs?: object }
- *        - clientMsgId: Optional client-generated dedup ID.
- *        - actionKey:   The workflow action name (e.g. "ACCEPT").
- *        - inputs:      Action-specific payload (e.g. { offerAmount: 5000 }).
- * @returns {Message} The action message created by the workflow service.
- * @throws  400 for workflow logic errors (wrong turn, locked, max rounds).
+ * @deprecated Use POST /api/bookings/:id/negotiation/action instead.
  */
 router.post("/conversations/:id/actions", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
+    res.setHeader('X-Deprecated', 'Use POST /api/bookings/:id/negotiation/action instead');
+
     const user = req.user as any;
     const conversationId = parseInt(req.params.id);
-    const { clientMsgId, actionKey, inputs } = req.body;
+    const { actionKey, inputs } = req.body;
 
     try {
-        const msg = await workflow.handleAction(conversationId, user.id, actionKey, inputs, clientMsgId);
-        res.json(msg);
+        // Resolve booking ID from the conversation
+        const convo = await db.query.conversations.findFirst({
+            where: eq(conversations.id, conversationId),
+        });
+
+        if (!convo || convo.entityType !== "booking" || !convo.entityId) {
+            return res.status(400).json({ message: "Conversation is not linked to a booking" });
+        }
+
+        const bookingId = convo.entityId;
+
+        // Translate old action keys to new negotiation actions
+        const actionMap: Record<string, string> = {
+            PROPOSE_COST: "edit",
+            PROPOSE_CHANGE: "edit",
+            PROPOSE_SLOT: "edit",
+            ACCEPT: "accept",
+            WALK_AWAY: "walkaway",
+            DECLINE: "walkaway",
+        };
+
+        const newAction = actionMap[actionKey];
+        if (!newAction) {
+            return res.status(400).json({ message: `Unknown action: ${actionKey}. Use the new endpoint POST /api/bookings/${bookingId}/negotiation/action` });
+        }
+
+        // Build the new-style payload
+        const payload: any = { action: newAction };
+        if (newAction === "edit" && inputs?.offerAmount) {
+            payload.snapshot = {
+                financial: {
+                    offerAmount: Number(inputs.offerAmount),
+                    currency: inputs.currency || "INR",
+                },
+            };
+        }
+        if (inputs?.note) payload.note = inputs.note;
+        if (inputs?.reason) payload.reason = inputs.reason;
+
+        const summary = await negotiationService.handleNegotiationAction(
+            bookingId,
+            user.id,
+            payload,
+        );
+
+        res.json({ success: true, summary, _deprecation: "This endpoint is deprecated. Use POST /api/bookings/:id/negotiation/action" });
     } catch (error: any) {
-        console.error("Action error:", error);
-        // Workflow errors (wrong turn, locked, validation) are client-facing 400s.
-        // Permission errors could be 403 but the workflow service currently
-        // throws generic errors — a future improvement could differentiate.
+        console.error("Legacy action error:", error);
         res.status(400).json({ message: error.message || "Action failed" });
     }
 });
@@ -422,19 +455,33 @@ router.post("/conversations/:id/messages", async (req, res) => {
         if (agentFilterAction === "filter") {
             // Don't broadcast filtered messages to room, only notify sender
             broadcastToRoom(conversationId, {
-                type: "message_filtered",
-                data: { messageId: msg.id, reason: agentFilterReason },
+                type: "message",
+                data: msg,
                 targetUserId: user.id,
             });
+            // Agent tells sender why message was filtered
+            const filterNotice = agentFilterReason
+                || "Your message was filtered as it contained content outside the scope of this negotiation. Please revise and resend.";
+            const [filterMsg] = await db.insert(messages).values({
+                conversationId,
+                senderId: null,
+                body: filterNotice,
+                processedBody: filterNotice,
+                messageType: "agent_response",
+                isAgentGenerated: true,
+                agentFilterAction: "filter",
+                agentFilterReason,
+            }).returning();
+            broadcastToRoom(conversationId, { type: "agent_message", data: filterMsg });
+
         } else if (agentFilterAction === "respond") {
             // Agent responds directly to user — don't relay to other party
-            // Show user's original message to themselves only
             broadcastToRoom(conversationId, {
                 type: "message",
                 data: msg,
                 targetUserId: user.id,
             });
-            // Insert agent's response as a separate message visible only to the asking user
+            // Insert agent's direct response
             if (processedBody) {
                 const [agentReply] = await db.insert(messages).values({
                     conversationId,
@@ -447,23 +494,43 @@ router.post("/conversations/:id/messages", async (req, res) => {
                 }).returning();
                 broadcastToRoom(conversationId, { type: "agent_message", data: agentReply });
             }
-        } else {
-            // Broadcast the message (use processedBody if available)
+
+        } else if (agentFilterAction === "relay" || agentFilterAction === "suggest") {
+            // Relay the processed message to all parties
             const broadcastMsg = processedBody ? { ...msg, displayBody: processedBody } : msg;
             broadcastToRoom(conversationId, { type: "message", data: broadcastMsg });
-        }
 
-        // If agent action is "suggest", insert a separate agent-generated suggestion message
-        if (agentFilterAction === "suggest" && processedBody) {
-            const [agentMsg] = await db.insert(messages).values({
+            // Agent confirms to the sender what was communicated
+            const confirmBody = processedBody
+                ? `Your message has been reviewed and relayed to the other party:\n\n"${processedBody}"`
+                : "Your message has been reviewed and relayed to the other party.";
+            const [confirmMsg] = await db.insert(messages).values({
                 conversationId,
                 senderId: null,
-                body: "AI Suggestion based on market data",
-                processedBody,
-                messageType: "agent_suggestion",
+                body: confirmBody,
+                processedBody: confirmBody,
+                messageType: "agent_response",
                 isAgentGenerated: true,
+                agentFilterAction: "relay",
             }).returning();
-            broadcastToRoom(conversationId, { type: "agent_message", data: agentMsg });
+            broadcastToRoom(conversationId, { type: "agent_message", data: confirmMsg });
+
+            // If "suggest", also insert a separate suggestion message
+            if (agentFilterAction === "suggest" && processedBody) {
+                const [suggestMsg] = await db.insert(messages).values({
+                    conversationId,
+                    senderId: null,
+                    body: "Based on market data and this negotiation's context, here is a suggestion:",
+                    processedBody,
+                    messageType: "agent_suggestion",
+                    isAgentGenerated: true,
+                }).returning();
+                broadcastToRoom(conversationId, { type: "agent_message", data: suggestMsg });
+            }
+
+        } else {
+            // No agent action (agent not active or processing failed) — direct relay
+            broadcastToRoom(conversationId, { type: "message", data: msg });
         }
 
         res.json(msg);

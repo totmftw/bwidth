@@ -429,19 +429,23 @@ router.post("/negotiation/:bookingId/start", async (req, res) => {
     // Check no active session exists
     const existing = await orchestrator.getActiveSession(user.id, "negotiation", bookingId);
     if (existing) {
-      return res.status(409).json({ message: "An active negotiation agent session already exists for this booking" });
+      return res.status(409).json({ sessionId: existing.id, status: existing.status });
     }
 
-    const result = await orchestrator.startSession({
-      agentType: "negotiation",
+    // Create session in "active" state — the agent mediates per-message via processMessage(),
+    // NOT via a one-shot execute() loop. The session stays active until explicitly stopped.
+    const session = await storage.createAgentSession({
       userId: user.id,
-      userRole: user.role,
-      input: { bookingId, targets: parsed.data },
+      agentType: "negotiation" as any,
+      status: "active",
       contextEntityType: "booking",
       contextEntityId: bookingId,
+      provider: "openrouter" as any,
+      model: "openai/gpt-4o-mini",
+      memory: { targets: parsed.data, bookingId },
     });
 
-    res.json({ sessionId: result.sessionId, status: "active" });
+    res.json({ sessionId: session.id, status: "active" });
   } catch (error) {
     if (error instanceof AgentError) {
       return res.status(error.statusCode).json({ message: error.message });

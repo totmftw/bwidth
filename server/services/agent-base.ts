@@ -69,9 +69,19 @@ export abstract class BaseAgent {
   // ── Public entry point ──────────────────────────────────────────────────
 
   async run(params: AgentRunParams): Promise<AgentRunResult> {
-    // 1. Check agent is enabled
-    const config = await storage.getAgentConfig(this.agentType);
-    if (!config?.enabled) {
+    // 1. Load config — fall back to defaults if no DB row exists yet
+    const dbConfig = await storage.getAgentConfig(this.agentType);
+    const config = dbConfig ?? {
+      enabled: true,
+      allowedRoles: this.allowedRoles,
+      maxRequestsPerHour: null,
+      maxRequestsPerDay: null,
+      maxTokensPerRequest: null,
+      defaultProvider: null,
+      defaultModel: null,
+    } as any;
+
+    if (!config.enabled) {
       throw new AgentError("This agent is currently disabled", 403);
     }
 

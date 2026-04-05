@@ -1,3 +1,22 @@
+/**
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║  DEPRECATED — DO NOT USE                                               ║
+ * ║                                                                        ║
+ * ║  This module has been superseded by:                                    ║
+ * ║    server/services/negotiation.service.ts  (NegotiationService)         ║
+ * ║    server/services/agents/negotiation.agent.ts (NegotiationAgent)       ║
+ * ║                                                                        ║
+ * ║  The new agentic system:                                               ║
+ * ║    - Stores state in bookings.meta.negotiation (not workflow instances) ║
+ * ║    - Uses step-based actions: edit / accept / walkaway                  ║
+ * ║    - Integrates AI agent for research, moderation, and advice           ║
+ * ║    - Entry: POST /api/bookings/:id/negotiation/action                  ║
+ * ║                                                                        ║
+ * ║  This file is kept only for backward-compatible test references.        ║
+ * ║  No routes should call workflow.openNegotiation() or handleAction().   ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
+ */
+
 import { db } from "../db";
 import {
     conversations,
@@ -12,6 +31,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { storage } from "../storage";
 
 /**
+ * @deprecated Use NegotiationService instead.
  * WorkflowEngine — orchestrates the booking negotiation state machine.
  *
  * Negotiation Rules:
