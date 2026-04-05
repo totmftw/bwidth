@@ -6,21 +6,19 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
-import { format, isAfter } from "date-fns";
+import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+
 import { useToast } from "@/hooks/use-toast";
 import {
     Check,
     Clock,
     Loader2,
     Calendar,
-    MapPin,
     MessageSquare,
     Search,
     IndianRupee,
@@ -36,8 +34,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "wouter";
 
-import { NegotiationFlow } from "@/components/booking/NegotiationFlow";
-import { ContractViewer } from "@/components/booking/ContractViewer";
+import { useNegotiationChatContext } from "@/components/booking/NegotiationChatToggle";
 import { ArtistProfileModal } from "@/components/ArtistProfileModal";
 
 type AppTab = "all" | "pending" | "accepted" | "completed" | "declined";
@@ -188,8 +185,7 @@ export default function VenueApplications() {
 
     const [activeTab, setActiveTab] = useState<AppTab>("all");
     const [searchQuery, setSearchQuery] = useState("");
-    const [sheetBooking, setSheetBooking] = useState<any>(null);
-    const [sheetView, setSheetView] = useState<"negotiate" | "contract">("negotiate");
+    const { openChat } = useNegotiationChatContext();
 
     if (!user) return null;
 
@@ -223,16 +219,14 @@ export default function VenueApplications() {
     const acceptedCount = (applications || []).filter(a => ["confirmed", "paid_deposit", "scheduled", "contracting"].includes(a.status || "")).length;
     const completedCount = (applications || []).filter(a => a.status === "completed").length;
 
-    const openSheet = (booking: any, view: "negotiate" | "contract" = "negotiate") => {
+    const openBooking = (booking: any, view: "negotiate" | "contract" = "negotiate") => {
         if (view === "negotiate" && venueStatus && !venueStatus.isComplete) {
             toast({ title: "Complete your profile first", description: "Complete your venue profile before starting negotiations.", variant: "destructive" });
             setLocation("/venue/setup");
             return;
         }
-        setSheetBooking(booking);
-        setSheetView(view);
+        openChat(booking, { contract: view === "contract" });
     };
-    const closeSheet = () => setSheetBooking(null);
 
     return (
         <div className="space-y-8">
@@ -292,7 +286,7 @@ export default function VenueApplications() {
                                         key={app.id}
                                         application={app}
                                         index={index}
-                                        onOpen={(view) => openSheet(app, view)}
+                                        onOpen={(view) => openBooking(app, view)}
                                         onAccept={() => acceptMutation.mutate(app.id)}
                                         onDecline={() => declineMutation.mutate(app.id)}
                                         isAccepting={acceptMutation.isPending}
@@ -307,28 +301,7 @@ export default function VenueApplications() {
                 </TabsContent>
             </Tabs>
 
-            {/* Sheet panel */}
-            <Sheet open={!!sheetBooking} onOpenChange={(open) => !open && closeSheet()}>
-                <SheetContent
-                    side="right"
-                    className="w-full sm:max-w-4xl h-full p-0 flex flex-col overflow-hidden border-l border-white/10"
-                >
-                    <VisuallyHidden><SheetTitle>Application Details</SheetTitle></VisuallyHidden>
-                    {sheetBooking && sheetView === "negotiate" && (
-                        <NegotiationFlow
-                            booking={sheetBooking}
-                            onClose={closeSheet}
-                            onStartContract={() => setSheetView("contract")}
-                        />
-                    )}
-                    {sheetBooking && sheetView === "contract" && (
-                        <ContractViewer
-                            bookingId={sheetBooking.id}
-                            onClose={closeSheet}
-                        />
-                    )}
-                </SheetContent>
-            </Sheet>
+            {/* Chat popup + contract module are rendered globally via NegotiationChatProvider */}
         </div>
     );
 }

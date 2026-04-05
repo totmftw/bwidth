@@ -9,11 +9,11 @@ import { storage } from "../storage";
 import { orchestrator } from "../services/agent-orchestrator";
 import { AgentError } from "../services/agent-base";
 import { encrypt, isEncryptionConfigured } from "../services/encryption.service";
-import { validateApiKey, getAvailableModels } from "../services/llm-proxy.service";
+import { validateApiKey } from "../services/llm-proxy.service";
 import { api } from "@shared/routes";
 import { db } from "../db";
-import { artists, events, promoters } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { artists, events, promoters, venues, conversations } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 
 const router = Router();
 
@@ -21,18 +21,24 @@ const router = Router();
 async function isBookingParticipant(booking: any, userId: number, userRole: string): Promise<boolean> {
   if (userRole === "admin" || userRole === "platform_admin") return true;
 
-  // Check artist side
+  // Direct artist check: does the booking's artistId belong to this user?
   if (booking.artistId) {
-    const [artist] = await db.select().from(artists).where(eq(artists.id, booking.artistId));
-    if (artist?.userId === userId) return true;
+    const [artistRow] = await db.select().from(artists).where(eq(artists.id, booking.artistId));
+    if (artistRow?.userId === userId) return true;
   }
 
-  // Check organizer side via event → promoter
+  // Organizer check: does the booking's event belong to an organizer owned by this user?
   if (booking.eventId) {
-    const [event] = await db.select().from(events).where(eq(events.id, booking.eventId));
-    if (event?.organizerId) {
-      const [promoter] = await db.select().from(promoters).where(eq(promoters.id, event.organizerId));
-      if (promoter?.userId === userId) return true;
+    const [eventRow] = await db.select().from(events).where(eq(events.id, booking.eventId));
+    if (eventRow?.organizerId) {
+      const [promoterRow] = await db.select().from(promoters).where(eq(promoters.id, eventRow.organizerId));
+      if (promoterRow?.userId === userId) return true;
+    }
+
+    // Venue check via event
+    if (eventRow?.venueId) {
+      const [venueRow] = await db.select().from(venues).where(eq(venues.id, eventRow.venueId));
+      if (venueRow?.userId === userId) return true;
     }
   }
 
@@ -149,7 +155,11 @@ router.put("/llm-config", async (req, res) => {
       if (!isEncryptionConfigured()) {
         return res.status(500).json({ message: "Encryption is not configured. Contact the administrator." });
       }
-      const encrypted = encrypt(apiKey);
+      const trimmed = apiKey.trim();
+      if (!trimmed) {
+        return res.status(400).json({ message: "API key cannot be blank." });
+      }
+      const encrypted = encrypt(trimmed);
       data.apiKeyEncrypted = encrypted.encrypted;
       data.apiKeyIv = encrypted.iv;
       data.apiKeyTag = encrypted.tag;
@@ -242,16 +252,31 @@ router.post("/llm-config/validate", async (req, res) => {
       return res.json({ valid: false, error: "No API key configured" });
     }
 
-    const { decrypt } = await import("../services/encryption.service");
-    const apiKey = decrypt({
-      encrypted: config.apiKeyEncrypted,
-      iv: config.apiKeyIv!,
-      tag: config.apiKeyTag!,
-    });
+    const { decrypt: decryptKey } = await import("../services/encryption.service");
+    let apiKey: string;
+    try {
+      apiKey = decryptKey({
+        encrypted: config.apiKeyEncrypted,
+        iv: config.apiKeyIv!,
+        tag: config.apiKeyTag!,
+      }).trim();
+    } catch (decryptErr) {
+      console.error("[validate] Failed to decrypt API key:", decryptErr instanceof Error ? decryptErr.message : decryptErr);
+      return res.json({ valid: false, error: "Stored API key could not be decrypted. Please re-enter your key." });
+    }
 
-    const valid = await validateApiKey(
+    if (!apiKey) {
+      return res.json({ valid: false, error: "Stored API key is empty. Please re-enter your key." });
+    }
+
+    // For OpenRouter prefer the openrouterModel field; fall back to model
+    const modelToTest = config.provider === "openrouter"
+      ? (config.openrouterModel || config.model || "openai/gpt-4o")
+      : (config.model || "");
+
+    const result = await validateApiKey(
       config.provider,
-      config.model,
+      modelToTest,
       apiKey,
       config.ollamaBaseUrl ?? undefined,
     );
@@ -261,14 +286,14 @@ router.post("/llm-config/validate", async (req, res) => {
       userId: user.id,
       provider: config.provider,
       model: config.model,
-      isValid: valid,
+      isValid: result.valid,
       lastValidatedAt: new Date(),
     });
 
-    res.json({ valid, error: valid ? undefined : "API key validation failed" });
+    res.json({ valid: result.valid, error: result.valid ? undefined : result.error });
   } catch (error) {
     console.error("Error validating LLM config:", error);
-    res.json({ valid: false, error: "Validation error" });
+    res.json({ valid: false, error: error instanceof Error ? error.message : "Validation error" });
   }
 });
 
@@ -513,7 +538,6 @@ router.post("/negotiation/:bookingId/stop", async (req, res) => {
 // Unlike the conversation message endpoint, this does NOT insert into the
 // messages table — it only runs the agent pipeline and returns the result.
 router.post("/negotiation/:bookingId/message", async (req, res) => {
-  if (!req.isAuthenticated()) return res.sendStatus(401);
   const user = req.user as any;
   const bookingId = parseInt(req.params.bookingId);
   const { message } = req.body;
@@ -608,6 +632,134 @@ router.get("/negotiation/:bookingId/status", async (req, res) => {
   } catch (error) {
     console.error("Error fetching negotiation status:", error);
     res.status(500).json({ message: "Failed to fetch status" });
+  }
+});
+
+// POST /negotiation/:bookingId/build-contract — AI pre-fill contract terms
+// Loads conversation history + negotiation snapshot and uses LLM to infer
+// supplementary contract terms (travel, accommodation, hospitality, etc.)
+router.post("/negotiation/:bookingId/build-contract", async (req, res) => {
+  const user = req.user as any;
+  const bookingId = parseInt(req.params.bookingId);
+
+  try {
+    const booking = await storage.getBooking(bookingId);
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+    if (!(await isBookingParticipant(booking, user.id, user.role))) {
+      return res.status(403).json({ message: "Not a participant in this booking" });
+    }
+
+    // Load booking details for context
+    const bookingDetails = await storage.getBookingWithDetails(bookingId);
+
+    // Load conversation messages (last 30 relevant ones)
+    const negotiationConvo = await db.query.conversations.findFirst({
+      where: and(
+        eq(conversations.entityType, "booking"),
+        eq(conversations.entityId, bookingId),
+        eq(conversations.conversationType, "negotiation"),
+      ),
+    });
+    let recentMessages: any[] = [];
+    if (negotiationConvo) {
+      const allMsgs = await storage.getConversationMessages(negotiationConvo.id);
+      recentMessages = allMsgs
+        .filter((m: any) => ["text", "agent_relay", "agent_response"].includes(m.messageType || "text"))
+        .slice(-30);
+    }
+
+    // Extract negotiation snapshot from booking meta
+    const meta = (booking as any).meta || {};
+    const negotiation = meta.negotiation || {};
+    const lockedTerms = negotiation.agreement?.snapshot || negotiation.currentProposalSnapshot || {};
+
+    // Build context for LLM
+    const artistName = bookingDetails?.artist?.name || "Artist";
+    const organizerName = bookingDetails?.organizer?.organizationName || bookingDetails?.organizer?.name || "Organizer";
+    const venueName = bookingDetails?.venue?.name || "TBD";
+    const venueCapacity = bookingDetails?.venue?.capacity || "unknown";
+    const eventTitle = bookingDetails?.event?.title || "Event";
+    const artistMetadata = bookingDetails?.artist?.metadata || {};
+
+    const conversationExcerpt = recentMessages
+      .map((m: any) => {
+        const role = m.isAgentGenerated ? "AI Agent" : (m.senderId === bookingDetails?.artist?.userId ? "Artist" : "Organizer");
+        return `${role}: ${m.processedBody || m.body}`;
+      })
+      .join("\n");
+
+    const systemPrompt = `You are a music performance contract assistant for BANDWIDTH, an Indian music booking platform.
+Given a negotiation's agreed terms and conversation excerpt, infer reasonable values for supplementary contract fields.
+Return ONLY valid JSON matching the exact structure below. For terms not discussed in the conversation, use conservative Indian music industry defaults.
+Never fabricate financial figures — only use what's in the agreed terms.
+
+Return this JSON structure:
+{
+  "financial": { "paymentMethod": "bank_transfer", "paymentMilestones": [{"milestone":"Advance","percentage":50,"dueDate":""},{"milestone":"Balance","percentage":50,"dueDate":""}] },
+  "travel": { "responsibility": "organizer", "flightClass": "economy", "airportPickup": true, "groundTransport": "provided" },
+  "accommodation": { "included": true, "hotelStarRating": 3, "roomType": "single", "nights": 1 },
+  "technical": { "equipmentList": [], "soundCheckDuration": 30, "backlineProvided": [], "stageSetupTime": 30 },
+  "hospitality": { "guestListCount": 2, "greenRoomAccess": true, "mealsProvided": ["dinner"], "securityProvisions": "standard" },
+  "contentRights": { "recordingAllowed": false, "photographyAllowed": true, "videographyAllowed": false, "liveStreamingAllowed": false },
+  "cancellation": { "artistCancellationPenalties": {">90days": 0, "30-90days": 25, "<30days": 50}, "organizerCancellationPenalties": {">30days": 25, "15-30days": 50, "<15days": 100} }
+}`;
+
+    const userContent = `Agreed negotiation terms: ${JSON.stringify(lockedTerms)}
+Artist: ${artistName}
+Organizer: ${organizerName}
+Venue: ${venueName} (capacity: ${venueCapacity})
+Event: ${eventTitle}
+Artist tech rider from profile: ${JSON.stringify(artistMetadata.techRider || artistMetadata.gear || "not specified")}
+
+Recent conversation (last ${recentMessages.length} messages):
+${conversationExcerpt || "(no conversation messages)"}`;
+
+    // Call LLM
+    const { callLlm } = await import("../services/llm-proxy.service");
+    const llmResult = await callLlm({
+      userId: user.id,
+      agentType: "negotiation",
+      sessionId: 0,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent },
+      ],
+      temperature: 0.3,
+      maxTokens: 1000,
+    });
+
+    // Parse LLM response
+    let terms: Record<string, any> = {};
+    const inferenceNotes: string[] = [];
+    try {
+      const content = llmResult.content.trim();
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        terms = JSON.parse(jsonMatch[0]);
+        inferenceNotes.push("Terms inferred from conversation context and negotiation snapshot.");
+      } else {
+        throw new Error("No JSON found in LLM response");
+      }
+    } catch (parseErr: any) {
+      console.error("[build-contract] Failed to parse LLM response:", parseErr.message);
+      inferenceNotes.push("AI inference failed; using industry defaults.");
+      // Fall back to reasonable defaults
+      terms = {
+        financial: { paymentMethod: "bank_transfer", paymentMilestones: [{ milestone: "Advance", percentage: 50, dueDate: "" }, { milestone: "Balance", percentage: 50, dueDate: "" }] },
+        travel: { responsibility: "organizer", flightClass: "economy", airportPickup: true, groundTransport: "provided" },
+        accommodation: { included: true, hotelStarRating: 3, roomType: "single", nights: 1 },
+        technical: { equipmentList: [], soundCheckDuration: 30, backlineProvided: [], stageSetupTime: 30 },
+        hospitality: { guestListCount: 2, greenRoomAccess: true, mealsProvided: ["dinner"], securityProvisions: "standard" },
+        contentRights: { recordingAllowed: false, photographyAllowed: true, videographyAllowed: false, liveStreamingAllowed: false },
+        cancellation: { artistCancellationPenalties: { ">90days": 0, "30-90days": 25, "<30days": 50 }, organizerCancellationPenalties: { ">30days": 25, "15-30days": 50, "<15days": 100 } },
+      };
+    }
+
+    res.json({ terms, inferenceNotes });
+  } catch (error: any) {
+    console.error("[build-contract] Error:", error);
+    res.status(500).json({ message: error.message || "Failed to build contract terms" });
   }
 });
 

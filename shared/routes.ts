@@ -568,7 +568,7 @@ export const createEventSchema = z.object({
   /** ISO 4217 currency code, defaults to INR (India-focused platform) */
   currency: z.string().length(3).default("INR"),
   /** "public" events appear in artist discovery; "private" are invite-only */
-  visibility: z.enum(["public", "private"]).default("private"),
+  visibility: z.enum(["public", "private"]).default("public"),
   /** Optional multi-stage setup — each stage has its own time window and capacity */
   stages: z.array(eventStageSchema).optional(),
 });
@@ -1325,6 +1325,11 @@ export const api = {
       negotiationMessage: {
         method: 'POST' as const,
         path: '/api/agents/negotiation/:bookingId/message',
+      },
+      // AI-powered contract terms pre-fill from conversation context
+      buildContract: {
+        method: 'POST' as const,
+        path: '/api/agents/negotiation/:bookingId/build-contract',
       },
     },
     sessions: {

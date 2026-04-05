@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
 import {
     Loader2, FileText, CheckCircle, PenTool, Clock, AlertTriangle,
     Shield, Edit3, Send, X, ChevronRight, ChevronDown, Eye, Check, Download,
-    Plane, Hotel, Mic2, Users, Camera, Megaphone, XCircle, DollarSign
+    Plane, Hotel, Mic2, Users, Camera, Megaphone, XCircle
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
@@ -25,11 +24,12 @@ import {
 interface ContractViewerProps {
     bookingId: number;
     onClose: () => void;
+    prefillTerms?: Record<string, any> | null;
 }
 
 type ContractStep = "review" | "edit" | "accept" | "sign" | "admin_review" | "complete" | "voided";
 
-export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
+export function ContractViewer({ bookingId, onClose, prefillTerms }: ContractViewerProps) {
     const { toast } = useToast();
     const { user } = useAuth();
     const queryClient = useQueryClient();
@@ -41,6 +41,13 @@ export function ContractViewer({ bookingId, onClose }: ContractViewerProps) {
     const [signatureText, setSignatureText] = useState(() => user?.name || (user as any)?.displayName || user?.username || "");
     const [hasReadContract, setHasReadContract] = useState(false);
     const contractRef = useRef<HTMLDivElement>(null);
+
+    // Apply AI pre-filled terms when provided
+    useEffect(() => {
+        if (!prefillTerms) return;
+        setEditChanges(prefillTerms);
+        setShowEditForm(true);
+    }, [prefillTerms]);
 
     const handleContractScroll = () => {
         const el = contractRef.current;

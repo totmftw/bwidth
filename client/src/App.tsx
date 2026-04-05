@@ -3,6 +3,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { NegotiationChatProvider } from "@/components/booking/NegotiationChatToggle";
 import { Sidebar, MobileHeader, MobileBottomNav } from "@/components/Navigation";
 import { Loader2, X } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -629,8 +630,10 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <Router />
-        <Toaster />
+        <NegotiationChatProvider>
+          <Router />
+          <Toaster />
+        </NegotiationChatProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

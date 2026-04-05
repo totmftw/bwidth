@@ -7,6 +7,7 @@ import { Bot, Settings } from "lucide-react";
 import { api } from "@shared/routes";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { ProfileAiSettings } from "@/components/agents/ProfileAiSettings";
 
 export default function AdminAgents() {
   const [, setLocation] = useLocation();
@@ -83,6 +84,9 @@ export default function AdminAgents() {
         <Bot className="h-6 w-6 text-purple-500" />
         <h1 className="text-2xl font-bold">AI Agents</h1>
       </div>
+
+      {/* AI API Credentials */}
+      <ProfileAiSettings />
 
       {/* Summary Stats */}
       <div className="grid grid-cols-3 gap-4">

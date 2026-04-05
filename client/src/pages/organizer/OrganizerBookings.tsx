@@ -8,14 +8,13 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { format, isAfter } from "date-fns";
+import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+
 import {
     Check,
     Clock,
@@ -35,8 +34,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-import { NegotiationFlow } from "@/components/booking/NegotiationFlow";
-import { ContractViewer } from "@/components/booking/ContractViewer";
+import { useNegotiationChatContext } from "@/components/booking/NegotiationChatToggle";
 import { ArtistProfileModal } from "@/components/ArtistProfileModal";
 
 type BookingTab = "all" | "pending" | "negotiating" | "confirmed" | "completed" | "cancelled";
@@ -72,8 +70,7 @@ export default function OrganizerBookings() {
 
     const [activeTab, setActiveTab] = useState<BookingTab>("all");
     const [searchQuery, setSearchQuery] = useState("");
-    const [sheetBooking, setSheetBooking] = useState<any>(null);
-    const [sheetView, setSheetView] = useState<"negotiate" | "contract">("negotiate");
+    const { openChat } = useNegotiationChatContext();
 
     if (!user) return null;
 
@@ -116,16 +113,14 @@ export default function OrganizerBookings() {
     const confirmedCount = bookings?.filter(b => ["confirmed", "paid_deposit", "scheduled"].includes(b.status || "")).length || 0;
     const completedCount = bookings?.filter(b => b.status === "completed").length || 0;
 
-    const openSheet = (booking: any, view: "negotiate" | "contract" = "negotiate") => {
+    const openBooking = (booking: any, view: "negotiate" | "contract" = "negotiate") => {
         if (view === "negotiate" && organizerStatus && !organizerStatus.isComplete) {
             toast({ title: "Complete your profile first", description: "Complete your organizer profile before starting negotiations.", variant: "destructive" });
             setLocation("/organizer/setup");
             return;
         }
-        setSheetBooking(booking);
-        setSheetView(view);
+        openChat(booking, { contract: view === "contract" });
     };
-    const closeSheet = () => setSheetBooking(null);
 
     return (
         <div className="space-y-8">
@@ -193,7 +188,7 @@ export default function OrganizerBookings() {
                                         key={booking.id}
                                         booking={booking}
                                         index={index}
-                                        onOpen={(view) => openSheet(booking, view)}
+                                        onOpen={(view) => openBooking(booking, view)}
                                     />
                                 ))}
                             </AnimatePresence>
@@ -204,28 +199,7 @@ export default function OrganizerBookings() {
                 </TabsContent>
             </Tabs>
 
-            {/* Full-height Sheet — slides in from right */}
-            <Sheet open={!!sheetBooking} onOpenChange={(open) => !open && closeSheet()}>
-                <SheetContent
-                    side="right"
-                    className="w-full sm:max-w-4xl h-full p-0 flex flex-col overflow-hidden border-l border-white/10"
-                >
-                    <VisuallyHidden><SheetTitle>Booking Details</SheetTitle></VisuallyHidden>
-                    {sheetBooking && sheetView === "negotiate" && (
-                        <NegotiationFlow
-                            booking={sheetBooking}
-                            onClose={closeSheet}
-                            onStartContract={() => setSheetView("contract")}
-                        />
-                    )}
-                    {sheetBooking && sheetView === "contract" && (
-                        <ContractViewer
-                            bookingId={sheetBooking.id}
-                            onClose={closeSheet}
-                        />
-                    )}
-                </SheetContent>
-            </Sheet>
+            {/* Chat popup + contract module are rendered globally via NegotiationChatProvider */}
         </div>
     );
 }
@@ -239,7 +213,6 @@ function BookingCard({
     index: number;
     onOpen: (view: "negotiate" | "contract") => void;
 }) {
-    const [, navigate] = useLocation();
     const [showArtistProfile, setShowArtistProfile] = useState(false);
     const status = booking.status || "inquiry";
     const isPending = ["inquiry", "offered", "negotiating"].includes(status);
@@ -251,7 +224,6 @@ function BookingCard({
         : booking.eventDate
             ? new Date(booking.eventDate)
             : null;
-    const isUpcoming = eventDate ? isAfter(eventDate, new Date()) : false;
 
     // Resolve artist display name: stage name (given name) or just name
     const artist = booking.artist || {};
@@ -361,23 +333,14 @@ function BookingCard({
                                             <Clock className="w-4 h-4 mr-2" />
                                             Awaiting Artist Signature
                                         </Button>
-                                    ) : booking.contract && !booking.contract.signedByPromoter ? (
-                                        <Button
-                                            size="sm"
-                                            className="bg-purple-600 hover:bg-purple-700 text-white"
-                                            onClick={() => navigate(`/contract/${booking.id}`)}
-                                        >
-                                            <FileText className="w-4 h-4 mr-2" />
-                                            Sign Contract
-                                        </Button>
                                     ) : (
                                         <Button
                                             size="sm"
                                             className="bg-purple-600 hover:bg-purple-700 text-white"
-                                            onClick={() => navigate(`/contract/${booking.id}`)}
+                                            onClick={() => onOpen("contract")}
                                         >
                                             <FileText className="w-4 h-4 mr-2" />
-                                            Review Contract
+                                            {booking.contract && !booking.contract.signedByPromoter ? "Sign Contract" : "Review Contract"}
                                         </Button>
                                     )
                                 )}
@@ -388,7 +351,7 @@ function BookingCard({
                                         size="sm"
                                         variant="outline"
                                         className="hover:bg-primary/10"
-                                        onClick={() => navigate(`/contract/${booking.id}`)}
+                                        onClick={() => onOpen("contract")}
                                     >
                                         <FileText className="w-4 h-4 mr-2" />
                                         Contract

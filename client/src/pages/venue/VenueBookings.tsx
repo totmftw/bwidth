@@ -1,35 +1,29 @@
 import { useState } from "react";
 import { useBookings, useUpdateBooking } from "@/hooks/use-bookings";
 import { useAuth } from "@/hooks/use-auth";
-import { format, isAfter } from "date-fns";
+import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-    Check,
     Clock,
     Loader2,
     Calendar,
-    MapPin,
     CheckCircle,
     XCircle,
     Eye,
     MessageSquare,
     ArrowUpRight,
-    User,
     FileText
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-import { NegotiationFlow } from "@/components/booking/NegotiationFlow";
-import { ContractViewer } from "@/components/booking/ContractViewer";
+import { useNegotiationChatContext } from "@/components/booking/NegotiationChatToggle";
 
 type BookingStatus = "all" | "pending" | "confirmed" | "completed" | "cancelled";
 
@@ -85,13 +79,12 @@ export default function VenueBookings() {
     const bookings = rawBookings as unknown as EnrichedBooking[] | undefined;
 
     const updateMutation = useUpdateBooking();
+    const { openChat } = useNegotiationChatContext();
 
     const [activeTab, setActiveTab] = useState<BookingStatus>("all");
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedBooking, setSelectedBooking] = useState<any>(null);
     const [showDetailsDialog, setShowDetailsDialog] = useState(false);
-    const [showNegotiation, setShowNegotiation] = useState(false);
-    const [showContract, setShowContract] = useState(false);
 
     // Response Dialog State
     const [showResponseDialog, setShowResponseDialog] = useState(false);
@@ -147,8 +140,6 @@ export default function VenueBookings() {
 
     const handleCloseDetails = () => {
         setShowDetailsDialog(false);
-        setShowNegotiation(false);
-        setShowContract(false);
         setSelectedBooking(null);
     };
 
@@ -206,9 +197,9 @@ export default function VenueBookings() {
             </Tabs>
 
             {/* Details Dialog */}
-            <Dialog open={showDetailsDialog && !showNegotiation && !showContract} onOpenChange={(open) => !open && handleCloseDetails()}>
+            <Dialog open={showDetailsDialog} onOpenChange={(open) => !open && handleCloseDetails()}>
                 <DialogContent className="max-w-2xl">
-                    {selectedBooking && !showNegotiation && !showContract && (
+                    {selectedBooking && (
                         <>
                             <DialogHeader>
                                         <DialogTitle className="flex items-center gap-2">
@@ -251,14 +242,14 @@ export default function VenueBookings() {
 
                                     <DialogFooter>
                                         {["inquiry", "offered", "negotiating"].includes(selectedBooking.status) && (
-                                            <Button variant="outline" onClick={() => setShowNegotiation(true)}>
+                                            <Button variant="outline" onClick={() => openChat(selectedBooking)}>
                                                 <MessageSquare className="w-4 h-4 mr-2" />
                                                 Open Workspace
                                             </Button>
                                         )}
 
                                         {["confirmed", "scheduled", "paid_deposit"].includes(selectedBooking.status) && (
-                                            <Button variant="outline" onClick={() => setShowContract(true)}>
+                                            <Button variant="outline" onClick={() => openChat(selectedBooking, { contract: true })}>
                                                 <FileText className="w-4 h-4 mr-2" />
                                                 View Contract
                                             </Button>
@@ -273,28 +264,7 @@ export default function VenueBookings() {
                 </DialogContent>
             </Dialog>
 
-            {/* Negotiation & Contract Sheet */}
-            <Sheet open={!!selectedBooking && (showNegotiation || showContract)} onOpenChange={(open) => !open && handleCloseDetails()}>
-                <SheetContent
-                    side="right"
-                    className="w-full sm:max-w-4xl h-full p-0 flex flex-col overflow-hidden border-l border-white/10"
-                >
-                    <VisuallyHidden><SheetTitle>{showNegotiation ? "Negotiation" : "Contract"}</SheetTitle></VisuallyHidden>
-                    {selectedBooking && showNegotiation && (
-                        <NegotiationFlow
-                            booking={selectedBooking}
-                            onClose={() => setShowNegotiation(false)}
-                            onStartContract={() => { setShowNegotiation(false); setShowContract(true); }}
-                        />
-                    )}
-                    {selectedBooking && showContract && (
-                        <ContractViewer
-                            bookingId={selectedBooking.id}
-                            onClose={() => setShowContract(false)}
-                        />
-                    )}
-                </SheetContent>
-            </Sheet>
+            {/* Chat popup + contract module are rendered globally via NegotiationChatProvider */}
 
             {/* Response Dialog (Accept/Decline) */}
             <Dialog open={showResponseDialog} onOpenChange={setShowResponseDialog}>

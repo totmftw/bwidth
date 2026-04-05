@@ -59,7 +59,11 @@ export function useConversationMessages(conversationId: number | null) {
     const handler = (event: MessageEvent) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === "message" && msg.data?.conversationId === conversationId) {
+        // Handle regular messages, agent messages, and suggestions
+        if (
+          (msg.type === "message" || msg.type === "agent_message") &&
+          msg.data?.conversationId === conversationId
+        ) {
           queryClient.setQueryData(queryKey, (old: any[]) => [
             ...(old || []),
             msg.data,

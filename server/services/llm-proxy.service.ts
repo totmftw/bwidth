@@ -124,6 +124,7 @@ const PROVIDER_MODELS: Record<LlmProvider, string[]> = {
   ],
   openrouter: [
     "openai/gpt-4o",
+    "openai/gpt-4o-mini",
     "anthropic/claude-sonnet-4-20250514",
     "google/gemini-2.0-flash-001",
     "meta-llama/llama-3.1-70b-instruct",
@@ -158,6 +159,7 @@ export async function callLlm(request: LlmRequest): Promise<LlmResponse> {
 
   // 1. Resolve provider, model, and API key
   const resolved = await resolveProviderConfig(userId, agentType);
+  console.log(`[LLM proxy] callLlm: user=${userId} agent=${agentType} provider=${resolved.provider} model=${resolved.model} keyPresent=${!!resolved.apiKey}`);
 
   // 2. Merge temperature and maxTokens from agent config defaults
   const temperature = request.temperature ?? resolved.temperatureDefault;
@@ -196,36 +198,36 @@ export async function callLlm(request: LlmRequest): Promise<LlmResponse> {
 
 /**
  * Validate an API key by issuing a minimal request to the provider.
- * Returns true if the key is accepted, false otherwise.
+ * Returns { valid, error } — error is the provider's message when invalid.
  */
 export async function validateApiKey(
   provider: string,
   model: string,
   apiKey: string,
   ollamaBaseUrl?: string,
-): Promise<boolean> {
+): Promise<{ valid: boolean; error?: string }> {
   if (!isValidProvider(provider)) {
-    throw new LlmProxyError(
-      `Unknown provider: ${provider}`,
-      "INVALID_PROVIDER",
-      provider,
-    );
+    return { valid: false, error: `Unknown provider: ${provider}` };
   }
+
+  // Ensure we always have a non-empty model for the test call
+  const testModel = model || getDefaultModel(provider as LlmProvider);
 
   const adapter = getProviderAdapter(provider as LlmProvider);
 
   try {
     await adapter({
       messages: [{ role: "user", content: "Hi" }],
-      temperature: 0,
+      temperature: 0.1,
       maxTokens: 5,
-      model,
-      apiKey,
+      model: testModel,
+      apiKey: apiKey.trim(),
       baseUrl: provider === "ollama" ? (ollamaBaseUrl ?? OLLAMA_DEFAULT_URL) : undefined,
     });
-    return true;
-  } catch {
-    return false;
+    return { valid: true };
+  } catch (err) {
+    const msg = err instanceof LlmProxyError ? err.message : (err instanceof Error ? err.message : String(err));
+    return { valid: false, error: msg };
   }
 }
 
@@ -254,17 +256,48 @@ async function resolveProviderConfig(
   userId: number,
   agentType: string,
 ): Promise<ResolvedConfig> {
-  const [userConfig, agentConfig] = await Promise.all([
+  const [rawUserConfig, agentConfig] = await Promise.all([
     storage.getUserLlmConfig(userId),
     storage.getAgentConfig(agentType),
   ]);
 
-  // Determine provider and model
-  const provider = resolveProvider(userConfig, agentConfig);
-  const model = resolveModel(userConfig, agentConfig, provider);
+  // Skip user config if it was explicitly marked invalid
+  const userConfig = rawUserConfig?.isValid === false ? undefined : rawUserConfig;
 
-  // Determine API key using 3-tier priority
-  const apiKey = resolveApiKey(provider, userConfig, agentConfig);
+  // Determine provider and model
+  let provider = resolveProvider(userConfig, agentConfig);
+  let model = resolveModel(userConfig, agentConfig, provider);
+
+  // Determine API key using 4-tier priority:
+  // 1. User's valid key → 2. Agent system key → 3. Admin user's key → 4. Env var
+  let apiKey = resolveApiKey(provider, userConfig, agentConfig);
+
+  // Tier 3.5: If no key found (or user had no valid config), use admin's key
+  if (!apiKey) {
+    try {
+      const adminIds = await storage.getAdminUserIds();
+      for (const adminId of adminIds) {
+        if (adminId === userId) continue;
+        const adminConfigs = await storage.getUserLlmConfigs(adminId);
+        // Prefer admin config matching current provider, else use their active one
+        const matching = adminConfigs.find((c) => c.provider === provider);
+        const fallbackConfig = matching || adminConfigs.find((c) => c.isActive) || adminConfigs[0];
+        if (fallbackConfig) {
+          const adminKey = decryptUserKey(fallbackConfig);
+          if (adminKey) {
+            apiKey = adminKey;
+            // Adopt admin's provider + model (user has no valid config)
+            provider = fallbackConfig.provider as LlmProvider;
+            model = resolveModel(fallbackConfig as any, agentConfig, provider);
+            console.log(`[LLM proxy] Using admin user ${adminId}'s config: provider=${provider} model=${model}`);
+            break;
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[LLM proxy] Failed to check admin configs:", err);
+    }
+  }
 
   // Ollama does not require an API key but needs a base URL
   if (provider === "ollama" && !apiKey) {
@@ -318,12 +351,15 @@ function resolveModel(
   provider: LlmProvider,
 ): string {
   // For OpenRouter, prefer the dedicated openrouterModel field
-  if (provider === "openrouter" && userConfig?.openrouterModel) {
-    return userConfig.openrouterModel;
+  if (provider === "openrouter") {
+    const m = userConfig?.openrouterModel || userConfig?.model;
+    if (m) return m;
+    return agentConfig?.defaultModel || getDefaultModel(provider);
   }
+  // Use || so empty strings fall through to the next tier
   return (
-    userConfig?.model ??
-    agentConfig?.defaultModel ??
+    userConfig?.model ||
+    agentConfig?.defaultModel ||
     getDefaultModel(provider)
   );
 }
@@ -367,7 +403,7 @@ function getDefaultModel(provider: LlmProvider): string {
     openai: "gpt-4o-mini",
     anthropic: "claude-3-5-haiku-20241022",
     google: "gemini-2.0-flash",
-    openrouter: "openai/gpt-4o",
+    openrouter: "openai/gpt-4o-mini",
     ollama: "llama3.1",
   };
   return defaults[provider];
@@ -392,7 +428,8 @@ function decryptUserKey(config: UserLlmConfig | undefined): string {
       iv: config.apiKeyIv,
       tag: config.apiKeyTag,
     });
-  } catch {
+  } catch (err) {
+    console.error(`[LLM proxy] Failed to decrypt API key for user config ${config.id} (provider: ${config.provider}):`, err instanceof Error ? err.message : err);
     return "";
   }
 }
@@ -412,7 +449,8 @@ function decryptAgentSystemKey(config: AgentConfig | undefined): string {
       iv: config.systemApiKeyIv,
       tag: config.systemApiKeyTag,
     });
-  } catch {
+  } catch (err) {
+    console.error(`[LLM proxy] Failed to decrypt system API key for agent config (type: ${config.agentType}):`, err instanceof Error ? err.message : err);
     return "";
   }
 }
@@ -663,9 +701,12 @@ async function callOpenRouter(input: AdapterInput): Promise<AdapterOutput> {
     messages: input.messages,
     temperature: input.temperature ?? 0.7,
     max_tokens: input.maxTokens ?? 4096,
+    provider: {
+      data_collection: "allow"
+    }
   };
 
-  if (input.tools?.length) {
+  if (input.tools?.length && !input.model.toLowerCase().includes("minimax")) {
     body.tools = input.tools.map(toOpenAiTool);
   }
 

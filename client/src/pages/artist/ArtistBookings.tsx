@@ -4,14 +4,13 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { format, isAfter } from "date-fns";
+import { format } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+
 import {
     Check,
     Clock,
@@ -30,8 +29,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-import { NegotiationFlow } from "@/components/booking/NegotiationFlow";
-import { ContractViewer } from "@/components/booking/ContractViewer";
+import { useNegotiationChatContext } from "@/components/booking/NegotiationChatToggle";
 
 type BookingStatus = "all" | "pending" | "negotiating" | "confirmed" | "completed" | "cancelled";
 
@@ -65,9 +63,7 @@ export default function ArtistBookings() {
 
     const [activeTab, setActiveTab] = useState<BookingStatus>("all");
     const [searchQuery, setSearchQuery] = useState("");
-    // Sheet state: which booking is open, and which view
-    const [sheetBooking, setSheetBooking] = useState<any>(null);
-    const [sheetView, setSheetView] = useState<"negotiate" | "contract">("negotiate");
+    const { openChat } = useNegotiationChatContext();
 
     useEffect(() => {
         if (bookings) {
@@ -75,13 +71,10 @@ export default function ArtistBookings() {
             const bookingId = params.get("bookingId");
             if (bookingId) {
                 const b = bookings.find((bk: any) => bk.id.toString() === bookingId);
-                if (b) {
-                    setSheetBooking(b);
-                    setSheetView("negotiate");
-                }
+                if (b) openChat(b);
             }
         }
-    }, [bookings]);
+    }, [bookings, openChat]);
 
     if (!user) return null;
 
@@ -124,17 +117,14 @@ export default function ArtistBookings() {
     const confirmedCount = bookings?.filter(b => ["confirmed", "paid_deposit", "scheduled"].includes(b.status || "")).length || 0;
     const completedCount = bookings?.filter(b => b.status === "completed").length || 0;
 
-    const openSheet = (booking: any, view: "negotiate" | "contract" = "negotiate") => {
+    const openBooking = (booking: any, view: "negotiate" | "contract" = "negotiate") => {
         if (view === "negotiate" && artistStatus && !artistStatus.isComplete) {
             toast({ title: "Complete your profile first", description: "You need to complete your artist profile before applying to gigs.", variant: "destructive" });
             setLocation("/profile/setup");
             return;
         }
-        setSheetBooking(booking);
-        setSheetView(view);
+        openChat(booking, { contract: view === "contract" });
     };
-
-    const closeSheet = () => setSheetBooking(null);
 
     return (
         <div className="space-y-8">
@@ -202,7 +192,7 @@ export default function ArtistBookings() {
                                         key={booking.id}
                                         booking={booking}
                                         index={index}
-                                        onOpen={(view) => openSheet(booking, view)}
+                                        onOpen={(view) => openBooking(booking, view)}
                                     />
                                 ))}
                             </AnimatePresence>
@@ -213,28 +203,7 @@ export default function ArtistBookings() {
                 </TabsContent>
             </Tabs>
 
-            {/* Full-height Sheet — slides in from right */}
-            <Sheet open={!!sheetBooking} onOpenChange={(open) => !open && closeSheet()}>
-                <SheetContent
-                    side="right"
-                    className="w-full sm:max-w-4xl h-full p-0 flex flex-col overflow-hidden border-l border-white/10"
-                >
-                    <VisuallyHidden><SheetTitle>Booking Details</SheetTitle></VisuallyHidden>
-                    {sheetBooking && sheetView === "negotiate" && (
-                        <NegotiationFlow
-                            booking={sheetBooking}
-                            onClose={closeSheet}
-                            onStartContract={() => setSheetView("contract")}
-                        />
-                    )}
-                    {sheetBooking && sheetView === "contract" && (
-                        <ContractViewer
-                            bookingId={sheetBooking.id}
-                            onClose={closeSheet}
-                        />
-                    )}
-                </SheetContent>
-            </Sheet>
+            {/* Chat popup + contract module are rendered globally via NegotiationChatProvider */}
         </div>
     );
 }
@@ -253,7 +222,6 @@ function BookingCard({
     const isContracting = status === "contracting";
     const isConfirmed = ["confirmed", "scheduled", "paid_deposit"].includes(status);
     const eventDate = new Date(booking.eventDate);
-    const isUpcoming = isAfter(eventDate, new Date());
 
     return (
         <motion.div
